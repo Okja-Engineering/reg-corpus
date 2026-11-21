@@ -88,6 +88,7 @@ const (
 	unlogged  = p1 + "no matching verify.log line"
 	noLogFile = p1 + "no matching verify.log line (registry/verify.log is missing)"
 	onlyRX    = "registry/records/ holds only RX-*.yaml record files"
+	layout    = "not in the registry layout: records/RX-*.yaml, verify.log, topics.yaml, inventory/*.yaml (names are case-sensitive)"
 )
 
 func TestRegistryStateRules(t *testing.T) {
@@ -204,6 +205,48 @@ func TestRegistryStateRules(t *testing.T) {
 			files: map[string]string{"registry/verify.log": ""},
 			dirs:  []string{"registry/records/RX-41-DIR.yaml"},
 			code:  1, lines: []string{"C6 registry-state: registry/records/RX-41-DIR.yaml: " + onlyRX},
+		},
+		{
+			name: "a record under a case variant of records/ is reported, logged or not",
+			files: map[string]string{
+				"registry/Records/RX-41-TEST-01.yaml": record,
+				"registry/verify.log":                 logLine("RX-41-TEST-01", sum(record)),
+			},
+			code: 1, lines: []string{
+				"C6 registry-state: registry/Records: " + layout,
+				"C6 registry-state: registry/Records/RX-41-TEST-01.yaml: " + layout,
+			},
+		},
+		{
+			name:  "a top-level name that folds to registry is the registry",
+			files: map[string]string{"Registry/records/RX-41-TEST-01.yaml": record},
+			code:  1, lines: []string{
+				"C6 registry-state: Registry: " + layout,
+				"C6 registry-state: Registry/records: " + layout,
+				"C6 registry-state: Registry/records/RX-41-TEST-01.yaml: " + layout,
+			},
+		},
+		{
+			name: "files outside records/, verify.log, topics.yaml and inventory/*.yaml are reported",
+			files: map[string]string{
+				"registry/RX-41-TEST-01.yaml":      record,
+				"registry/notes.txt":               "x\n",
+				"registry/inventory/1024.41.yml":   "x\n",
+				"registry/inventory/sub/1024.yaml": "x\n",
+				"registry/records/sub/RX-1.yaml":   record,
+				"registry/inventory/1024.41.yaml":  "x\n",
+				"registry/topics.yaml":             "x\n",
+				"registry/verify.log":              "",
+			},
+			code: 1, lines: []string{
+				"C6 registry-state: registry/RX-41-TEST-01.yaml: " + layout,
+				"C6 registry-state: registry/inventory/1024.41.yml: " + layout,
+				"C6 registry-state: registry/inventory/sub: " + layout,
+				"C6 registry-state: registry/inventory/sub/1024.yaml: " + layout,
+				"C6 registry-state: registry/notes.txt: " + layout,
+				"C6 registry-state: registry/records/sub: " + onlyRX,
+				"C6 registry-state: registry/records/sub/RX-1.yaml: " + layout,
+			},
 		},
 		{
 			name: "a newline in a name stays on the violation's one line, quoted",
@@ -446,6 +489,31 @@ func TestTreeRules(t *testing.T) {
 		code, got := lines(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
 		want(t, code, got, 1,
 			"C6 registry-state: registry/inventory: is a gitlink (submodule); registry/ holds only regular files")
+	})
+	t.Run("case variants of registry/ and records/ beside the real ones", func(t *testing.T) {
+		root := repo(t, map[string]string{
+			"registry/records/RX-41-TEST-01.yaml": record,
+			"registry/verify.log":                 logLine("RX-41-TEST-01", sum(record)),
+		})
+		blob := gitT(t, root, "rev-parse", "HEAD:registry/records/RX-41-TEST-01.yaml")
+		for _, p := range []string{
+			"registry/Records/RX-41-TEST-02.yaml",
+			"Registry/records/RX-41-TEST-03.yaml",
+			"regiſtry/records/RX-41-TEST-04.yaml", // long s: folds to s, as APFS does
+		} {
+			gitT(t, root, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+p)
+		}
+		code, got := lines(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
+		want(t, code, got, 1,
+			"C6 registry-state: Registry: "+layout,
+			"C6 registry-state: Registry/records: "+layout,
+			"C6 registry-state: Registry/records/RX-41-TEST-03.yaml: "+layout,
+			"C6 registry-state: registry/Records: "+layout,
+			"C6 registry-state: registry/Records/RX-41-TEST-02.yaml: "+layout,
+			"C6 registry-state: regiſtry: "+layout,
+			"C6 registry-state: regiſtry/records: "+layout,
+			"C6 registry-state: regiſtry/records/RX-41-TEST-04.yaml: "+layout,
+		)
 	})
 	t.Run("tree that is not a corpus", func(t *testing.T) {
 		root := repo(t, nil)
