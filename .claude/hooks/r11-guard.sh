@@ -1,25 +1,47 @@
 #!/usr/bin/env bash
 # R11 agent guard: a Claude Code PreToolUse hook (spec R11).
 #
-# Threat model. This guards against a well-meaning agent's shortcuts; it is
-# not a security boundary. The gate is C6 (the pre-commit hook now, CI later),
-# and `regcorpus verify` separately requires a real terminal.
+# Threat model. CI is the gate; this guard is a seatbelt. It stops the
+# shortcuts a well-meaning agent would plausibly take, it is not a security
+# boundary and not complete, and `regcorpus verify` separately requires a
+# real terminal.
 # It stops: edit/write tools and common shell writers and redirects into
-# registry/, .githooks/ or .claude/ of this checkout or its worktrees;
-# skipping the commit hook (--no-verify and its abbreviations, commit -n,
-# hooksPath set via git config, -c or GIT_CONFIG_*); and running
-# `regcorpus verify`.
+# registry/, .githooks/ or .claude/ of this checkout or its worktrees, or
+# into its git config; skipping the commit hook (--no-verify and its
+# abbreviations, commit -n, hooksPath set via git config, -c or
+# GIT_CONFIG_*, the core section removed); and running `regcorpus verify`.
 # Design priority: never block normal work, even when that leaves a hole.
-# Accepted residual, left to C6 and CI (spec decision 3):
-#   - obfuscation: eval, encoded strings, interpreters writing files (python,
-#     node); $(...) inside unquoted here-doc bodies; globs and links; git
-#     plumbing (commit-tree, update-ref, update-index) and aliases; pathspec
-#     magic; paths read from stdin (xargs without -I); operations on an
-#     ancestor of a protected dir; writers it doesn't know (find -delete,
-#     git apply);
-#   - targets it can't resolve (by design, below): variables other than $HOME
-#     and $TMPDIR, relative paths after a cd it can't follow, relative paths
-#     given to MCP tools;
+# Accepted residual, left to CI (deliberate tricks go here, not into code):
+#   - obfuscation: eval, encoded strings; quoting the lexer doesn't follow
+#     ($(...) in unquoted here-doc bodies, case patterns inside $(...)); globs
+#     and links; git plumbing (commit-tree, update-ref, update-index,
+#     checkout-index, read-tree), aliases, stash and reset; pathspec magic;
+#     negated options (--no-cached);
+#   - stdin and interpreters: paths read from stdin (xargs without -I), a
+#     script on stdin, interpreters writing files (python, node), a command
+#     given to parallel as one string;
+#   - writers it doesn't know (find -delete, git apply, yq -i, tar -C, sort
+#     -o...) and operations on an ancestor of a protected dir (rm -rf .);
+#   - targets it can't resolve (by design, below): a word that starts with an
+#     expansion other than $HOME and $TMPDIR ("$(git rev-parse
+#     --show-toplevel)/registry/x", "$PWD/...", "$f"), relative paths after a
+#     cd it can't follow or that may not have run, relative paths given to
+#     MCP tools;
+#   - S5: verify run through go run of another path (cmd/regcorpus/main.go),
+#     a binary built under another name, or either under script (latent
+#     until plan step 19 builds verify); S6: g-prefixed wrappers (gtimeout,
+#     gxargs, gfind, genv); S7: shell and env options it doesn't parse
+#     (bash -euo pipefail -c, bash -c --, env -vS); S9: git clean with no path
+#     run inside registry/; S10: git init registry (a nested repo is not this
+#     checkout); S11: MCP keys other than those below; S12: an Edit or Write
+#     path starting with ~/;
+#   - MCP: a tool whose verb reads passes even if it also writes
+#     (search_and_replace); a move's source is not judged;
+#   - false blocks: B1, an operation on a symlink (rm, unlink, mv, ln -sf,
+#     git rm) is judged as writing its target; B4, dry runs (git rm/mv/clean
+#     -n, rsync -n); B6, perl -F pattern letters read as -i or -e; B7,
+#     --work-tree and GIT_WORK_TREE are ignored; an MCP read tool named
+#     noun first (directory_tree) is judged;
 #   - the local toolchain and refs: GOROOT, $GOROOT/go.env, PATH shadowing,
 #     moving the local main ref;
 #   - commits that skip pre-commit: merge, rebase, cherry-pick, am;
@@ -34,42 +56,50 @@
 # <reason>" on stderr; exit 0 allows, silently.
 #
 # How a target is judged, three invariants:
-#   1. Only a concrete path is judged. ~, $HOME and $TMPDIR are expanded; a
-#      word holding any other expansion, an arithmetic or [[ ]] operand and an
-#      option's value are not write targets and are never judged.
+#   1. Only what is concrete is judged. ~, $HOME and $TMPDIR are expanded; a
+#      word holding any other expansion (or a {} that xargs, find or parallel
+#      fill in) is judged by the directory its fixed leading part names
+#      (registry/ in registry/$id.yaml), and not at all when that part holds
+#      no "/". An arithmetic or [[ ]] operand and an option's value are not
+#      write targets and are never judged.
 #   2. Git places the path. The deepest existing directory of the physical
 #      path (symlinks followed) is handed to git rev-parse, which answers in
 #      its own spelling (case, Unicode form, firmlinks); cached per directory.
 #      The path is protected when its repo shares this guard's git common dir
 #      (this checkout or one of its worktrees, never a clone) and it lies
 #      under registry/, .githooks/ or .claude/ of its work tree, except
-#      .claude/worktrees/ housekeeping. $CLAUDE_PROJECT_DIR is never used.
+#      .claude/worktrees/ housekeeping. So is the git config in that common
+#      dir (matched by inode). $CLAUDE_PROJECT_DIR is never used.
 #   3. The working directory is followed through cd, pushd/popd, env -C,
-#      subshells, and $(...) and `...` bodies (which run where the shell is
-#      when it reaches them). When it can't be followed it is unknown, and
-#      relative paths are then not judged.
+#      $(...) and `...` bodies (which run where the shell is when it reaches
+#      them) and compound commands, as the shell runs them (see "walking the
+#      commands"). When it can't be followed, or a cd may not have run, it is
+#      unknown, and relative paths are then not judged.
 #
 # Blocks:
 #   - File tools (Edit, Write, MultiEdit, NotebookEdit): a protected path, or
-#     one holding a control character. MCP tools whose name says they write
-#     (write, edit, move, create, delete...): any absolute or ~ path value
-#     under a path-like key (file_path, path, paths, source, destination...)
-#     that is protected.
-#   - Bash, one simple command at a time (split on && || ; | & newlines and
-#     parentheses; quotes and here-docs respected; $(...), `...`, <(...) and
-#     sh -c strings checked as commands too; wrappers env, command, builtin,
-#     exec, nohup, nice, time, timeout, stdbuf and xargs, find -exec and
-#     parallel see through to the command they run):
+#     one holding a control character. MCP tools whose verb (the first word
+#     of the name) is not a read verb (read, get, list, search...): any
+#     absolute or ~ path value under a key that names a write target
+#     (file_path, path, paths, filePath, file, filename, destination, dest,
+#     target, to, new_path) that is protected.
+#   - Bash, one simple command at a time (lists, pipelines and compound
+#     commands walked; quotes and here-docs respected; $(...), `...`, <(...)
+#     and sh -c strings checked as commands too; wrappers env, command,
+#     builtin, exec, nohup, nice, time, timeout, stdbuf and xargs, find -exec
+#     and parallel see through to the command they run):
 #     . hook bypass: --no-verify on commit/merge/pull/push/rebase/am (or any
 #       abbreviation from --no-v), -n in commit's own options, core.hooksPath
-#       or include.path set through git config, git -c or GIT_CONFIG_*;
+#       or include.path set (or the core section removed or renamed) through
+#       git config, git -c or GIT_CONFIG_*;
 #     . regcorpus verify: run directly, by path, with go run, or under
 #       script/expect/unbuffer;
 #     . writes: a redirect, or a known writer (cp mv rm rmdir touch mkdir ln
 #       install truncate chmod chown chgrp tee dd unlink rsync, sed -i,
 #       perl -i, their g-prefixed GNU names, git rm/mv/clean, git restore and
-#       git checkout of paths) whose target is protected. git rm --cached and
-#       git restore --staged only touch the index and pass.
+#       git checkout of paths) whose target is protected; a long option
+#       counts in any abbreviation. git rm --cached and git restore --staged
+#       only touch the index and pass.
 # Fails closed: unreadable input, jq or git missing, any internal error, a
 # terminating signal and a command nested too deep to check all exit 2.
 #
@@ -93,9 +123,9 @@ on_exit() {
 trap on_exit EXIT
 trap 'block "stopped by a signal, so the tool call cannot be checked (fail closed)"' HUP INT TERM
 
-protected_msg='registry/, .githooks/ and .claude/ are not writable by agents (R11)'
+protected_msg='registry/, .githooks/, .claude/ and the git config are not writable by agents (R11)'
 verify_msg='regcorpus verify is run by a person in a terminal, never by an agent (R2a, R11)'
-DYN=$'\x01' # leads a word that is not a concrete string (it holds an expansion)
+DYN=$'\x01' # marks where a word stops being concrete (an expansion starts)
 HOME_V=${HOME-}
 TMPDIR_V=${TMPDIR-}
 MAX_DEPTH=16 # nested command strings ($(...), sh -c) checked, at most
@@ -153,7 +183,7 @@ lexical() {
 # concrete, or is relative and BASE is unknown ("?").
 join_dir() {
   case $2 in
-    '' | "$DYN"*) RES='?' ;;
+    '' | *"$DYN"*) RES='?' ;;
     /*) RES=$2 ;;
     *) if [ "$1" = '?' ]; then RES='?'; else RES=$1/$2; fi ;;
   esac
@@ -203,18 +233,23 @@ place() {
   return "$r"
 }
 
-# corpus CDIR: succeed when CDIR is the common git dir of the checkout this
-# guard file lives in: that checkout or one of its worktrees, never a clone.
+# guard_cdir: GUARD_CDIR = the common git dir of the checkout this guard
+# file lives in.
 GUARD_CDIR=
-corpus() {
+guard_cdir() {
   local here
-  if [ -z "$GUARD_CDIR" ]; then
-    here=${BASH_SOURCE[0]%/*}
-    [ "$here" != "${BASH_SOURCE[0]}" ] || here=.
-    GUARD_CDIR=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
-    [ -n "$GUARD_CDIR" ] ||
-      block "cannot find the git repository this guard belongs to, so the path cannot be checked (fail closed)"
-  fi
+  [ -z "$GUARD_CDIR" ] || return 0
+  here=${BASH_SOURCE[0]%/*}
+  [ "$here" != "${BASH_SOURCE[0]}" ] || here=.
+  GUARD_CDIR=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  [ -n "$GUARD_CDIR" ] ||
+    block "cannot find the git repository this guard belongs to, so the path cannot be checked (fail closed)"
+}
+
+# corpus CDIR: succeed when CDIR is GUARD_CDIR: this checkout or one of its
+# worktrees, never a clone.
+corpus() {
+  guard_cdir
   [ "$1" = "$GUARD_CDIR" ]
 }
 
@@ -239,7 +274,7 @@ protected() {
 }
 
 # judge PATH BASE: return 1 when PATH, resolved against BASE, is protected;
-# REL is then the path inside its work tree.
+# REL is then the path inside its work tree, or the git config's path.
 judge() {
   local p=$1 d rest
   if [[ $p != /* ]]; then
@@ -255,6 +290,15 @@ judge() {
   done
   rest=${p#"$d"}
   rest=${rest#/}
+  case $rest in
+    [Cc][Oo][Nn][Ff][Ii][Gg]) # the repo's git config, which holds core.hooksPath
+      guard_cdir
+      if [ "$d" -ef "$GUARD_CDIR" ]; then
+        REL=$GUARD_CDIR/config
+        return 1
+      fi
+      ;;
+  esac
   place "$d" || return 0
   REL=$PFX$rest
   REL=${REL%/}
@@ -264,12 +308,31 @@ judge() {
 }
 
 # judge_sh PATH BASE WHAT: judge a path named in a shell command. A word that
-# is not concrete, or a relative path when BASE is unknown ("?"), is not
-# judged.
+# is not concrete is judged by the directory its concrete leading part names
+# (registry/ in registry/$id.yaml), and not at all when that part holds no
+# "/". A relative path when BASE is unknown ("?") is not judged.
 judge_sh() {
-  case $1 in '' | "$DYN"*) return 0 ;; esac
-  if [[ $1 != /* ]] && [ "$2" = '?' ]; then return 0; fi
-  judge "$1" "$2" || block "$3 $REL: $protected_msg"
+  local p=$1
+  case $p in
+    *"$DYN"*)
+      p=${p%%"$DYN"*}
+      [[ $p == */* ]] || return 0
+      p=${p%/*}/
+      ;;
+  esac
+  [ -n "$p" ] || return 0
+  if [[ $p != /* ]] && [ "$2" = '?' ]; then return 0; fi
+  judge "$p" "$2" || block "$3 $REL: $protected_msg"
+}
+
+# dyn WORD MARK: RES = WORD, not concrete from its first MARK ({} filled in by
+# xargs, find or parallel) on.
+dyn() {
+  local p=${1%%"$2"*}
+  case $p in
+    *"$DYN"*) RES=$1 ;;
+    *) RES=$p$DYN${1#"$p"} ;;
+  esac
 }
 
 # ---- shell lexer -------------------------------------------------------------
@@ -278,7 +341,7 @@ judge_sh() {
 # a $(...), `...` or <(...) found in the next word (checked as a command of
 # its own, in the directory the shell is in when it reaches it). Quotes are
 # removed from words; a word that holds an expansion other than ~, $HOME and
-# $TMPDIR keeps its source text and is marked with a leading DYN.
+# $TMPDIR keeps its source text, with DYN inserted where the first starts.
 
 re_plain=$'^[^ \t\n;&|()<>\\\'"$`~]+'
 re_dqplain=$'^[^"\\\\$`]+'
@@ -298,13 +361,21 @@ emit() { # TYPE VALUE [TARGET]
   TX[i]=${3-}
 }
 
-# word_value: the current word (WV, WD) as a token value.
+# word_value: the current word (WV, WD, WP) as a token value.
 word_value() {
-  if [ "$WD" = 1 ]; then WORD=$DYN$WV; else WORD=$WV; fi
+  if [ "$WD" = 1 ]; then WORD=${WV:0:WP}$DYN${WV:WP}; else WORD=$WV; fi
 }
 
-nest() { # BODY CWD DEPTH: queue a command string to check
-  NESTED[${#NESTED[@]}]=$1
+# mark_dyn: an expansion that is not followed starts at the end of WV.
+mark_dyn() {
+  if [ "$WD" = 0 ]; then
+    WD=1
+    WP=${#WV}
+  fi
+}
+
+nest() { # BODY CWD DEPTH: queue a command string (its source text) to check
+  NESTED[${#NESTED[@]}]=${1//$DYN/}
   NESTED_CWD[${#NESTED_CWD[@]}]=$2
   NESTED_DEPTH[${#NESTED_DEPTH[@]}]=$3
 }
@@ -312,8 +383,11 @@ nest() { # BODY CWD DEPTH: queue a command string to check
 # subst: I is just past "$(", "<(" or ">("; consume through the closing ")"
 # and emit the body as an S token.
 subst() {
-  local start=$I keep=${#TT[@]} i body
+  local start=$I keep=${#TT[@]} i body wv=$WV wd=$WD wp=$WP
   lex 1
+  WV=$wv
+  WD=$wd
+  WP=$wp
   body=${S:start:I-start}
   [ "$I" -lt "$N" ] && I=$((I + 1))
   i=${#TT[@]}
@@ -357,8 +431,8 @@ backtick() { # I is at "`"
   done
   [ "$I" -le "$N" ] || I=$N
   emit S "$body"
+  mark_dyn
   WV=$WV${S:start:I-start}
-  WD=1
 }
 
 # expand_var NAME: append $HOME or $TMPDIR to WV when set; 1 otherwise.
@@ -384,8 +458,8 @@ tilde() {
   if [ "$pre" = '~' ] && [ -n "$HOME_V" ]; then
     WV=$WV$HOME_V
   else
-    WV=$WV$pre # ~user, ~+, ~-: not followed
-    WD=1
+    mark_dyn # ~user, ~+, ~-: not followed
+    WV=$WV$pre
   fi
 }
 
@@ -400,14 +474,14 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
         I=$((I + 2))
         subst
       fi
+      mark_dyn
       WV=$WV${S:start:I-start}
-      WD=1
       ;;
     '[')
       I=$((I + 2))
       skip_balanced '[' ']' 1
+      mark_dyn
       WV=$WV${S:start:I-start}
-      WD=1
       ;;
     '{')
       I=$((I + 2))
@@ -421,8 +495,8 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
       done
       name=${S:start+2:I-start-3}
       if ! expand_var "$name"; then
+        mark_dyn
         WV=$WV${S:start:I-start}
-        WD=1
       fi
       ;;
     "'")
@@ -435,8 +509,8 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
       while [ "$I" -lt "$N" ]; do
         c=${S:I:1}
         if [ "$c" = '\' ]; then
+          mark_dyn
           WV=$WV${S:I:2}
-          WD=1
           I=$((I + 2))
         elif [ "$c" = "'" ]; then
           I=$((I + 1))
@@ -461,13 +535,13 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
       name=${BASH_REMATCH[0]}
       I=$((I + 1 + ${#name}))
       if ! expand_var "$name"; then
+        mark_dyn
         WV="$WV\$$name"
-        WD=1
       fi
       ;;
     [0-9] | '@' | '*' | '#' | '?' | '$' | '!' | '-')
+      mark_dyn
       WV=$WV${S:I:2}
-      WD=1
       I=$((I + 2))
       ;;
     *) WV="$WV\$"; I=$((I + 1)) ;;
@@ -499,7 +573,10 @@ dquote() { # I is just past the opening quote
 }
 
 # read_word: WV = the unquoted value of the word at I; WD = 1 when it holds
-# an expansion that is not followed.
+# an expansion that is not followed, which starts at WP.
+WV=
+WD=0
+WP=0
 read_word() {
   local c part rest
   WV=
@@ -596,6 +673,10 @@ lex() {
   local depth=0 c rest cs=1 dbl=0 start
   while [ "$I" -lt "$N" ]; do
     c=${S:I:1}
+    if [ "$c" = '\' ] && [ "${S:I+1:1}" = $'\n' ]; then # a line continuation is blank
+      I=$((I + 2))
+      continue
+    fi
     if [ "$dbl" = 1 ]; then
       case $c in
         '<' | '>' | '(' | ')') I=$((I + 1)); emit W "$c"; continue ;;
@@ -609,7 +690,10 @@ lex() {
         rest=${rest%%$'\n'*}
         I=$((I + ${#rest}))
         ;;
-      ';') [ "${S:I+1:1}" = ';' ] && I=$((I + 2)) || I=$((I + 1)); emit O ';'; cs=1 ;;
+      ';')
+        if [ "${S:I+1:1}" = ';' ]; then I=$((I + 2)); emit O ';;'; else I=$((I + 1)); emit O ';'; fi
+        cs=1
+        ;;
       '&')
         case ${S:I+1:1} in
           '&') I=$((I + 2)); emit O '&&'; cs=1 ;;
@@ -687,7 +771,7 @@ lex() {
 # options that take a value, LONG the long options that do (space-separated;
 # an unambiguous abbreviation counts). Sets OPS (operands), OPS_DD (index in
 # OPS of the first operand after "--", or -1), OPT_K/OPT_V (options given a
-# value) and OPT_F (flags seen, " "-separated).
+# value) and OPT_F (flags seen: letters, and long ones as --NAME).
 parse_opts() {
   local short=$1 long=$2 a rest ch name dd=0
   shift 2
@@ -695,7 +779,7 @@ parse_opts() {
   OPS_DD=-1
   OPT_K=()
   OPT_V=()
-  OPT_F=' '
+  OPT_F=()
   while [ $# -gt 0 ]; do
     a=$1
     shift
@@ -716,7 +800,7 @@ parse_opts() {
           OPT_V[${#OPT_V[@]}]=${1-}
           [ $# -eq 0 ] || shift
         else
-          OPT_F="$OPT_F$name "
+          OPT_F[${#OPT_F[@]}]=$a
         fi
         ;;
       -?*)
@@ -736,7 +820,7 @@ parse_opts() {
               break
               ;;
           esac
-          OPT_F="$OPT_F$ch "
+          OPT_F[${#OPT_F[@]}]=$ch
         done
         ;;
       *) OPS[${#OPS[@]}]=$a ;;
@@ -771,10 +855,20 @@ optval() { # NAME...: OPTVAL = the value of the last of these options given
   return 1
 }
 
-hasflag() { # NAME...: succeed when one of these flags was given
-  local n
-  for n in "$@"; do
-    case $OPT_F in *" $n "*) return 0 ;; esac
+# hasflag NAME...: succeed when one of these flags was given. A long NAME
+# (more than one letter) counts in any abbreviation (--work for --worktree),
+# as git and the GNU tools accept.
+hasflag() {
+  local n i=0
+  while [ "$i" -lt "${#OPT_F[@]}" ]; do
+    for n in "$@"; do
+      if [ "${#n}" = 1 ]; then
+        [ "${OPT_F[i]}" = "$n" ] && return 0
+      else
+        case ${OPT_F[i]} in --?*) [[ $n == "${OPT_F[i]#--}"* ]] && return 0 ;; esac
+      fi
+    done
+    i=$((i + 1))
   done
   return 1
 }
@@ -789,10 +883,10 @@ judge_ops() { # CW WHAT FIRST: judge OPS from index FIRST on
 
 # ---- checks on one command -----------------------------------------------------
 
-risky_config() { # a git config key or key=value that can move or replace hooks
+risky_config() { # a git config key, key=value or section that can move or replace hooks
   local hit=1
   shopt -s nocasematch
-  [[ $1 == *hookspath* || $1 == *include.path* || $1 == *includeif.* ]] && hit=0
+  [[ $1 == *hookspath* || $1 == *include.path* || $1 == *includeif.* || $1 == core ]] && hit=0
   shopt -u nocasematch
   return $hit
 }
@@ -897,7 +991,7 @@ check_config_args() { # git config ARGS: block a write that mentions a hooks key
 
 # exists_at BASE PATH: succeed when the concrete PATH exists (or is a link).
 exists_at() {
-  case $2 in '' | "$DYN"*) return 1 ;; esac
+  case $2 in '' | *"$DYN"*) return 1 ;; esac
   join_dir "$1" "$2"
   [ "$RES" != '?' ] && { [ -e "$RES" ] || [ -L "$RES" ]; }
 }
@@ -1146,19 +1240,18 @@ env_cmd() {
     esac
   done
   while [ $# -gt 0 ]; do
-    u=${1#"$DYN"}
-    [[ $u =~ $re_assign ]] || break
-    check_assignment "$u"
+    [[ $1 =~ $re_assign ]] || break
+    check_assignment "$1"
     shift
   done
   if [ -n "$s" ]; then # -S: the string is split into the command's words
     for a in "$@"; do
       case $a in
-        "$DYN"*) s="$s \"\$_\"" ;;
+        *"$DYN"*) s="$s \"\$_\"" ;;
         *) printf -v q '%q' "$a"; s="$s $q" ;;
       esac
     done
-    nest "${s#"$DYN"}" "$cw" $((DEPTH + 1))
+    nest "$s" "$cw" $((DEPTH + 1))
     return 0
   fi
   cmd sub "$cw" "$@"
@@ -1192,7 +1285,7 @@ xargs_cmd() {
   ws=()
   for a in "$@"; do
     case $a in
-      *"$rep"*) ws[${#ws[@]}]=$DYN$a ;;
+      *"$rep"*) dyn "$a" "$rep"; ws[${#ws[@]}]=$RES ;;
       *) ws[${#ws[@]}]=$a ;;
     esac
   done
@@ -1247,7 +1340,7 @@ find_cmd() {
       for a in "${ex[@]}"; do
         case $a in
           '{}') ws[${#ws[@]}]=$sp ;;
-          *'{}'*) ws[${#ws[@]}]=$DYN$a ;;
+          *'{}'*) dyn "$a" '{}'; ws[${#ws[@]}]=$RES ;;
           *) ws[${#ws[@]}]=$a ;;
         esac
       done
@@ -1295,7 +1388,7 @@ parallel_cmd() {
   if [ "${#tpl[@]}" -eq 0 ]; then # the inputs are the commands
     if [ "$known" = 1 ]; then
       for in in "${ins[@]}"; do
-        case $in in "$DYN"*) ;; *) nest "$in" "$cw" $((DEPTH + 1)) ;; esac
+        case $in in *"$DYN"*) ;; *) nest "$in" "$cw" $((DEPTH + 1)) ;; esac
       done
     fi
     return 0
@@ -1306,7 +1399,7 @@ parallel_cmd() {
   if [ "$known" = 0 ]; then
     ws=()
     for a in "${tpl[@]}"; do
-      case $a in *'{'*'}'*) ws[${#ws[@]}]=$DYN$a ;; *) ws[${#ws[@]}]=$a ;; esac
+      case $a in *'{'*'}'*) dyn "$a" '{'; ws[${#ws[@]}]=$RES ;; *) ws[${#ws[@]}]=$a ;; esac
     done
     if [ "$rep" = 1 ]; then cmd sub "$cw" "${ws[@]}"; else cmd tail "$cw" "${ws[@]}"; fi
     return 0
@@ -1316,7 +1409,7 @@ parallel_cmd() {
     for a in "${tpl[@]}"; do
       case $a in
         '{}') ws[${#ws[@]}]=$in ;;
-        *'{'*'}'*) ws[${#ws[@]}]=$DYN$a ;;
+        *'{'*'}'*) dyn "$a" '{'; ws[${#ws[@]}]=$RES ;;
         *) ws[${#ws[@]}]=$a ;;
       esac
     done
@@ -1333,22 +1426,14 @@ cmd() {
   local mode=$1 cw=$2 w u base j
   local -a ws
   shift 2
-  while [ $# -gt 0 ]; do
-    u=${1#"$DYN"}
-    if [[ $u =~ $re_assign ]]; then
-      check_assignment "$u"
-      shift
-      continue
-    fi
-    case $1 in
-      '!' | '{' | '}' | if | then | else | elif | do | while | until) shift ;;
-      *) break ;;
-    esac
+  while [ $# -gt 0 ] && [[ $1 =~ $re_assign ]]; do
+    check_assignment "$1"
+    shift
   done
   [ $# -gt 0 ] || return 0
   w=$1
   shift
-  case $w in "$DYN"*) return 0 ;; esac # not a concrete command name
+  case $w in *"$DYN"*) return 0 ;; esac # not a concrete command name
   rc_verify "$w" "$@" && block "$verify_msg"
   base=${w##*/}
   case $base in
@@ -1443,7 +1528,7 @@ cmd() {
           -o | +o | -O | +O) shift $(($# > 1 ? 2 : 1)) ;;
           --*) shift ;;
           -*c*)
-            [ $# -gt 1 ] && nest "${2#"$DYN"}" "$cw" $((DEPTH + 1))
+            [ $# -gt 1 ] && nest "$2" "$cw" $((DEPTH + 1))
             break
             ;;
           [-+]*) shift ;;
@@ -1453,21 +1538,52 @@ cmd() {
       ;;
     cd | pushd | popd) [ "$mode" = top ] && move_cwd "$base" "$@" ;;
     export | declare | typeset | readonly | local)
-      for u in "$@"; do check_assignment "${u#"$DYN"}"; done
+      for u in "$@"; do check_assignment "$u"; done
       ;;
     *) case $writers in *" $base "*) write_cmd "$base" "$mode" "$cw" "$@" ;; esac ;;
   esac
   return 0
 }
 
-# simple: check the simple command in SW (words), SR_OP / SR_T (redirects).
+# ---- walking the commands ------------------------------------------------------
+# The tokens are walked the way the shell runs them (T is the next token, NT
+# their count), following CWD. A compound command ( ), { }, if, while, until,
+# for or case is a level of its own, and the redirects on its closer are
+# judged where it started. What runs in a subshell keeps its cd to itself:
+# a ( ) body, each command of a pipeline (a { } or if there too) and a
+# background job (a whole && || list). A cd that may not run, after && or ||
+# or in the body of an if, a loop or a case, leaves CWD unknown once that
+# list or compound is over. A function body's cd does not move the shell
+# where the function is defined.
+
+# collect: gather the words, redirects and nested strings of a command from T
+# up to the next operator.
+collect() {
+  SW=()
+  SR_OP=()
+  SR_T=()
+  while [ "$T" -lt "$NT" ] && [ "${TT[T]}" != O ]; do
+    case ${TT[T]} in
+      W) SW[${#SW[@]}]=${TV[T]} ;;
+      R)
+        SR_OP[${#SR_OP[@]}]=${TV[T]}
+        SR_T[${#SR_T[@]}]=${TX[T]}
+        ;;
+      S) nest "${TV[T]}" "$CWD" $((DEPTH + 1)) ;;
+    esac
+    T=$((T + 1))
+  done
+}
+
+# simple BASE: check the command in SW (words) and SR_OP / SR_T (redirects,
+# opened in BASE).
 simple() {
   local r=0
   while [ "$r" -lt "${#SR_OP[@]}" ]; do
     case ${SR_OP[r]} in
       *'<<' | *'<<-' | *'<<<' | *'<' | *'<&') ;;
-      *'>&') [[ ${SR_T[r]} =~ $re_fddup ]] || judge_sh "${SR_T[r]}" "$CWD" "redirect to" ;;
-      *) judge_sh "${SR_T[r]}" "$CWD" "redirect to" ;;
+      *'>&') [[ ${SR_T[r]} =~ $re_fddup ]] || judge_sh "${SR_T[r]}" "$1" "redirect to" ;;
+      *) judge_sh "${SR_T[r]}" "$1" "redirect to" ;;
     esac
     r=$((r + 1))
   done
@@ -1475,12 +1591,130 @@ simple() {
   cmd top "$CWD" "${SW[@]}"
 }
 
-# check_command CMD CWD: lex CMD and check each simple command in it, then
-# every command string nested inside it, each in the directory it runs in.
-# A pipeline's commands and a background job run in subshells: a cd there
-# does not move the shell (pipe_cwd is where the pipeline started).
+skip_nl() {
+  while [ "$T" -lt "$NT" ] && [ "${TT[T]}${TV[T]}" = Onl ]; do T=$((T + 1)); done
+}
+
+# walk_list: and-or lists separated by ; & or newlines, up to a token that
+# ends the enclosing level ( ) } then do fi done esac ;; ...) or the end.
+walk_list() {
+  local bg
+  while [ "$T" -lt "$NT" ]; do
+    bg=$CWD
+    walk_andor
+    [ "$T" -lt "$NT" ] || return 0
+    case ${TT[T]}${TV[T]} in
+      'O&') CWD=$bg ;; # a background job runs in a subshell
+      'O;' | Onl) ;;
+      *) return 0 ;;
+    esac
+    T=$((T + 1))
+  done
+}
+
+walk_andor() { # pipelines joined by && and ||
+  local cond=0 sure
+  walk_pipeline
+  while [ "$T" -lt "$NT" ]; do
+    case ${TT[T]}${TV[T]} in 'O&&' | 'O||') ;; *) break ;; esac
+    if [ "$cond" = 0 ]; then
+      cond=1
+      sure=$CWD
+    fi
+    T=$((T + 1))
+    skip_nl
+    walk_pipeline
+  done
+  if [ "$cond" = 1 ] && [ "$CWD" != "$sure" ]; then CWD='?'; fi
+}
+
+walk_pipeline() { # commands joined by |, each in a subshell when there are two
+  local start=$CWD n=0
+  walk_command
+  while [ "$T" -lt "$NT" ] && [ "${TT[T]}${TV[T]}" = 'O|' ]; do
+    T=$((T + 1))
+    CWD=$start
+    n=1
+    skip_nl
+    walk_command
+  done
+  [ "$n" = 0 ] || CWD=$start
+}
+
+walk_command() {
+  while [ "$T" -lt "$NT" ]; do
+    case ${TT[T]}${TV[T]} in
+      'W!') T=$((T + 1)) ;;
+      'O(' | 'W{' | Wif | Wwhile | Wuntil | Wfor | Wcase) compound; return 0 ;;
+      'W}' | Wthen | Wdo | Welif | Welse | Wfi | Wdone | Wesac | O*) return 0 ;;
+      Wfunction) T=$((T + 2)); funcdef; return 0 ;;
+      *) break ;;
+    esac
+  done
+  if [ "${TT[T+1]-}${TV[T+1]-}${TT[T+2]-}${TV[T+2]-}" = 'O(O)' ]; then
+    T=$((T + 1)) # NAME ()
+    funcdef
+    return 0
+  fi
+  collect
+  simple "$CWD"
+  [ "${TT[T]-}${TV[T]-}" != 'O(' ] || compound # time ( ... )
+}
+
+funcdef() { # T is past the function's name; its body runs when called
+  local here=$CWD
+  [ "${TT[T]-}${TV[T]-}${TT[T+1]-}${TV[T+1]-}" != 'O(O)' ] || T=$((T + 2))
+  skip_nl
+  walk_command
+  CWD=$here
+}
+
+# compound: T is at ( { if while until for case. The parts after then, do
+# and a case pattern may not run.
+compound() {
+  local start=$CWD kw=${TV[T]} w pat=0 body=0 c= moved=0
+  T=$((T + 1))
+  case $kw in
+    for | case) # the head: up to ; or a newline (for), or "in" (case)
+      while [ "$T" -lt "$NT" ]; do
+        w=${TT[T]}${TV[T]}
+        [ "${TT[T]}" != S ] || nest "${TV[T]}" "$CWD" $((DEPTH + 1))
+        T=$((T + 1))
+        case $kw$w in 'forO;' | forOnl | caseWin) break ;; esac
+      done
+      ;;
+  esac
+  [ "$kw" != case ] || pat=1
+  while [ "$T" -lt "$NT" ]; do
+    if [ "$pat" = 1 ]; then # a case pattern up to its ")", or esac
+      skip_nl
+      [ "${TT[T]-}${TV[T]-}" != Wesac ] || { T=$((T + 1)); break; }
+      while [ "$T" -lt "$NT" ] && [ "${TT[T]}${TV[T]}" != 'O)' ]; do T=$((T + 1)); done
+      w=then
+      pat=0
+    else
+      walk_list
+      w=${TV[T]-}
+    fi
+    T=$((T + 1))
+    case $w in
+      then | do) [ "$body" = 1 ] || { body=1; c=$CWD; } ;;
+      elif | else | ';;') [ "$CWD" = "$c" ] || moved=1; CWD=$c ;;
+      *) break ;;
+    esac
+    [ "$kw$w" != 'case;;' ] || pat=1
+  done
+  [ "$body" = 0 ] || [ "$CWD" = "$c" ] || moved=1
+  [ "$moved" = 0 ] || CWD='?'
+  [ "$kw" != '(' ] || CWD=$start
+  collect # redirects on the closer, opened where the compound started
+  simple "$start"
+}
+
+# check_command CMD CWD: lex CMD and walk the commands in it, then every
+# command string nested inside it, each in the directory it runs in.
 check_command() {
-  local q=0 t nt pipe_cwd inpipe
+  local q=0
   NESTED=("$1")
   NESTED_CWD=("$2")
   NESTED_DEPTH=(0)
@@ -1497,67 +1731,37 @@ check_command() {
     HD_DELIM=()
     HD_STRIP=()
     lex 0
-    CWD_STACK=()
     DIRS=()
-    SW=()
-    SR_OP=()
-    SR_T=()
-    pipe_cwd=
-    inpipe=0
-    nt=${#TT[@]}
-    for ((t = 0; t < nt; t++)); do
-      case ${TT[t]} in
-        W) SW[${#SW[@]}]=${TV[t]} ;;
-        R)
-          SR_OP[${#SR_OP[@]}]=${TV[t]}
-          SR_T[${#SR_T[@]}]=${TX[t]}
-          ;;
-        S) nest "${TV[t]}" "$CWD" $((DEPTH + 1)) ;;
-        O)
-          [ "$inpipe" = 1 ] || pipe_cwd=$CWD
-          simple
-          SW=()
-          SR_OP=()
-          SR_T=()
-          case ${TV[t]} in
-            '|') inpipe=1; CWD=$pipe_cwd ;;
-            '&') inpipe=0; CWD=$pipe_cwd ;;
-            *) [ "$inpipe" = 1 ] && CWD=$pipe_cwd; inpipe=0 ;; # a pipeline's last command
-          esac
-          case ${TV[t]} in
-            '(') CWD_STACK[${#CWD_STACK[@]}]=$CWD ;;
-            ')')
-              if [ "${#CWD_STACK[@]}" -gt 0 ]; then
-                CWD=${CWD_STACK[${#CWD_STACK[@]}-1]}
-                unset "CWD_STACK[${#CWD_STACK[@]}-1]"
-              fi
-              ;;
-          esac
-          ;;
-      esac
+    NT=${#TT[@]}
+    T=0
+    while [ "$T" -lt "$NT" ]; do
+      walk_list
+      T=$((T + 1)) # a closer with nothing open: skip it
     done
-    simple
     q=$((q + 1))
   done
 }
 
 # ---- tools -------------------------------------------------------------------
 
-# tool_strings JQPATH: set the positional parameters (via PATHS_SH) to every
-# string under a path-like key of the tool input.
+# tool_strings: set the positional parameters (via PATHS_SH) to every string
+# under a key of the tool input that names a write target (a copy's or an
+# upload's source is read, so it is not one).
 tool_strings() {
   PATHS_SH=$(jq -r '[.tool_input | .. | objects | to_entries[]
-      | select(.key | test("^(file_path|notebook_path|path|paths|source|destination|target|old_path|new_path)$"))
+      | select(.key | test("^(file_path|notebook_path|filePath|file|filename|path|paths|destination|dest|target|to|new_path)$"))
       | .value | if type == "array" then .[] else . end | select(type == "string")]
       | @sh "set -- \(.)"' <<<"$input" 2>/dev/null) ||
     block "unreadable tool input, so the tool call cannot be checked (fail closed)"
 }
 
-# writes_files ACTION: succeed when an MCP tool's name (the part after its
-# server) says it changes files: one of its words (split at _ - . and
-# camelCase) is a write verb.
-writes_files() {
-  local a=$1 words= c i w hit=1
+# reads_only TOOL: succeed when an MCP tool's verb says it leaves local files
+# alone. The verb is the first word of the name after the server (split at
+# _ - . and camelCase), past a repeat of the server's name (git in
+# mcp__git__git_diff). A tool whose verb is not a read verb is judged.
+reads_only() {
+  local a=${1##*__} s=${1%__*} words= c i hit=1
+  s=${s##*[_-]}
   for ((i = 0; i < ${#a}; i++)); do
     c=${a:i:1}
     case $c in
@@ -1566,13 +1770,13 @@ writes_files() {
       *) words=$words$c ;;
     esac
   done
+  set -- $words
   shopt -s nocasematch
-  for w in $words; do
-    case $w in
-      write | writes | edit | edits | move | rename | delete | remove | rm | mv | cp | create | copy | mkdir | save | append | upload | replace | touch | truncate | unlink | put | update | overwrite | modify | patch)
-        hit=0 ;;
-    esac
-  done
+  [[ ${1-} == "$s" ]] && shift
+  case ${1-} in
+    read | get | list | search | view | stat | info | find | query | fetch | show | diff | compare | upload)
+      hit=0 ;;
+  esac
   shopt -u nocasematch
   return "$hit"
 }
@@ -1600,11 +1804,11 @@ case $tool in
     done
     ;;
   mcp__*)
-    # Only tools that write files, and only paths that resolve on their own:
-    # the server's working directory is unknown, so a relative path (often a
+    # Every tool but a read, and only paths that resolve on their own: the
+    # server's working directory is unknown, so a relative path (often a
     # remote repo path) is not judged, nor is a value holding a control
     # character (content, not a path).
-    writes_files "${tool##*__}" || { trap - EXIT; exit 0; }
+    reads_only "$tool" && { trap - EXIT; exit 0; }
     tool_strings
     eval "$PATHS_SH"
     for p in "$@"; do
