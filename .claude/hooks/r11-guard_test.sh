@@ -414,6 +414,7 @@ EOF
   sh_case 0 'git clean -fdx -e .claude --exclude=.githooks'
   sh_case 0 'truncate -s 0 /tmp/x.log' "$MAIN/registry"
   sh_case 0 'cp -t /tmp/snap registry/records/RX-41-ACK-01.yaml'
+  sh_case 0 'cp -t /tmp/snap registry/verify.log registry/records/x.yaml'
   sh_case 0 'cp --target-directory=staging registry/verify.log'
   sh_case 0 'cp -rt staging registry/records'
   sh_case 0 'ln -st staging ../registry/verify.log'
@@ -465,6 +466,12 @@ EOF
   sh_case 2 'cd registry/records && cd .. && rm verify.log'
   sh_case 2 'cd -P staging/recl && cd .. && echo x > verify.log'
   sh_case 2 'cd reglink && cd ../.githooks && echo x > pre-commit'
+  sh_case 2 'cd /tmp & rm -rf registry'
+  sh_case 2 'cd /tmp | cat; rm -rf registry'
+  sh_case 2 'ls | cd /tmp; rm -rf registry'
+  sh_case 0 'cd registry | cat; echo x > verify.log'
+  sh_case 2 'cd /tmp | rm -rf registry'
+  sh_case 0 'cd registry | echo x > verify.log'
 
   echo "-- blocked: writers run by xargs, find, parallel and wrappers"
   sh_case 2 'ls staging | xargs -I{} cp {} registry/records/'
