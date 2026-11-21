@@ -1,18 +1,41 @@
 #!/usr/bin/env bash
 # Per-commit corpus gate (C6, R5). Installed by `make setup` (core.hooksPath).
 #
-# Checks what is being committed, not the working tree: the index is checked
-# out into a temp dir and `regcorpus check --corpus` runs there. Any non-zero
-# exit (a C6 violation, a build failure, Go missing) blocks the commit.
+# Checks the commit, not a copy of it: `git write-tree` turns the index being
+# committed into a tree, and `regcorpus check --corpus --tree` reads its raw
+# blobs. So skip-worktree and sparse entries are checked, filters and
+# end-of-line conversion don't change the hashed bytes, symlinks are never
+# followed, and intent-to-add entries (not in the tree) don't block.
+#
+# The checker is built from HEAD, so a commit can't change the code that
+# checks it; with no HEAD, or no checker in HEAD, it is built from the tree
+# being committed. Go settings that could swap its source (GOFLAGS, a go env
+# file, go.work, a toolchain switch) are turned off for the build, and a built
+# binary runs, so its exit code reaches this script. Any failure blocks.
+#
+# Residual (CI later): the index can change between write-tree and the commit,
+# and commits that skip pre-commit (merge, rebase, cherry-pick, am,
+# commit-tree) are not checked here.
 set -euo pipefail
 
 fail() {
-  echo "pre-commit: C6 gate failed" >&2
+  echo "pre-commit: C6 gate failed${1:+ ($1)}" >&2
   exit 1
 }
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-pre-commit.XXXXXX") || fail
-trap 'rm -rf "$tmp"' EXIT
+tree=$(git write-tree) || fail "git write-tree"
+src=$tree
+if git rev-parse -q --verify 'HEAD^{commit}' >/dev/null &&
+  git cat-file -e 'HEAD:cmd/regcorpus/main.go' 2>/dev/null; then
+  src=HEAD
+fi
 
-git checkout-index --all --prefix="$tmp/" || fail
-(cd "$tmp" && go run ./cmd/regcorpus check --corpus --root .) || fail
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-pre-commit.XXXXXX") || fail "mktemp"
+trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/src"
+# When go.sum exists (yaml.v3, x/text: later plan steps), add it here.
+git archive --format=tar "$src" go.mod cmd internal | tar -xf - -C "$tmp/src" ||
+  fail "extracting the checker from $src"
+(cd "$tmp/src" && env GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN=local \
+  go build -o "$tmp/regcorpus" ./cmd/regcorpus) || fail "building the checker from $src"
+"$tmp/regcorpus" check --corpus --tree "$tree" || fail
