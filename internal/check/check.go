@@ -37,15 +37,35 @@ const (
 	ruleRegistryState = "C6 registry-state"
 	recordsDir        = "registry/records"
 	verifyLog         = "registry/verify.log"
+	topicsFile        = "registry/topics.yaml"
+	inventoryDir      = "registry/inventory"
+	notInLayout       = "not in the registry layout: records/RX-*.yaml, verify.log, topics.yaml, inventory/*.yaml (names are case-sensitive)"
 )
+
+// inLayout reports whether p, of kind k, is a place the registry holds other
+// than a record (spec "L1 and indexes"), spelled exactly: the directories
+// registry/, records/ and inventory/; verify.log, topics.yaml and
+// inventory/*.yaml.
+func inLayout(p string, k kind) bool {
+	switch p {
+	case "registry", recordsDir, inventoryDir:
+		return k == directory
+	case verifyLog, topicsFile:
+		return k == regular
+	}
+	return k == regular && path.Dir(p) == inventoryDir && strings.HasSuffix(p, ".yaml")
+}
 
 // Violations runs the per-commit C6 rules built so far and returns one
 // violation per failing path, sorted by path.
 //
-// Registry state: every entry under registry/ is a readable regular file or
-// directory; every entry in registry/records/ is an RX-*.yaml file with a
-// verify.log line whose ID is the file stem and whose sha256 is the file's
-// bytes. A missing or empty registry passes.
+// Registry state (R2: registry/ holds only verified records): every entry at
+// or under a top-level name that folds to "registry" is a readable regular
+// file or directory; every entry in registry/records/ is an RX-*.yaml file
+// with a verify.log line whose ID is the file stem and whose sha256 is the
+// file's bytes; every other entry is in the layout (inLayout). So no spelling
+// that a case-insensitive checkout merges into registry/ escapes the rules.
+// A missing or empty registry passes.
 func (s *Snapshot) Violations() []Violation {
 	logged, logMissing := s.verifyLog()
 	var out []Violation
@@ -75,6 +95,8 @@ func (s *Snapshot) Violations() []Violation {
 				fail(fmt.Sprintf("sha256 mismatch: file is %s; verify.log has %s for %s",
 					got, strings.Join(hashes, ", "), id))
 			}
+		case !inLayout(p, e.kind):
+			fail(notInLayout)
 		}
 	}
 	return out

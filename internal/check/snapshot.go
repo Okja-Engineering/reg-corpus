@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // modulePath is the module a corpus root's go.mod declares.
@@ -52,7 +53,9 @@ type entry struct {
 }
 
 // Snapshot holds go.mod, whether stages/ is a directory, and every entry at or
-// under registry/, keyed by slash path relative to the corpus root.
+// under each top-level name that folds to "registry" (registry/, Registry/,
+// regiſtry/: one directory on a case-insensitive checkout), keyed by slash
+// path relative to the corpus root.
 type Snapshot struct {
 	goMod    []byte
 	stages   bool
@@ -85,6 +88,21 @@ func declaresModule(goMod []byte) bool {
 	return false
 }
 
+// isRegistry reports whether a top-level name folds to "registry".
+func isRegistry(name string) bool { return foldKey(name) == foldKey("registry") }
+
+// foldKey maps each rune to the least rune of its Unicode case-fold orbit, so
+// two names that differ only in case (s, S and the long s too) share a key.
+func foldKey(s string) string {
+	return strings.Map(func(r rune) rune {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		return least
+	}, s)
+}
+
 // LoadDir reads the corpus in directory root.
 func LoadDir(root string) (*Snapshot, error) {
 	s := &Snapshot{registry: map[string]entry{}}
@@ -92,19 +110,32 @@ func LoadDir(root string) (*Snapshot, error) {
 	if fi, err := os.Stat(filepath.Join(root, "stages")); err == nil && fi.IsDir() {
 		s.stages = true
 	}
-	reg := filepath.Join(root, "registry")
-	fi, err := os.Lstat(reg)
+	top, err := os.ReadDir(root)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return s, nil
-	case err != nil:
+	case err != nil: // a registry could hide in a root that can't be listed
 		s.registry["registry"] = entry{err: err}
 		return s, nil
-	case !fi.IsDir(): // WalkDir would follow a symlinked root
-		s.registry["registry"] = entry{kind: kindOf(fi.Mode())}
-		return s, nil
 	}
-	err = filepath.WalkDir(reg, func(p string, d fs.DirEntry, err error) error {
+	for _, d := range top {
+		if !isRegistry(d.Name()) {
+			continue
+		}
+		if !d.IsDir() { // WalkDir would follow a symlinked root
+			s.registry[d.Name()] = entry{kind: kindOf(d.Type())}
+			continue
+		}
+		if err := s.walk(root, d.Name()); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+// walk adds every entry at or under root/name, keyed by its path from root.
+func (s *Snapshot) walk(root, name string) error {
+	return filepath.WalkDir(filepath.Join(root, name), func(p string, d fs.DirEntry, err error) error {
 		rel, rerr := filepath.Rel(root, p)
 		if rerr != nil {
 			return rerr
@@ -123,7 +154,6 @@ func LoadDir(root string) (*Snapshot, error) {
 		s.registry[rel] = e
 		return nil
 	})
-	return s, err
 }
 
 func kindOf(m fs.FileMode) kind {
@@ -162,8 +192,8 @@ func LoadTree(dir, treeish string) (*Snapshot, error) {
 			blobs = append(blobs, e)
 		case e.path == "stages" && e.kind == directory:
 			s.stages = true
-		case e.path == "registry":
-			s.registry["registry"] = entry{kind: e.kind}
+		case isRegistry(e.path):
+			s.registry[e.path] = entry{kind: e.kind}
 			if e.kind != directory {
 				break
 			}
@@ -172,7 +202,7 @@ func LoadTree(dir, treeish string) (*Snapshot, error) {
 				return nil, err
 			}
 			for _, u := range under {
-				u.path = path.Join("registry", u.path)
+				u.path = path.Join(e.path, u.path)
 				s.registry[u.path] = entry{kind: u.kind}
 				if u.kind == regular {
 					blobs = append(blobs, u)
