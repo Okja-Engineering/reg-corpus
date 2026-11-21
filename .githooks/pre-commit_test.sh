@@ -2,8 +2,9 @@
 # Tests for the per-commit corpus gate (.githooks/pre-commit; C6, R5).
 #
 # Builds throwaway corpus repos from this checkout's go.mod, cmd/, internal/
-# and stages/ (working-tree copies), installs the hook under test with
-# core.hooksPath, and commits through it. Each case says whether the commit
+# and stages/ (working-tree copies), installs the hook under test and its
+# build-checker.sh with core.hooksPath, and commits through it; the known-main
+# cases commit in clones of such a repo. Each case says whether the commit
 # must land (0) or be blocked (1, naming the C6 line), and checks HEAD moved
 # or stayed. Prints one PASS/FAIL line per case; exits non-zero on any failure.
 # Run: bash .githooks/pre-commit_test.sh   (also run by `make test`)
@@ -27,7 +28,7 @@ g() { git -C "$R" "$@"; }
 scaffold() {
   mkdir -p "$1/.githooks" "$1/staging"
   (cd "$src" && tar -cf - go.mod cmd internal stages) | tar -xf - -C "$1" || exit 1
-  cp -p "$here/pre-commit" "$1/.githooks/pre-commit"
+  cp -p "$here/pre-commit" "$here/build-checker.sh" "$1/.githooks/"
 }
 
 sha() {

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Per-commit corpus gate (C6, R5). Installed by `make setup` (core.hooksPath).
+# Per-commit corpus check (C6, R5). A seatbelt: CI (.github/workflows/c6.yml)
+# is the gate. Installed by `make setup` (core.hooksPath=.githooks).
 #
 # Checks the commit, not a copy of it: `git write-tree` turns the index being
 # committed into a tree, and `regcorpus check --corpus --tree` reads its raw
@@ -7,27 +8,35 @@
 # end-of-line conversion don't change the hashed bytes, symlinks are never
 # followed, and intent-to-add entries (not in the tree) don't block.
 #
-# The checker is built from main (refs/heads/main, which a person moves),
-# never from the branch being committed. So no branch can weaken the code that
-# checks it: not by committing a weaker checker first, --amend, an orphan
-# branch or a moved cmd/regcorpus/main.go. And a branch whose own checker
-# doesn't build can still commit. Only while main holds no checker (no
-# cmd/regcorpus/main.go: until PR #1 merges) or doesn't exist yet (a fresh
-# repo) is it built from the tree being committed. Its source (go.mod, go.sum
-# when present, cmd/, internal/) is copied as raw blobs, the way the check
-# reads the commit (ls-tree, cat-file, no replace refs), so no filter or
-# replace ref can change it. Go settings that could swap it (GOFLAGS, a go env
-# file, go.work, a toolchain switch) are turned off for the build, and a built
-# binary runs, so its exit code reaches this script. Any failure blocks.
+# The checker comes from a known main, never from the branch being committed
+# (build-checker.sh builds it, the same way CI does). So a branch can't weaken
+# the code that checks it: not by committing a weaker checker first, --amend,
+# an orphan branch or a moved cmd/regcorpus/main.go; and a branch whose own
+# checker doesn't build can still commit. The known mains are
+# refs/remotes/origin/main and refs/heads/main. Rule: prefer origin/main,
+# unless local main contains it (a person merged locally and hasn't pushed);
+# if the preferred one has no checker, use the other. So a stale, missing or
+# diverged local main never picks the checker. Only while neither holds
+# cmd/regcorpus/main.go (bootstrap: a fresh repo, or until PR #1 merges) is the
+# commit checked by its own staged checker, with a warning on stderr. If
+# main's checker doesn't build, every commit is blocked and the error says how
+# to recover.
 #
 # Trade-off: a branch that changes what C6 reads (e.g. the verify.log format,
 # plan step 19) is checked by main's older checker until it merges, so it may
 # have to land in two steps: the checker first, then the data it reads.
 #
-# Residual (CI later): the index can change between write-tree and the commit;
-# commits that skip pre-commit (merge, rebase, cherry-pick, am, commit-tree)
-# are not checked here; whoever moves or deletes the local main ref, or
-# changes the Go toolchain, chooses the checker.
+# Residual, closed by CI (which builds the checker from the base on GitHub):
+# - This script and build-checker.sh are read from the branch's working tree
+#   (core.hooksPath is relative), so the branch being committed controls them.
+#   An orphan branch or an old checkout without .githooks/ has no hook, and git
+#   then runs none (G3).
+# - The committer's Go environment and toolchain (GOCACHEPROG, GOCACHE,
+#   GOMODCACHE, GOROOT, PATH and the like) can change what gets built (G1).
+# - Whoever moves a main ref chooses the checker, and a commit on main after a
+#   commit that weakened main's checker is checked by the weakened one.
+# - The index can change between write-tree and the commit, and commits that
+#   skip pre-commit (merge, rebase, cherry-pick, am, commit-tree) aren't checked.
 set -euo pipefail
 export GIT_NO_REPLACE_OBJECTS=1
 
@@ -37,26 +46,12 @@ fail() {
 }
 
 tree=$(git write-tree) || fail "git write-tree"
-src=$tree
-if main=$(git rev-parse -q --verify 'refs/heads/main^{commit}') &&
-  git cat-file -e "$main:cmd/regcorpus/main.go" 2>/dev/null; then
-  src=$main
+mains=(refs/remotes/origin/main refs/heads/main)
+if git merge-base --is-ancestor refs/remotes/origin/main refs/heads/main 2>/dev/null; then
+  mains=(refs/heads/main refs/remotes/origin/main)
 fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-pre-commit.XXXXXX") || fail "mktemp"
 trap 'rm -rf "$tmp"' EXIT
-git ls-tree -r -z --full-tree "$src" -- go.mod go.sum cmd internal >"$tmp/files" ||
-  fail "listing the checker in $src"
-while IFS= read -r -d '' entry; do # "<mode> blob <oid>\t<path>"
-  meta=${entry%%$'\t'*} path=${entry#*$'\t'}
-  case $meta in
-  '100644 blob '* | '100755 blob '*) ;;
-  *) fail "checker file $path in $src is not a regular file" ;;
-  esac
-  case $path in */*) mkdir -p "$tmp/src/${path%/*}" ;; esac
-  git cat-file blob "${meta##* }" >"$tmp/src/$path" || fail "reading $path from $src"
-done <"$tmp/files"
-[ -f "$tmp/src/go.mod" ] || fail "no go.mod in $src"
-(cd "$tmp/src" && env GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN=local \
-  go build -o "$tmp/regcorpus" ./cmd/regcorpus) || fail "building the checker from $src"
+bash "$(dirname "$0")/build-checker.sh" "$tmp/regcorpus" "$tree" "${mains[@]}" >/dev/null || fail
 "$tmp/regcorpus" check --corpus --tree "$tree" || fail
