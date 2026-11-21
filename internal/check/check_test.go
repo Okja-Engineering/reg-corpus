@@ -88,7 +88,7 @@ const (
 	noLogFile = p1 + "no matching verify.log line (registry/verify.log is missing)"
 	onlyRX    = "registry/records/ holds only RX-*.yaml record files"
 	layout    = "not in the registry layout: records/RX-*.yaml, verify.log, topics.yaml, inventory/*.yaml (names are case-sensitive)"
-	notASCII  = "top-level name is not ASCII; a checkout could fold it into registry/"
+	nonASCII  = "top-level name is not ASCII; a checkout could fold it into registry/"
 )
 
 func TestRegistryStateRules(t *testing.T) {
@@ -285,8 +285,8 @@ func TestRegistryStateRules(t *testing.T) {
 				"café.md":                            "x\n",
 			},
 			code: 1, lines: []string{
-				"C6 registry-state: café.md: " + notASCII,
-				"C6 registry-state: regiﬆry: " + notASCII,
+				"C6 registry-state: café.md: " + nonASCII,
+				"C6 registry-state: regiﬆry: " + nonASCII,
 			},
 		},
 		{
@@ -618,7 +618,7 @@ func TestTreeRules(t *testing.T) {
 			"registry/Records/RX-41-TEST-02.yaml",
 			"Registry/records/RX-41-TEST-03.yaml",
 			"regiſtry/records/RX-41-TEST-04.yaml", // long s: folds to s, as APFS does
-			"regiﬆry/records/RX-41-TEST-05.yaml", // ligature st: APFS folds it to st
+			"regiﬆry/records/RX-41-TEST-05.yaml",  // ligature st: APFS folds it to st
 		} {
 			gitT(t, root, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+p)
 		}
@@ -629,8 +629,8 @@ func TestTreeRules(t *testing.T) {
 			"C6 registry-state: Registry/records/RX-41-TEST-03.yaml: "+layout,
 			"C6 registry-state: registry/Records: "+layout,
 			"C6 registry-state: registry/Records/RX-41-TEST-02.yaml: "+layout,
-			"C6 registry-state: regiſtry: "+notASCII,
-			"C6 registry-state: regiﬆry: "+notASCII,
+			"C6 registry-state: regiſtry: "+nonASCII,
+			"C6 registry-state: regiﬆry: "+nonASCII,
 		)
 	})
 	t.Run("a directory in records is listed and fails", func(t *testing.T) {

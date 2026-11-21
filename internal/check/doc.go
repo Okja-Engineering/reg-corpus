@@ -3,20 +3,34 @@
 // checks C1–C5.
 //
 // Requirements: C6, R2 (registry holds only verified records), R5 (corpus
-// gate). C1–C5 and R4 arrive in plan step 22; the rest of C6 in plan step 13.
+// gate). C1–C5 and R4 arrive in plan step 22. The rest of C6, per-commit and
+// --complete, arrives in plan step 13, except the skill's 8-word rule (plan
+// step 23).
 //
-// Built (plan step 1): C6 registry state, verify.log part. The registry is
-// every top-level name that folds to "registry" (Registry/ too: one directory
-// on a case-insensitive checkout). Every entry in it is a regular file or
-// directory (never a symlink or gitlink); every file in registry/records/ is
-// named RX-*.yaml and has a registry/verify.log line (fields "ID, rev, record
-// sha256, by, on, method", comma-separated, trimmed) whose ID equals the file
-// stem and whose sha256 equals the file's bytes; every other entry is
-// registry/, records/, inventory/, verify.log, topics.yaml or
-// inventory/*.yaml, spelled exactly (spec "L1 and indexes"). The corpus is
-// read from a directory (LoadDir: the working tree) or a git tree (LoadTree:
-// the commit, raw blobs); a root without a go.mod declaring this module and a
-// stages/ directory is not a corpus (exit 2).
+// Built (plan step 1): C6 registry state, verify.log part. Every file in
+// registry/records/ is named RX-*.yaml and has a registry/verify.log line
+// (fields "ID, rev, record sha256, by, on, method", comma-separated, trimmed)
+// whose ID equals the file stem and whose sha256 equals the file's bytes.
+//
+// Also built: the registry layout. The spec's C6 list has no such rule; it is
+// a C6 addition, recorded as a finding in PR #1, so that a record kept
+// elsewhere under registry/, or under a variant of its name, can't escape the
+// rule above (R2: registry/ holds only verified records). The registry is every
+// top-level name equal to "registry" in any ASCII case (Registry/ too: one
+// directory on a case-insensitive checkout), and a top-level name that isn't
+// ASCII is reported, since filesystems fold such names (APFS folds "regiﬆry"
+// into registry/) in ways no rule here can mirror. Every entry in the registry
+// is a regular file or directory (never a symlink or gitlink), and every entry
+// other than a record is registry/, records/, inventory/, verify.log,
+// topics.yaml or inventory/*.yaml, spelled exactly (the places spec "L1 and
+// indexes" names).
+//
+// The corpus is read from a git tree (LoadTree: the commit, raw blobs; the
+// pre-commit hook and CI) or a directory (LoadDir: the working tree, for `make
+// check`). LoadDir leaves out what git ignores and doesn't track, since no
+// commit holds it (.DS_Store, editor swap files). A root without a regular
+// go.mod declaring this module and a real stages/ directory is not a corpus
+// (exit 2).
 //
 // TODO(plan step 13), the remaining C6 per-commit rules from the spec:
 //   - quotes: a cited field missing cite or text

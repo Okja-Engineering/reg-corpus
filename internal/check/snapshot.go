@@ -1,7 +1,8 @@
 // The corpus as the per-commit C6 rules see it (C6, R5). Two readers build
 // it: LoadDir reads a directory (the working tree: `make check`, manual runs),
-// LoadTree reads a git tree object (the commit: the pre-commit hook). Neither
-// follows a symlink, so no rule ever reads outside the snapshot.
+// LoadTree reads a git tree object (the commit: the pre-commit hook and CI).
+// Both judge each top-level entry the same way (addTop), and neither follows
+// a symlink, so no rule ever reads outside the snapshot.
 
 package check
 
@@ -10,13 +11,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
-	"unicode"
+	"unicode/utf8"
 )
 
 // modulePath is the module a corpus root's go.mod declares.
@@ -52,10 +55,10 @@ type entry struct {
 	err  error  // set when the entry could not be read
 }
 
-// Snapshot holds go.mod, whether stages/ is a directory, and every entry at or
-// under each top-level name that folds to "registry" (registry/, Registry/,
-// regiſtry/: one directory on a case-insensitive checkout), keyed by slash
-// path relative to the corpus root.
+// Snapshot holds go.mod (when a regular file), whether stages/ is a real
+// directory, and, keyed by slash path relative to the corpus root, every entry
+// at or under each registry (see isRegistry) and each top-level entry whose
+// name isn't ASCII.
 type Snapshot struct {
 	goMod    []byte
 	stages   bool
@@ -88,49 +91,84 @@ func declaresModule(goMod []byte) bool {
 	return false
 }
 
-// isRegistry reports whether a top-level name folds to "registry".
-func isRegistry(name string) bool { return foldKey(name) == foldKey("registry") }
+// isRegistry reports whether a top-level name is the registry: an ASCII name
+// equal to "registry" ignoring case (Registry/ too: one directory on a
+// case-insensitive checkout). A name that isn't ASCII is never the registry;
+// addTop keeps it to be reported, since filesystems fold such names in ways no
+// rule here can mirror (APFS folds "regiﬆry" into registry/).
+func isRegistry(name string) bool { return isASCII(name) && strings.EqualFold(name, "registry") }
 
-// foldKey maps each rune to the least rune of its Unicode case-fold orbit, so
-// two names that differ only in case (s, S and the long s too) share a key.
-func foldKey(s string) string {
-	return strings.Map(func(r rune) rune {
-		least := r
-		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
-			least = min(least, f)
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= utf8.RuneSelf {
+			return false
 		}
-		return least
-	}, s)
+	}
+	return true
 }
 
-// LoadDir reads the corpus in directory root.
+// addTop judges top-level entry name, of kind k, for both readers: go.mod and
+// stages/ are corpus markers only as a regular file and a real directory; a
+// registry or a name that isn't ASCII is kept for the rules. It reports
+// whether the caller must read this entry's bytes as go.mod, and whether it
+// must add every entry under it (a registry directory).
+func (s *Snapshot) addTop(name string, k kind) (goMod, walk bool) {
+	switch {
+	case name == "go.mod":
+		return k == regular, false
+	case name == "stages":
+		s.stages = k == directory
+	case isRegistry(name):
+		s.registry[name] = entry{kind: k}
+		return false, k == directory
+	case !isASCII(name):
+		s.registry[name] = entry{kind: k}
+	}
+	return false, false
+}
+
+// LoadDir reads the corpus in directory root, as a commit of it would hold
+// it: an entry git ignores and doesn't track is left out, since no commit
+// holds it (.DS_Store, editor swap files). A root that doesn't exist is an
+// empty snapshot (not a corpus); one that can't be listed is an error.
 func LoadDir(root string) (*Snapshot, error) {
 	s := &Snapshot{registry: map[string]entry{}}
-	s.goMod, _ = os.ReadFile(filepath.Join(root, "go.mod"))
-	if fi, err := os.Stat(filepath.Join(root, "stages")); err == nil && fi.IsDir() {
-		s.stages = true
-	}
-	top, err := os.ReadDir(root)
+	top, err := os.ReadDir(root) // Lstat types: a symlink is never followed
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return s, nil
-	case err != nil: // a registry could hide in a root that can't be listed
-		s.registry["registry"] = entry{err: err}
-		return s, nil
+	case err != nil:
+		return nil, fmt.Errorf("cannot list %s: %v", root, err)
 	}
 	for _, d := range top {
-		if !isRegistry(d.Name()) {
-			continue
+		goMod, walk := s.addTop(d.Name(), kindOf(d.Type()))
+		if goMod {
+			s.goMod, _ = os.ReadFile(filepath.Join(root, "go.mod"))
 		}
-		if !d.IsDir() { // WalkDir would follow a symlinked root
-			s.registry[d.Name()] = entry{kind: kindOf(d.Type())}
-			continue
-		}
-		if err := s.walk(root, d.Name()); err != nil {
-			return nil, err
+		if walk {
+			if err := s.walk(root, d.Name()); err != nil {
+				return nil, err
+			}
 		}
 	}
+	for _, p := range ignored(root, slices.Collect(maps.Keys(s.registry))) {
+		delete(s.registry, p)
+	}
 	return s, nil
+}
+
+// ignored returns the paths (slash, relative to root) that git ignores and
+// doesn't track in root's repository. Outside a repository, or if git fails,
+// it returns none, so nothing is skipped.
+func ignored(root string, paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out, err := git(root, strings.Join(paths, "\x00")+"\x00", "check-ignore", "-z", "--stdin")
+	if err != nil { // exit 1: none ignored; 128: not a repository
+		return nil
+	}
+	return strings.FieldsFunc(out, func(r rune) bool { return r == 0 })
 }
 
 // walk adds every entry at or under root/name, keyed by its path from root.
@@ -187,16 +225,11 @@ func LoadTree(dir, treeish string) (*Snapshot, error) {
 	s := &Snapshot{registry: map[string]entry{}}
 	var blobs []treeEntry // regular files whose bytes the rules read
 	for _, e := range top {
-		switch {
-		case e.path == "go.mod" && e.kind == regular:
+		goMod, walk := s.addTop(e.path, e.kind)
+		if goMod {
 			blobs = append(blobs, e)
-		case e.path == "stages" && e.kind == directory:
-			s.stages = true
-		case isRegistry(e.path):
-			s.registry[e.path] = entry{kind: e.kind}
-			if e.kind != directory {
-				break
-			}
+		}
+		if walk {
 			under, err := lsTree(dir, e.oid, true)
 			if err != nil {
 				return nil, err

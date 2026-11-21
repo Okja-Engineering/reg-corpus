@@ -33,6 +33,12 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# OS and editor clutter: Finder metadata, vim swap files, backup files. `make
+# check` reads the working tree and skips what git ignores (C6, R5).
+.DS_Store
+*.sw[op]
+*~
+
 # regcorpus (R5 build output; R1 local download cache; R11 local agent state).
 # sources/, registry/ and registry/verify.log stay tracked; never ignore them.
 /regcorpus

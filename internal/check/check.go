@@ -40,6 +40,7 @@ const (
 	topicsFile        = "registry/topics.yaml"
 	inventoryDir      = "registry/inventory"
 	notInLayout       = "not in the registry layout: records/RX-*.yaml, verify.log, topics.yaml, inventory/*.yaml (names are case-sensitive)"
+	notASCII          = "top-level name is not ASCII; a checkout could fold it into registry/"
 )
 
 // inLayout reports whether p, of kind k, is a place the registry holds other
@@ -59,13 +60,13 @@ func inLayout(p string, k kind) bool {
 // Violations runs the per-commit C6 rules built so far and returns one
 // violation per failing path, sorted by path.
 //
-// Registry state (R2: registry/ holds only verified records): every entry at
-// or under a top-level name that folds to "registry" is a readable regular
-// file or directory; every entry in registry/records/ is an RX-*.yaml file
-// with a verify.log line whose ID is the file stem and whose sha256 is the
-// file's bytes; every other entry is in the layout (inLayout). So no spelling
-// that a case-insensitive checkout merges into registry/ escapes the rules.
-// A missing or empty registry passes.
+// Registry state (R2: registry/ holds only verified records): no top-level
+// name is outside ASCII; every entry at or under a registry (registry/ in any
+// ASCII case) is a readable regular file or directory; every entry in
+// registry/records/ is an RX-*.yaml file with a verify.log line whose ID is the
+// file stem and whose sha256 is the file's bytes; every other entry is in the
+// layout (inLayout). So no spelling that a case-insensitive checkout merges
+// into registry/ escapes the rules. A missing or empty registry passes.
 func (s *Snapshot) Violations() []Violation {
 	logged, logMissing := s.verifyLog()
 	var out []Violation
@@ -73,6 +74,8 @@ func (s *Snapshot) Violations() []Violation {
 		e := s.registry[p]
 		fail := func(msg string) { out = append(out, Violation{Rule: ruleRegistryState, Path: p, Msg: msg}) }
 		switch {
+		case !isASCII(p) && !strings.Contains(p, "/"):
+			fail(notASCII)
 		case e.err != nil:
 			fail("cannot read: " + e.err.Error())
 		case e.kind != regular && e.kind != directory:
