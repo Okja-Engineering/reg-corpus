@@ -2,15 +2,19 @@
 # agent guard are seatbelts. Spec decision 3 left a person's bypass of the
 # local hook for "CI later"; this is that CI.
 #
-# The checker is built from the trusted base, never from the commit under
-# test: for a pull request, the base branch's commit; for a push, origin/main.
-# Only while the base has no cmd/regcorpus/main.go (bootstrap: until PR #1
-# merges) is it built from the commit under test, with a warning annotation.
+# The checker is built from a trusted commit, never from the commit under
+# test: the base's commit for a pull request (origin/main for a push) when it
+# has cmd/regcorpus/main.go, else origin/main. So once origin/main has the
+# checker, no run uses any other; a base that doesn't resolve fails the run.
+# Only while neither has it (bootstrap: before the checker first lands on
+# main) is it built from the commit under test, with a warning annotation.
+# A pull request run checks GitHub's test merge commit (the PR merged into its
+# base); `edited` reruns it when the PR is retargeted to another base.
 # .github/c6.sh runs the check; .githooks/build-checker.sh builds the checker,
 # the same way the pre-commit hook does. A push to main is checked by main's
 # own checker; as a pull request it was checked by the old main's. If main's
-# checker doesn't build, every run fails, the repair's too: the user merges the
-# repair past this check.
+# checker doesn't build, every run fails, the repair's too: the user merges
+# the repair past this check.
 #
 # A PR can edit this workflow; the user, who alone merges, reviews such diffs.
 # The same holds for the scripts it runs. Making this check required (branch
@@ -20,6 +24,7 @@ name: C6
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
