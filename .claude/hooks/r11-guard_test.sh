@@ -279,6 +279,22 @@ EOF
   file_case 2 Edit "$MAIN/.git/config"
   file_case 2 Write "$MAIN/.git/config" "$WT"
   sh_case 0 'echo "*.log" >> .git/info/exclude'
+  # Every config file git reads here (extensions.worktreeConfig): the common
+  # config, its config.worktree, and each worktree's config.worktree.
+  sh_case 2 "printf '[core]\\n\\thooksPath = /dev/null\\n' >> .git/config.worktree"
+  file_case 2 Write "$MAIN/.git/config.worktree"
+  sh_case 2 "echo '[core] hooksPath = /dev/null' >> $MAIN/.git/worktrees/wt1/config.worktree" "$WT"
+  file_case 2 Write "$MAIN/.git/worktrees/wt1/config.worktree" "$WT"
+  sh_case 2 "sed -i '' /hooksPath/d .git/worktrees/wt1/config.worktree"
+  sh_case 0 'echo x > .git/worktrees/wt1/notes.txt'
+  file_case 0 Write "$CLONE/.git/config.worktree"
+  # Options in any abbreviation git accepts.
+  sh_case 2 'git config --unset-a core.hooksPath'
+  sh_case 2 'git config --remove-sec core'
+  sh_case 2 'git config --rename-s core old'
+  sh_case 2 'git config --ad core.hooksPath /dev/null'
+  sh_case 0 'git config --get-a core.hooksPath'
+  sh_case 0 'git config --show-origin --get-regexp hooks'
 
   echo "-- blocked: regcorpus verify, any common form"
   sh_case 2 'regcorpus verify RX-41-ACK-01'
@@ -291,6 +307,17 @@ EOF
   sh_case 2 'unbuffer ./regcorpus verify RX-41-ACK-01'
   sh_case 2 "cd $MAIN && ./regcorpus verify"
   sh_case 2 'make build && ./regcorpus verify RX-1 < /dev/null'
+
+  echo "-- blocked: regcorpus inventory --init (a person runs it, R3), same forms"
+  sh_case 2 'regcorpus inventory --init'
+  sh_case 2 './regcorpus inventory -init'
+  sh_case 2 "$MAIN/regcorpus inventory --init=true"
+  sh_case 2 'go run ./cmd/regcorpus inventory --init'
+  sh_case 2 'script -q /dev/null ./regcorpus inventory --init'
+  sh_case 2 "expect -c 'spawn ./regcorpus inventory --init; interact'"
+  sh_case 2 'make build && ./regcorpus inventory --init'
+  sh_case 0 './regcorpus inventory --help'
+  sh_case 0 'grep -rn "regcorpus inventory --init" stages/'
 
   echo "-- blocked: shell writes under registry/, .githooks/, .claude/"
   sh_case 2 'echo x > registry/verify.log'
@@ -334,6 +361,17 @@ EOF
   sh_case 2 "sed -i.bak 's/a/b/' registry/verify.log"
   sh_case 2 "sed -e 's/a/b/' -i registry/verify.log"
   sh_case 2 "perl -pi -e 's/a/b/' registry/verify.log"
+  sh_case 2 "sed --in-pl 's/a/b/' registry/verify.log"
+  sh_case 2 "gsed --expr=s/a/b/ -i registry/verify.log"
+  sh_case 2 "sed --e s/a/b/ --in-place=.bak .claude/settings.json"
+  sh_case 0 "sed --expr=s/a/b/ registry/verify.log"
+  sh_case 0 "sed --in-place --expr=s/a/b/ staging/x.yaml"
+  sh_case 2 "yq -i '.status = \"verified\"' registry/records/RX-41-ACK-01.yaml"
+  sh_case 2 "yq --inplace '.a = 1' registry/records/x.yaml"
+  sh_case 2 "yq --in-pl '.a = 1' registry/records/x.yaml"
+  sh_case 2 "yq e -iP '.a = 1' .claude/settings.json"
+  sh_case 0 "yq '.status' registry/records/RX-41-ACK-01.yaml"
+  sh_case 0 "yq -i '.path = \"registry/x\"' staging/x.yaml"
   sh_case 2 'git rm registry/records/RX-41-ACK-01.yaml'
   sh_case 2 'git mv registry/verify.log registry/old.log'
   sh_case 2 'git checkout -- registry/verify.log'
@@ -371,6 +409,7 @@ EOF
     file_case 2 Edit "$UPMAIN/REGISTRY/new/x.yaml"
     sh_case 2 "echo x > $UPMAIN/registry/verify.log"
     sh_case 2 'echo x > verify.log' "$UPMAIN/registry"
+    file_case 2 Write "$UPMAIN/.GIT/Worktrees/WT1/Config.Worktree"
     file_case 0 Edit "$UPMAIN/AGENTS.md"
     sh_case 0 'echo x > staging/x.txt' "$UPMAIN"
   else
@@ -495,13 +534,43 @@ EOF
   sh_case 0 'if cd .claude/hooks; then bash r11-guard_test.sh; fi > guard.log'
   sh_case 0 'for f in a; do cd registry; done > staging/x.txt'
   sh_case 0 'while false; do cd .claude; done > out.txt'
-  sh_case 0 '[ -d nonexistent ] && cd .claude/hooks; touch staging/x'
+  sh_case 0 '[ -d nonexistent ] && cd internal; touch staging/x'
   sh_case 0 'f() { cd .claude/hooks; }; touch x'
   sh_case 2 '{ cd /tmp; } | cat; rm -rf registry'
   sh_case 2 'if cd /tmp; then :; fi | cat; rm -rf registry'
   sh_case 2 'test -d registry && cd registry && rm verify.log'
   sh_case 2 'if cd registry; then rm verify.log; fi'
   sh_case 2 '(cd registry; case x in x) true;; esac; rm verify.log)'
+
+  echo "-- cwd: a cd that may not run leaves each directory the shell could be in"
+  sh_case 2 $'cd internal && go test ./... && cd ..\ncp staging/x.yaml registry/records/'
+  sh_case 2 'cd internal && go test ./... && cd ..; rm registry/verify.log'
+  sh_case 2 'true && cd /tmp; rm registry/verify.log'
+  sh_case 2 '[ -d nonexistent ] && cd .claude/hooks; touch staging/x'
+  sh_case 2 'if [ -d x ]; then cd internal; fi; rm registry/verify.log'
+  sh_case 2 'case $x in a) cd /tmp;; esac; rm registry/verify.log'
+  sh_case 2 'for d in internal; do cd "$d"; done; rm registry/verify.log'
+  sh_case 2 'pushd internal && true && popd; rm registry/verify.log'
+  sh_case 0 $'cd internal && go test ./...\necho ok > staging/x.txt'
+  sh_case 0 'if [ -d x ]; then cd internal; fi; echo x > staging/y.txt'
+  # A cd at the head of a list runs whenever the list does: it is followed.
+  sh_case 2 $'cd .githooks && ls\necho x > pre-commit'
+  sh_case 2 'cd registry || exit 1; rm verify.log'
+  sh_case 0 $'cd '"$CLONE"$' && git status\necho bad >> registry/verify.log'
+  sh_case 0 $'cd .claude/hooks && bash r11-guard_test.sh | tail -1\ncd ../.. && make build\n./regcorpus check --corpus > check.txt'
+  sh_case 0 $'cd ../.. && make build\n./regcorpus check --corpus > check.txt' "$MAIN/.claude/hooks"
+
+  echo "-- loop variables: a for loop's variable keeps the directory its words share"
+  sh_case 2 $'for f in registry/records/*.yaml; do sed -i \'\' s/a/b/ "$f"; done'
+  sh_case 2 'for f in registry/verify.log; do rm "$f"; done'
+  sh_case 2 'for f in registry/records/a.yaml registry/records/b.yaml; do echo x > "${f}"; done'
+  sh_case 2 $'for f in .githooks/*\ndo\n  chmod -x $f\ndone'
+  sh_case 2 'for f in registry/records/*.yaml; do grep x "$f" > "$f.out"; done'
+  sh_case 0 'for f in registry/records/*.yaml; do grep -c x "$f"; done'
+  sh_case 0 'for f in registry/records/*.yaml; do cp "$f" /tmp/snap/; done'
+  sh_case 0 'for f in registry/records/*.yaml; do cp "$f" "staging/$(basename "$f")"; done'
+  sh_case 0 'for f in staging/*.yaml; do sed -i "" s/a/b/ "$f"; done'
+  sh_case 0 'for f in registry/records/*.yaml; do echo "$f"; done > staging/list.txt'
 
   echo "-- blocked: writers run by xargs, find, parallel and wrappers"
   sh_case 2 'ls staging | xargs -I{} cp {} registry/records/'
