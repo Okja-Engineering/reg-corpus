@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Per-commit corpus gate (C6, R5). Installed by `make setup` (core.hooksPath).
+#
+# Checks what is being committed, not the working tree: the index is checked
+# out into a temp dir and `regcorpus check --corpus` runs there. Any non-zero
+# exit (a C6 violation, a build failure, Go missing) blocks the commit.
+set -euo pipefail
+
+fail() {
+  echo "pre-commit: C6 gate failed" >&2
+  exit 1
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-pre-commit.XXXXXX") || fail
+trap 'rm -rf "$tmp"' EXIT
+
+git checkout-index --all --prefix="$tmp/" || fail
+(cd "$tmp" && go run ./cmd/regcorpus check --corpus --root .) || fail

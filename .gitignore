@@ -32,3 +32,13 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# regcorpus (R5 build output; R1 local download cache; R11 local agent state).
+# sources/, registry/ and registry/verify.log stay tracked; never ignore them.
+/regcorpus
+/dist/
+# Local raw-download cache: exploratory fetches and the govinfo edition.
+# Committed raw XML lives under sources/**/raw/ and stays tracked.
+/.cache/
+.claude/settings.local.json
+.claude/worktrees/
