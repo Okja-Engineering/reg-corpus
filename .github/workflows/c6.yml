@@ -1,0 +1,46 @@
+# The corpus gate (C6, R5). CI is the gate; the pre-commit hook and the R11
+# agent guard are seatbelts. Spec decision 3 left a person's bypass of the
+# local hook for "CI later"; this is that CI.
+#
+# The checker is built from the trusted base, never from the commit under
+# test: for a pull request, the base branch's commit; for a push, origin/main.
+# Only while the base has no cmd/regcorpus/main.go (bootstrap: until PR #1
+# merges) is it built from the commit under test, with a warning annotation.
+# .github/c6.sh runs the check; .githooks/build-checker.sh builds the checker,
+# the same way the pre-commit hook does. A push to main is checked by main's
+# own checker; as a pull request it was checked by the old main's.
+#
+# A PR can edit this workflow; the user, who alone merges, reviews such diffs.
+# The same holds for the scripts it runs. Making this check required (branch
+# protection on main) is the user's step.
+name: C6
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  c6:
+    name: C6 gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the base commit and origin/main
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false # nothing restored from earlier runs
+      - name: Check the commit with the base's checker
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'refs/remotes/origin/main' }}
+        # A clean environment: only HOME and PATH (which finds go) pass through.
+        run: env -i HOME="$HOME" PATH="$PATH" bash .github/c6.sh "$BASE" "$GITHUB_SHA"
+      - name: make test
+        if: ${{ !cancelled() }}
+        run: env -i HOME="$HOME" PATH="$PATH" make test
