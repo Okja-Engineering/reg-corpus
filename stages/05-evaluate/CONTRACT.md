@@ -12,11 +12,14 @@ rule (spec decision 5) to reach accept, revise or kill.
   `level: strict`, `key.yaml`), frozen with its hash recorded before any
   extraction (plan step 10).
 - `eval/judge-v1.md`: the committed judge prompt, written before any run.
+- Per arm (spec "Arms"), each run in its own temp directory:
+  - (a): the L0 text files and `eval/fixture-src/` (plan step 11);
+  - (b): L0, the lookup-only binary (`make build LOOKUP_ONLY=1`), the skill and
+    `eval/fixture/`;
+  - (c): as (b), with the full binary and the `regcorpus check` output.
 - `eval/render/`: maps `fixture-src` to `eval/fixture/` through the derived
-  inventory (plan step 25).
-- For arms (b) and (c): the lookup-only binary (`make build LOOKUP_ONLY=1`), the
-  full binary, and the skill (`skill/regcorpus/SKILL.md`), installed as a
-  project skill (plan steps 23, 25 and 26).
+  inventory (plan step 25). The skill is installed as a project skill in arms
+  (b) and (c) (plan steps 23, 25 and 26).
 
 ## Outputs
 - `eval/runs/<arm>-<model>-<n>.jsonl`: stream-json transcripts, 5 runs per arm
@@ -24,24 +27,26 @@ rule (spec decision 5) to reach accept, revise or kill.
 - `eval/results/<YYYY-MM-DD>.yaml`: per-run grades and metrics (recall,
   precision, trace rate), model ID string, CLI version, exact command,
   transcript path, fixture hash, judge-to-author agreement, and the decision 5
-  outcome per model with the final decision.
+  outcome per model with the final decision (stage 04 reads accept from here).
 - `eval/walk/` (R10 walk test) and `eval/guard/` (R11 guard check):
   transcripts and the corpus commit they ran against.
 
 ## Check that ends it
-- No command exists for this check. Its evidence is the results file (R7
-  acceptance): 30 graded runs with the fields above, the judge-to-author
-  agreement rate, and the decision 5 outcome per model with the final decision.
-- On the rendered fixture, `regcorpus check` exits non-zero and reports exactly
-  the seeds `key.yaml` marks `check_detectable` (R4/R5; plan step 25).
-- Checkpoint (plan step 11): a model with mean recall(a) > 0.6 has failed
-  decision 5; if both models fail, stop and record a kill.
+The evidence is the results file; no command checks it. The stage ends when
+`eval/results/<YYYY-MM-DD>.yaml` holds 30 graded runs with the fields above,
+the judge-to-author agreement rate, and the decision 5 outcome per model with
+the final decision (R7 acceptance). Two gates come before it:
+- Plan step 11 (first part): a model with mean recall(a) > 0.6 has failed
+  decision 5; if both fail, stop and record a kill.
+- Plan step 25: on the rendered fixture, `regcorpus check` exits non-zero and
+  reports exactly the seeds `key.yaml` marks `check_detectable` (R4/R5).
 
 ## Who may run it
-- A person launches each run in its own temp directory with project-only
-  settings, no MCP and web tools disallowed, and records the exact command
-  (plan step 11).
-- The committed judge prompt grades normalized, shuffled outputs.
+- Every run uses project-only settings: no user config, memory, skills or MCP,
+  and web tools disallowed (spec "Arms"; plan step 11 records the command).
+- A person launches each run and records the exact command.
+- An agent may prepare fixtures with the person's approval, run `eval/render`,
+  and run the committed judge on normalized, shuffled outputs.
 - The author (a person) blind-adjudicates unmatched findings and blind-grades a
   random 20% (spec "Grading"). Below 90% agreement, the author's grades replace
   the judge's.

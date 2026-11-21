@@ -18,13 +18,18 @@ For one unit (R2a):
   shape listed in R2a (plan step 16).
 - The versioned extraction prompt, `prompts/extract-v1.md` (plan step 16).
 
-Precondition: the eval fixture is frozen (stage 05, plan step 10) before any
-extraction starts.
+Preconditions, all before any extraction starts (stage 05):
+- the eval fixture is frozen, with its hash recorded (plan step 10);
+- arm (a) has run and its checkpoint passed: at least one model has mean
+  recall(a) at or below 0.6 (plan step 11). If both fail, there is no extraction.
+- `units.yaml` and `prompts/extract-v1.md` are approved by a person.
 
 ## Outputs
 - `staging/RX-*.yaml`: proposed records in the fixed schema, at
   `verification.level: fetched`, each naming the `prompt_version` that produced
   it, or `manual` if a person wrote it (R2a). Nothing is written to `registry/`.
+- The whole set: every unit in `units.yaml` is extracted before verification
+  (stage 03) starts, because the blind sample is drawn from the full set.
 
 ## Check that ends it
 - `regcorpus check --staging` exits 0 (R2a; built in plan step 16). Exit 0 means
@@ -33,7 +38,9 @@ extraction starts.
 - Until it exists, report that the check is not built and name plan step 16.
 
 ## Who may run it
-- An agent may propose records into `staging/` only, using the prompt above.
+- An agent may propose records into `staging/` only, using the approved prompt.
+- An agent may draft `units.yaml` and the prompt; a person approves them, and a
+  new prompt version is a new file (R2a).
 - A model never writes, moves or edits anything under `registry/`.
 - Golden records and anchor rules are written by a person, with
   `prompt_version: manual` (plan steps 16 and 17).
