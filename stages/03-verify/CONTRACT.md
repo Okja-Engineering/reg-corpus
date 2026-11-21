@@ -3,7 +3,7 @@
 ## Purpose
 A person checks each proposed record against the text and, if it holds, moves
 it into `registry/` at `text-verified` (spec decision 2). This is the only path
-into `registry/`. A person also signs off the inventory (R3).
+for a record into `registry/`. A person also signs off the inventory, by hand (R3).
 
 ## Inputs
 - The full proposal set from stage 02: every ID in `staging/` or already moved
@@ -39,17 +39,24 @@ into `registry/`. A person also signs off the inventory (R3).
 - Per record and per commit: `regcorpus check --corpus` exits 0 (C6). The
   pre-commit hook runs it on the commit's own tree (`--tree`); `make check` runs
   it on the working tree. Exit 0 means every registry rule built so far passes.
-  Today that is the registry-state rule: every entry under `registry/` is a
-  regular file or directory, and each file in `registry/records/` is named
-  `RX-*.yaml` and has a `verify.log` line whose ID and sha256 match it. The
-  other C6 rules arrive in plan step 13.
+  Today that is the registry-state rule: every entry under `registry/` (or any
+  case variant of that name) is a regular file or directory; each file in
+  `registry/records/` is named `RX-*.yaml` and has a `verify.log` line whose
+  ID and sha256 match it; and nothing else is there but `verify.log`,
+  `topics.yaml` and `inventory/*.yaml`, spelled exactly. The other C6 rules
+  arrive in plan step 13.
 - For the stage as a whole: `regcorpus check --corpus --complete` exits 0 (R2/R3;
   plan step 13). Exit 0 means every operative anchor is cited or `na`, every
-  inventory entry is `reviewed`, and every active record is in a topic.
+  inventory entry is `reviewed`, and every active record is in a topic. So it
+  also needs `registry/inventory/` (plan step 14) and `registry/topics.yaml`
+  with `regcorpus topics` (plan step 20).
 
 ## Who may run it
-- A person only, via `regcorpus verify <ID>` in an interactive terminal (R2a;
-  plan step 19). The command refuses to run without one.
+- A person only. Records enter `registry/records/`, and lines enter
+  `verify.log`, only through `regcorpus verify <ID>`, run in an interactive
+  terminal (R2a; plan step 19); the command refuses to run without one. The
+  inventory is created by `regcorpus inventory --init`, run by a person; its
+  `reviewed` and `na` entries are written by hand by a person (R3).
 - An agent must not run, wrap or emulate `regcorpus verify`, and must not write
   anything under `registry/` (R11). An agent asked to verify a record names the
   next record (above) and this contract, and hands the terminal step to a person.
@@ -62,7 +69,7 @@ into `registry/`. A person also signs off the inventory (R3).
 
 ## Requirements
 - R2: `registry/` holds only records at `text-verified` or above.
-- R2a gate: `regcorpus verify` is the only path into `registry/`; it needs a
+- R2a gate: `regcorpus verify` is the only path for records into `registry/`; it needs a
   terminal and appends to `verify.log`.
 - R3: inventory coverage and the `reviewed` sign-off; mappings derived from cites.
 - C6 registry state: a registry record below `text-verified`, with incomplete
