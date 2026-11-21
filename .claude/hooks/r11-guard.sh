@@ -18,7 +18,8 @@
 #     ancestor of a protected dir; writers it doesn't know (find -delete,
 #     git apply);
 #   - targets it can't resolve (by design, below): variables other than $HOME
-#     and $TMPDIR, relative paths after a cd it can't follow;
+#     and $TMPDIR, relative paths after a cd it can't follow, relative paths
+#     given to MCP tools;
 #   - the local toolchain and refs: GOROOT, $GOROOT/go.env, PATH shadowing,
 #     moving the local main ref;
 #   - commits that skip pre-commit: merge, rebase, cherry-pick, am;
@@ -49,9 +50,11 @@
 #      relative paths are then not judged.
 #
 # Blocks:
-#   - File tools and MCP tools: any path-like input (file_path, notebook_path,
-#     path, paths, source, destination, target, old_path, new_path) that is
-#     protected or holds a control character.
+#   - File tools (Edit, Write, MultiEdit, NotebookEdit): a protected path, or
+#     one holding a control character. MCP tools whose name says they write
+#     (write, edit, move, create, delete...): any absolute or ~ path value
+#     under a path-like key (file_path, path, paths, source, destination...)
+#     that is protected.
 #   - Bash, one simple command at a time (split on && || ; | & newlines and
 #     parentheses; quotes and here-docs respected; $(...), `...`, <(...) and
 #     sh -c strings checked as commands too; wrappers env, command, builtin,
@@ -1550,6 +1553,30 @@ tool_strings() {
     block "unreadable tool input, so the tool call cannot be checked (fail closed)"
 }
 
+# writes_files ACTION: succeed when an MCP tool's name (the part after its
+# server) says it changes files: one of its words (split at _ - . and
+# camelCase) is a write verb.
+writes_files() {
+  local a=$1 words= c i w hit=1
+  for ((i = 0; i < ${#a}; i++)); do
+    c=${a:i:1}
+    case $c in
+      [A-Z]) words="$words $c" ;;
+      _ | - | .) words="$words " ;;
+      *) words=$words$c ;;
+    esac
+  done
+  shopt -s nocasematch
+  for w in $words; do
+    case $w in
+      write | writes | edit | edits | move | rename | delete | remove | rm | mv | cp | create | copy | mkdir | save | append | upload | replace | touch | truncate | unlink | put | update | overwrite | modify | patch)
+        hit=0 ;;
+    esac
+  done
+  shopt -u nocasematch
+  return "$hit"
+}
+
 # ---- main --------------------------------------------------------------------
 
 command -v jq >/dev/null 2>&1 || block "jq is not installed, so the tool call cannot be checked (fail closed)"
@@ -1573,12 +1600,21 @@ case $tool in
     done
     ;;
   mcp__*)
+    # Only tools that write files, and only paths that resolve on their own:
+    # the server's working directory is unknown, so a relative path (often a
+    # remote repo path) is not judged, nor is a value holding a control
+    # character (content, not a path).
+    writes_files "${tool##*__}" || { trap - EXIT; exit 0; }
     tool_strings
     eval "$PATHS_SH"
     for p in "$@"; do
-      [ -n "$p" ] || continue
-      case $p in *[[:cntrl:]]*) block "$tool path contains a control character (fail closed)" ;; esac
-      judge "$p" "$cwd" || block "$tool on $REL: $protected_msg"
+      case $p in
+        *[[:cntrl:]]*) continue ;;
+        '~' | '~/'*) [ -n "$HOME_V" ] || continue; p=$HOME_V${p#\~} ;;
+        /*) ;;
+        *) continue ;;
+      esac
+      judge "$p" / || block "$tool on $REL: $protected_msg"
     done
     ;;
 esac
