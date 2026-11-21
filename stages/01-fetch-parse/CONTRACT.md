@@ -34,11 +34,12 @@ lives only under `sources/**/raw/`.
 - `regcorpus fetch --verify` exits 0 (R1; built in plan step 6). Exit 0 means the
   version date, tree and `sha256_text` match a fresh fetch (`sha256_raw` is
   informational), `verified_on` is set, and every override is listed. Save the output.
-- `make test` exits 0 with the parser goldens in it (R1a; goldens built in plan
-  steps 4, 8 and 9). Exit 0 then means every golden passes and the
-  corrupted-sequence fixture is rejected. Until the goldens exist (plan step 4),
-  `make test` passing says nothing about R1a: do not report R1a met; name plan
-  step 4 instead.
+- `make test` exits 0 with the parser goldens in it (R1a). Exit 0 then means
+  every golden passes and the corrupted-sequence fixture is rejected. Each
+  source has its own goldens: 1024.41 in plan step 4, Supplement I in plan
+  step 8, and 1024.30/1024.31 (cite-only; the `1024-31-day` golden) in plan
+  step 9. Until a source's goldens exist, `make test` passing says nothing
+  about R1a for that source: do not report R1a met for it; name its plan step.
 - `regcorpus fetch --latest` exits 0 (R1b; built in plan step 6). Exit 0 means eCFR
   lists no newer version of any stored section, and the fresh Supplement I 41()
   slice hash equals the stored one.
