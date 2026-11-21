@@ -7,9 +7,10 @@
 # real terminal.
 # It stops: edit/write tools and common shell writers and redirects into
 # registry/, .githooks/ or .claude/ of this checkout or its worktrees, or
-# into its git config; skipping the commit hook (--no-verify and its
-# abbreviations, commit -n, hooksPath set via git config, -c or
-# GIT_CONFIG_*, the core section removed); and running `regcorpus verify`.
+# into a git config file git reads for them; skipping the commit hook
+# (--no-verify and its abbreviations, commit -n, hooksPath set via git
+# config, -c or GIT_CONFIG_*, the core section removed); and running
+# `regcorpus verify` or `regcorpus inventory --init`.
 # Design priority: never block normal work, even when that leaves a hole.
 # Accepted residual, left to CI (deliberate tricks go here, not into code):
 #   - obfuscation: eval, encoded strings; quoting the lexer doesn't follow
@@ -20,21 +21,21 @@
 #   - stdin and interpreters: paths read from stdin (xargs without -I), a
 #     script on stdin, interpreters writing files (python, node), a command
 #     given to parallel as one string;
-#   - writers it doesn't know (find -delete, git apply, yq -i, tar -C, sort
-#     -o...) and operations on an ancestor of a protected dir (rm -rf .);
+#   - writers it doesn't know (find -delete, git apply, tar -C, sort -o...)
+#     and operations on an ancestor of a protected dir (rm -rf .);
 #   - targets it can't resolve (by design, below): a word that starts with an
-#     expansion other than $HOME and $TMPDIR ("$(git rev-parse
-#     --show-toplevel)/registry/x", "$PWD/...", "$f"), relative paths after a
-#     cd it can't follow or that may not have run, relative paths given to
-#     MCP tools;
-#   - S5: verify run through go run of another path (cmd/regcorpus/main.go),
-#     a binary built under another name, or either under script (latent
-#     until plan step 19 builds verify); S6: g-prefixed wrappers (gtimeout,
-#     gxargs, gfind, genv); S7: shell and env options it doesn't parse
-#     (bash -euo pipefail -c, bash -c --, env -vS); S9: git clean with no path
-#     run inside registry/; S10: git init registry (a nested repo is not this
-#     checkout); S11: MCP keys other than those below; S12: an Edit or Write
-#     path starting with ~/;
+#     expansion other than $HOME, $TMPDIR and a for loop's variable ("$(git
+#     rev-parse --show-toplevel)/registry/x", "$PWD/...", "${f%.yaml}"), a
+#     loop over words with no fixed part in common, relative paths after a cd
+#     it can't follow (cd "$d"), relative paths given to MCP tools;
+#   - S5: verify or inventory --init run through go run of another path
+#     (cmd/regcorpus/main.go), a binary built under another name, or either
+#     under script (latent until plan steps 19 and 14 build them); S6:
+#     g-prefixed wrappers (gtimeout, gxargs, gfind, genv); S7: shell and env
+#     options it doesn't parse (bash -euo pipefail -c, bash -c --, env -vS);
+#     S9: git clean with no path run inside registry/; S10: git init registry
+#     (a nested repo is not this checkout); S11: MCP keys other than those
+#     below; S12: an Edit or Write path starting with ~/;
 #   - MCP: a tool whose verb reads passes even if it also writes
 #     (search_and_replace); a move's source is not judged;
 #   - false blocks: B1, an operation on a symlink (rm, unlink, mv, ln -sf,
@@ -56,25 +57,29 @@
 # <reason>" on stderr; exit 0 allows, silently.
 #
 # How a target is judged, three invariants:
-#   1. Only what is concrete is judged. ~, $HOME and $TMPDIR are expanded; a
-#      word holding any other expansion (or a {} that xargs, find or parallel
-#      fill in) is judged by the directory its fixed leading part names
-#      (registry/ in registry/$id.yaml), and not at all when that part holds
-#      no "/". An arithmetic or [[ ]] operand and an option's value are not
-#      write targets and are never judged.
+#   1. Only what is concrete is judged. ~, $HOME and $TMPDIR are expanded,
+#      and a for loop's variable stands for the fixed leading part its words
+#      share (registry/records/ for registry/records/*.yaml); a word holding
+#      any other expansion (or a {} that xargs, find or parallel fill in) is
+#      judged by the directory its fixed leading part names (registry/ in
+#      registry/$id.yaml), and not at all when that part holds no "/". An
+#      arithmetic or [[ ]] operand and an option's value are not write
+#      targets and are never judged.
 #   2. Git places the path. The deepest existing directory of the physical
 #      path (symlinks followed) is handed to git rev-parse, which answers in
 #      its own spelling (case, Unicode form, firmlinks); cached per directory.
 #      The path is protected when its repo shares this guard's git common dir
 #      (this checkout or one of its worktrees, never a clone) and it lies
 #      under registry/, .githooks/ or .claude/ of its work tree, except
-#      .claude/worktrees/ housekeeping. So is the git config in that common
-#      dir (matched by inode). $CLAUDE_PROJECT_DIR is never used.
+#      .claude/worktrees/ housekeeping. So is every config file git reads
+#      for them (matched by inode): config and config.worktree in that common
+#      dir, and worktrees/*/config.worktree. $CLAUDE_PROJECT_DIR is never used.
 #   3. The working directory is followed through cd, pushd/popd, env -C,
 #      $(...) and `...` bodies (which run where the shell is when it reaches
 #      them) and compound commands, as the shell runs them (see "walking the
-#      commands"). When it can't be followed, or a cd may not have run, it is
-#      unknown, and relative paths are then not judged.
+#      commands"), as the set of directories the shell could be in: a cd
+#      that may not run adds one. A relative path is judged against each;
+#      only a directory that can't be followed is unknown, and is skipped.
 #
 # Blocks:
 #   - File tools (Edit, Write, MultiEdit, NotebookEdit): a protected path, or
@@ -92,14 +97,14 @@
 #       abbreviation from --no-v), -n in commit's own options, core.hooksPath
 #       or include.path set (or the core section removed or renamed) through
 #       git config, git -c or GIT_CONFIG_*;
-#     . regcorpus verify: run directly, by path, with go run, or under
-#       script/expect/unbuffer;
+#     . regcorpus verify and regcorpus inventory --init: run directly, by
+#       path, with go run, or under script/expect/unbuffer;
 #     . writes: a redirect, or a known writer (cp mv rm rmdir touch mkdir ln
 #       install truncate chmod chown chgrp tee dd unlink rsync, sed -i,
-#       perl -i, their g-prefixed GNU names, git rm/mv/clean, git restore and
-#       git checkout of paths) whose target is protected; a long option
-#       counts in any abbreviation. git rm --cached and git restore --staged
-#       only touch the index and pass.
+#       perl -i, yq -i, their g-prefixed GNU names, git rm/mv/clean, git
+#       restore and git checkout of paths) whose target is protected; a long
+#       option (git config's and sed's too) counts in any abbreviation. git
+#       rm --cached and git restore --staged only touch the index and pass.
 # Fails closed: unreadable input, jq or git missing, any internal error, a
 # terminating signal and a command nested too deep to check all exit 2.
 #
