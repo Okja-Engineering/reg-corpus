@@ -142,9 +142,6 @@ func kindOf(m fs.FileMode) kind {
 // holds dir. It reads raw blobs: no filters, no end-of-line conversion and no
 // replace refs.
 func LoadTree(dir, treeish string) (*Snapshot, error) {
-	if treeish == "" || strings.HasPrefix(treeish, "-") {
-		return nil, fmt.Errorf("invalid tree-ish %q", treeish)
-	}
 	oid, err := git(dir, "", "rev-parse", "--verify", "--quiet", "--end-of-options", treeish+"^{tree}")
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve tree %q in %s: %v", treeish, dir, err)
@@ -211,7 +208,7 @@ func lsTree(dir, oid string, recursive bool) ([]treeEntry, error) {
 		return nil, fmt.Errorf("git ls-tree %s: %v", oid, err)
 	}
 	var es []treeEntry
-	for _, rec := range strings.Split(strings.TrimSuffix(out, "\x00"), "\x00") {
+	for _, rec := range strings.Split(out, "\x00") {
 		if rec == "" {
 			continue
 		}
