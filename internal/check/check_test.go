@@ -463,6 +463,25 @@ func TestTreeRules(t *testing.T) {
 			t.Fatalf("exit %d, stderr %q; want 2", code, errOut)
 		}
 	})
+	t.Run("empty tree-ish is an error, not the working tree", func(t *testing.T) {
+		root := repo(t, nil)
+		code, out, errOut := run(t, "--corpus", "--root", root, "--tree", "")
+		if code != 2 || out != "" || !strings.HasPrefix(errOut, "regcorpus check: ") {
+			t.Fatalf("exit %d, stdout %q, stderr %q; want 2 and an error on stderr", code, out, errOut)
+		}
+	})
+	t.Run("rev:path tree-ish names a subtree", func(t *testing.T) {
+		root := t.TempDir()
+		write(t, root, map[string]string{
+			"sub/go.mod": goMod, "sub/stages/01-fetch-parse/CONTRACT.md": "x\n",
+			"sub/registry/records/RX-41-TEST-01.yaml": record,
+		})
+		gitT(t, root, "init", "-q")
+		gitT(t, root, "add", "-A")
+		gitT(t, root, "commit", "-q", "-m", "base")
+		code, got := lines(t, "--corpus", "--root", root, "--tree", "HEAD:sub")
+		want(t, code, got, 1, noLogFile)
+	})
 	t.Run("not a git repo", func(t *testing.T) {
 		code, _, errOut := run(t, "--corpus", "--root", corpus(t, nil), "--tree", "HEAD")
 		if code != 2 || !strings.HasPrefix(errOut, "regcorpus check: ") {
