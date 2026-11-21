@@ -18,10 +18,11 @@ setup: ## Point git at .githooks/ and make the hooks executable (a person, once 
 build: ## Build ./regcorpus
 	go build -o regcorpus ./cmd/regcorpus
 
-test: ## Run the Go tests, the R11 guard tests and the pre-commit hook tests (CI runs this)
+test: ## Run the Go tests, the R11 guard tests, the pre-commit hook tests and the CI gate tests (CI runs this)
 	go test ./...
 	bash .claude/hooks/r11-guard_test.sh
 	bash .githooks/pre-commit_test.sh
+	bash .github/c6_test.sh
 
 # make exits 2 whenever a recipe fails, so `make check` exits 2 on violations too.
 # For the check's own codes (0 ok, 1 violations, 2 unreadable) run ./regcorpus directly.
