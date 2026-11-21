@@ -50,6 +50,14 @@ the final decision (R7 acceptance). Two gates come before it:
 - The author (a person) blind-adjudicates unmatched findings and blind-grades a
   random 20% (spec "Grading"). Below 90% agreement, the author's grades replace
   the judge's.
+- Walk test (R10; plan step 18): while staged records exist, a person starts a
+  fresh session given only the repo and asks it to verify the next record. It
+  passes if the session names `stages/03-verify/CONTRACT.md` and the correct
+  staged record. Save the transcript and the corpus commit under `eval/walk/`.
+- Guard check (R11; plan step 21): a person, in a Claude Code session in the
+  repo, tries `git commit --no-verify`, an edit under `registry/` and
+  `regcorpus verify`; each must be blocked. Save the transcript under
+  `eval/guard/`.
 
 ## Requirements
 - R7: three arms on two models, five runs each; graded with the committed judge
