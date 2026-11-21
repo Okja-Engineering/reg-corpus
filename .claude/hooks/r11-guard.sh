@@ -93,7 +93,7 @@ on_exit() {
 trap on_exit EXIT
 trap 'block "stopped by a signal, so the tool call cannot be checked (fail closed)"' HUP INT TERM
 
-protected_msg='registry/, .githooks/ and .claude/ are not writable by agents (R11)'
+protected_msg='registry/, .githooks/, .claude/ and the git config are not writable by agents (R11)'
 verify_msg='regcorpus verify is run by a person in a terminal, never by an agent (R2a, R11)'
 DYN=$'\x01' # marks where a word stops being concrete (an expansion starts)
 HOME_V=${HOME-}
@@ -203,18 +203,23 @@ place() {
   return "$r"
 }
 
-# corpus CDIR: succeed when CDIR is the common git dir of the checkout this
-# guard file lives in: that checkout or one of its worktrees, never a clone.
+# guard_cdir: GUARD_CDIR = the common git dir of the checkout this guard
+# file lives in.
 GUARD_CDIR=
-corpus() {
+guard_cdir() {
   local here
-  if [ -z "$GUARD_CDIR" ]; then
-    here=${BASH_SOURCE[0]%/*}
-    [ "$here" != "${BASH_SOURCE[0]}" ] || here=.
-    GUARD_CDIR=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
-    [ -n "$GUARD_CDIR" ] ||
-      block "cannot find the git repository this guard belongs to, so the path cannot be checked (fail closed)"
-  fi
+  [ -z "$GUARD_CDIR" ] || return 0
+  here=${BASH_SOURCE[0]%/*}
+  [ "$here" != "${BASH_SOURCE[0]}" ] || here=.
+  GUARD_CDIR=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  [ -n "$GUARD_CDIR" ] ||
+    block "cannot find the git repository this guard belongs to, so the path cannot be checked (fail closed)"
+}
+
+# corpus CDIR: succeed when CDIR is GUARD_CDIR: this checkout or one of its
+# worktrees, never a clone.
+corpus() {
+  guard_cdir
   [ "$1" = "$GUARD_CDIR" ]
 }
 
@@ -239,7 +244,7 @@ protected() {
 }
 
 # judge PATH BASE: return 1 when PATH, resolved against BASE, is protected;
-# REL is then the path inside its work tree.
+# REL is then the path inside its work tree, or the git config's path.
 judge() {
   local p=$1 d rest
   if [[ $p != /* ]]; then
@@ -255,6 +260,15 @@ judge() {
   done
   rest=${p#"$d"}
   rest=${rest#/}
+  case $rest in
+    [Cc][Oo][Nn][Ff][Ii][Gg]) # the repo's git config, which holds core.hooksPath
+      guard_cdir
+      if [ "$d" -ef "$GUARD_CDIR" ]; then
+        REL=$GUARD_CDIR/config
+        return 1
+      fi
+      ;;
+  esac
   place "$d" || return 0
   REL=$PFX$rest
   REL=${REL%/}
@@ -832,10 +846,10 @@ judge_ops() { # CW WHAT FIRST: judge OPS from index FIRST on
 
 # ---- checks on one command -----------------------------------------------------
 
-risky_config() { # a git config key or key=value that can move or replace hooks
+risky_config() { # a git config key, key=value or section that can move or replace hooks
   local hit=1
   shopt -s nocasematch
-  [[ $1 == *hookspath* || $1 == *include.path* || $1 == *includeif.* ]] && hit=0
+  [[ $1 == *hookspath* || $1 == *include.path* || $1 == *includeif.* || $1 == core ]] && hit=0
   shopt -u nocasematch
   return $hit
 }
