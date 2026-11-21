@@ -47,8 +47,11 @@ func TestUsageErrorsExitTwo(t *testing.T) {
 
 func TestDispatchesCheck(t *testing.T) {
 	in, out, errf := files(t)
-	if code := run([]string{"check", "--corpus", "--root", t.TempDir()}, in, out, errf); code != 0 {
-		t.Fatalf("check on an empty root: exit %d, want 0", code)
+	if code := run([]string{"check", "--corpus", "--root", t.TempDir()}, in, out, errf); code != 2 {
+		t.Fatalf("check on an empty root: exit %d, want 2 (not a corpus root)", code)
+	}
+	if got := stderrOf(t, errf); !strings.Contains(got, "is not a corpus root") {
+		t.Fatalf("stderr %q, want the not-a-corpus message", got)
 	}
 }
 

@@ -5,10 +5,14 @@
 // Requirements: C6, R2 (registry holds only verified records), R5 (corpus
 // gate). C1–C5 and R4 arrive in plan step 22; the rest of C6 in plan step 13.
 //
-// Built (plan step 1): C6 registry state, verify.log part. Every file in
-// registry/records/ is named RX-*.yaml and has a registry/verify.log line
-// (fields "ID, rev, record sha256, by, on, method", comma-separated, trimmed)
-// whose ID equals the file stem and whose sha256 equals the file's bytes.
+// Built (plan step 1): C6 registry state, verify.log part. Every entry under
+// registry/ is a regular file or directory (never a symlink or gitlink); every
+// file in registry/records/ is named RX-*.yaml and has a registry/verify.log
+// line (fields "ID, rev, record sha256, by, on, method", comma-separated,
+// trimmed) whose ID equals the file stem and whose sha256 equals the file's
+// bytes. The corpus is read from a directory (LoadDir: the working tree) or a
+// git tree (LoadTree: the commit, raw blobs); a root without a go.mod
+// declaring this module and a stages/ directory is not a corpus (exit 2).
 //
 // TODO(plan step 13), the remaining C6 per-commit rules from the spec:
 //   - quotes: a cited field missing cite or text
