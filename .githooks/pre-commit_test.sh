@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the per-commit corpus gate (.githooks/pre-commit; C6, R5).
 #
-# Builds a throwaway corpus repo from this checkout's go.mod, cmd/, internal/
+# Builds throwaway corpus repos from this checkout's go.mod, cmd/, internal/
 # and stages/ (working-tree copies), installs the hook under test with
 # core.hooksPath, and commits through it. Each case says whether the commit
 # must land (0) or be blocked (1, naming the C6 line), and checks HEAD moved
@@ -16,18 +16,19 @@ for tool in git go; do
 done
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-test.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P)
-trap 'rm -rf "$tmp"' EXIT
+trap 'chmod -R u+w "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 unset GOFLAGS
 
-R=$tmp/repo
-mkdir -p "$R/.githooks" "$R/staging"
-(cd "$src" && tar -cf - go.mod cmd internal stages) | tar -xf - -C "$R" || exit 1
-cp -p "$here/pre-commit" "$R/.githooks/pre-commit"
 g() { git -C "$R" "$@"; }
-g init -q && g config core.hooksPath .githooks || exit 1
+# scaffold DIR: copy the checker, the stages and the hook under test into DIR.
+scaffold() {
+  mkdir -p "$1/.githooks" "$1/staging"
+  (cd "$src" && tar -cf - go.mod cmd internal stages) | tar -xf - -C "$1" || exit 1
+  cp -p "$here/pre-commit" "$1/.githooks/pre-commit"
+}
 
 sha() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
@@ -40,18 +41,19 @@ log() { # append a verify.log line for ID with HASH
   printf '%s, 1, %s, tester, 2026-11-21, proposal_review\n' "$1" "$2" >>"$R/registry/verify.log"
 }
 base=
-reset() { g reset -q --hard "$base" && g clean -qfdx; } # back to the logged-record commit
+reset() { g checkout -q -f main && g reset -q --hard "$base" && g clean -qfdx; } # back to the logged-record commit on main
 
 passed=0
 failed=0
 out=$tmp/out
+opts=() # extra `git commit` options for the next commit_case
 
 # commit_case WANT NAME [LINE]: commit through the hook. WANT 0: it lands.
 # WANT 1: it is blocked, HEAD stays, and the output holds LINE.
 commit_case() {
   local want=$1 name=$2 line=${3-} before after rc ok=0
   before=$(g rev-parse -q --verify HEAD || echo none)
-  g commit -q -m "$name" >"$out" 2>&1
+  g commit -q ${opts[@]+"${opts[@]}"} -m "$name" >"$out" 2>&1
   rc=$?
   after=$(g rev-parse -q --verify HEAD || echo none)
   if [ "$want" = 0 ]; then
@@ -71,11 +73,37 @@ commit_case() {
 
 C6=C6\ registry-state:\ registry/records
 
-g add -A
-commit_case 0 "first commit: no HEAD, so the checker is built from the staged tree"
-
+# --- No main yet (a fresh repo): the checker is built from the staged tree.
+R=$tmp/fresh
+scaffold "$R"
+g init -q -b main && g config core.hooksPath .githooks || exit 1
 rec RX-41-TEST-01 'id: RX-41-TEST-01
 '
+g add -A
+commit_case 1 "no main yet: the staged tree's checker blocks an unlogged record" \
+  "$C6/RX-41-TEST-01.yaml: no matching verify.log line (registry/verify.log is missing)"
+g rm -q --cached registry/records/RX-41-TEST-01.yaml
+commit_case 0 "no main yet: the first commit is checked by its own staged checker"
+
+# --- main without a checker (main before PR #1 merges): same fallback.
+R=$tmp/repo
+mkdir -p "$R"
+g init -q -b main || exit 1
+printf 'scaffold\n' >"$R/README.md"
+g add README.md && g commit -q -m "main before the checker, before the hook is installed" || exit 1
+scaffold "$R"
+g config core.hooksPath .githooks || exit 1
+g checkout -q -b scaffold
+rec RX-41-TEST-01 'id: RX-41-TEST-01
+'
+g add -A
+commit_case 1 "main has no checker: the staged tree's checker blocks an unlogged record" \
+  "$C6/RX-41-TEST-01.yaml: no matching verify.log line (registry/verify.log is missing)"
+g rm -q --cached registry/records/RX-41-TEST-01.yaml
+commit_case 0 "main has no checker: the scaffold lands, checked by its own staged checker"
+g checkout -q main && g merge -q --ff-only scaffold || exit 1 # a person merges it
+
+# --- main has the checker.
 g add -A
 commit_case 1 "unlogged record" \
   "$C6/RX-41-TEST-01.yaml: no matching verify.log line (registry/verify.log is missing)"
@@ -138,10 +166,12 @@ fi
 g reset -q
 reset
 
-rec RX-41-TEST-06 'id: RX-41-TEST-06
-'
+# A checker that passes everything: Violations() returns nothing.
 sed 's/vs := s.Violations()$/vs := s.Violations()[:0]/' "$R/internal/check/check.go" >"$tmp/evil.go"
 cmp -s "$tmp/evil.go" "$R/internal/check/check.go" && { echo "pre-commit_test: sabotage edit did not apply" >&2; exit 1; }
+
+rec RX-41-TEST-06 'id: RX-41-TEST-06
+'
 cp "$tmp/evil.go" "$R/internal/check/check.go"
 g add -A
 commit_case 1 "a staged change to the checker does not check its own commit" \
@@ -162,6 +192,92 @@ printf 'GOFLAGS=-overlay=%s\n' "$tmp/overlay.json" >"$tmp/goenv"
 GOENV=$tmp/goenv commit_case 1 "a go env file setting GOFLAGS can't swap the checker" \
   "$C6/RX-41-TEST-07.yaml: no matching verify.log line"
 reset
+
+# --- A branch can't choose its own checker: it is built from main.
+g checkout -q -b weak
+cp "$tmp/evil.go" "$R/internal/check/check.go"
+g add -A
+commit_case 0 "a branch may commit a weakened checker; main's checker checks that commit"
+rec RX-41-TEST-08 'id: RX-41-TEST-08
+'
+g add -A
+commit_case 1 "a record after a weakened checker on the branch is checked by main's checker" \
+  "$C6/RX-41-TEST-08.yaml: no matching verify.log line"
+opts=(--amend)
+commit_case 1 "--amend onto the weakened checker is checked by main's checker" \
+  "$C6/RX-41-TEST-08.yaml: no matching verify.log line"
+opts=()
+g checkout -q --orphan orphan
+commit_case 1 "an orphan branch (no HEAD) is checked by main's checker" \
+  "$C6/RX-41-TEST-08.yaml: no matching verify.log line"
+reset
+
+g checkout -q -b moved
+g mv cmd/regcorpus/main.go cmd/regcorpus/entry.go
+cp "$tmp/evil.go" "$R/internal/check/check.go"
+g add -A
+commit_case 0 "a branch may move cmd/regcorpus/main.go and weaken the checker"
+rec RX-41-TEST-09 'id: RX-41-TEST-09
+'
+g add -A
+commit_case 1 "with main.go moved on the branch, main's checker still checks the record" \
+  "$C6/RX-41-TEST-09.yaml: no matching verify.log line"
+reset
+
+g checkout -q -b broken
+printf 'this line does not compile\n' >>"$R/internal/check/check.go"
+g add -A
+commit_case 0 "a branch may commit a checker that doesn't build"
+mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
+g add -A
+commit_case 0 "a branch whose own checker doesn't build can still commit"
+reset
+
+# --- The checker's source is read as raw blobs: no replace refs, no filters.
+evil=$(g hash-object -w "$tmp/evil.go")
+g replace "$(g rev-parse main:internal/check/check.go)" "$evil"
+rec RX-41-TEST-10 'id: RX-41-TEST-10
+'
+g add -A
+commit_case 1 "a replace ref can't swap the checker's source" \
+  "$C6/RX-41-TEST-10.yaml: no matching verify.log line"
+g replace -d "$(g rev-parse main:internal/check/check.go)" >/dev/null
+reset
+
+printf 'internal/check/check.go filter=swap\n' >"$R/.git/info/attributes"
+g config filter.swap.smudge "cat '$tmp/evil.go'"
+g config filter.swap.clean cat
+rec RX-41-TEST-11 'id: RX-41-TEST-11
+'
+g add registry
+commit_case 1 "a smudge filter can't swap the checker's source" \
+  "$C6/RX-41-TEST-11.yaml: no matching verify.log line"
+rm "$R/.git/info/attributes"
+g config --unset filter.swap.smudge
+g config --unset filter.swap.clean
+reset
+
+# --- go.sum travels with go.mod: once a dependency lands, commits still build.
+# A local module proxy serves example.com/dep; nothing is fetched from the network.
+export GOPROXY=file://$tmp/proxy GOSUMDB=off GOMODCACHE=$tmp/modcache
+dep=$tmp/dep
+mkdir -p "$dep" "$tmp/proxy/example.com/dep/@v"
+printf 'module example.com/dep\n\ngo 1.21\n' >"$dep/go.mod"
+printf 'package dep\n\n// X exists so the checker can import this module.\nconst X = 1\n' >"$dep/dep.go"
+git -C "$dep" init -q && git -C "$dep" add -A && git -C "$dep" commit -q -m dep &&
+  git -C "$dep" archive --format=zip --prefix=example.com/dep@v1.0.0/ \
+    -o "$tmp/proxy/example.com/dep/@v/v1.0.0.zip" HEAD || exit 1
+cp "$dep/go.mod" "$tmp/proxy/example.com/dep/@v/v1.0.0.mod"
+printf 'v1.0.0\n' >"$tmp/proxy/example.com/dep/@v/list"
+printf '{"Version":"v1.0.0","Time":"2026-11-21T00:00:00Z"}\n' >"$tmp/proxy/example.com/dep/@v/v1.0.0.info"
+printf 'package check\n\nimport _ "example.com/dep"\n' >"$R/internal/check/dep.go"
+(cd "$R" && GOFLAGS=-modcacherw go mod tidy) >"$out" 2>&1 || { sed 's/^/      /' "$out"; exit 1; }
+[ -f "$R/go.sum" ] || { echo "pre-commit_test: go mod tidy wrote no go.sum" >&2; exit 1; }
+g add -A
+commit_case 0 "a dependency and its go.sum land on main"
+mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
+g add -A
+commit_case 0 "with a dependency on main, the checker builds (go.sum is extracted)"
 
 echo "pre-commit_test: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
