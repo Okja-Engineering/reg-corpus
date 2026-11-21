@@ -643,6 +643,10 @@ lex() {
   local depth=0 c rest cs=1 dbl=0 start
   while [ "$I" -lt "$N" ]; do
     c=${S:I:1}
+    if [ "$c" = '\' ] && [ "${S:I+1:1}" = $'\n' ]; then # a line continuation is blank
+      I=$((I + 2))
+      continue
+    fi
     if [ "$dbl" = 1 ]; then
       case $c in
         '<' | '>' | '(' | ')') I=$((I + 1)); emit W "$c"; continue ;;
