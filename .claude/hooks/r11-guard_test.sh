@@ -547,7 +547,7 @@ EOF
   sh_case 0 'cat <<< "registry/verify.log" | xargs wc -l'
   local flat= deep=x i
   for ((i = 0; i < 300; i++)); do flat+='echo "$(date +%s)"'$'\n'; done
-  sh_case 0 "$flat"
+  expect 0 "Bash: 300 lines of echo \"\$(date +%s)\" (depth counts, not strings)" "$(payload Bash command "$flat")"
   for ((i = 0; i < 40; i++)); do deep="\$(echo $deep)"; done
   expect 2 "Bash: 40 nested \$(...) (fail closed)" "$(payload Bash command "echo $deep")"
 
