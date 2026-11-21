@@ -23,5 +23,7 @@ test: ## Run the Go tests, the R11 guard tests and the pre-commit gate tests
 	bash .claude/hooks/r11-guard_test.sh
 	bash .githooks/pre-commit_test.sh
 
-check: build ## Check the working tree (C6); pre-commit checks the commit itself
+# make exits 2 whenever a recipe fails, so `make check` exits 2 on violations too.
+# For the check's own codes (0 ok, 1 violations, 2 unreadable) run ./regcorpus directly.
+check: build ## Check the working tree (C6; make exits 2 on any failure); pre-commit checks the commit itself
 	./regcorpus check --corpus
