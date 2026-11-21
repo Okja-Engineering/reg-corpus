@@ -32,11 +32,13 @@ func regular(t *testing.T) *os.File {
 	return f
 }
 
-// charDevice returns a character device that is not a terminal. It stands in
-// for "one side is a char device" so the BOTH requirement is exercised.
-func charDevice(t *testing.T) *os.File {
+// device opens a character device that is not a terminal.
+func device(t *testing.T, name string) *os.File {
 	t.Helper()
-	f, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	f, err := os.OpenFile(name, os.O_RDWR, 0)
+	if err != nil {
+		f, err = os.Open(name)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,17 +46,21 @@ func charDevice(t *testing.T) *os.File {
 	return f
 }
 
-func TestRequireTerminalRefuses(t *testing.T) {
+func TestRequireTerminalRefusesNonTerminals(t *testing.T) {
 	pr, pw := pipe(t)
+	tty := openPTY(t)
 	cases := []struct {
 		name          string
 		stdin, stdout *os.File
 	}{
 		{"pipe in, pipe out", pr, pw},
-		{"regular file in, pipe out", regular(t), pw},
-		{"char device in, pipe out", charDevice(t), pw},
-		{"pipe in, char device out", pr, charDevice(t)},
-		{"char device in, regular file out", charDevice(t), regular(t)},
+		{"regular file in, regular file out", regular(t), regular(t)},
+		{"/dev/null both", device(t, os.DevNull), device(t, os.DevNull)},
+		{"/dev/zero both", device(t, "/dev/zero"), device(t, "/dev/zero")},
+		{"/dev/random both", device(t, "/dev/random"), device(t, "/dev/random")},
+		{"terminal in, /dev/null out", tty, device(t, os.DevNull)},
+		{"/dev/null in, terminal out", device(t, os.DevNull), tty},
+		{"terminal in, pipe out", tty, pw},
 		{"nil handles", nil, nil},
 	}
 	for _, tc := range cases {
@@ -67,11 +73,30 @@ func TestRequireTerminalRefuses(t *testing.T) {
 	}
 }
 
+func TestRequireTerminalAcceptsATerminal(t *testing.T) {
+	tty := openPTY(t)
+	if err := RequireTerminal(tty, tty); err != nil {
+		t.Fatalf("RequireTerminal(pty, pty) = %v, want nil", err)
+	}
+}
+
 func TestMainRefusesWithoutTerminal(t *testing.T) {
-	pr, pw := pipe(t)
 	var errb bytes.Buffer
-	code := Main([]string{"RX-41-TEST-01"}, pr, pw, &errb)
-	if code != 2 || !strings.Contains(errb.String(), refusal) {
+	code := Main([]string{"RX-41-TEST-01"}, device(t, os.DevNull), device(t, os.DevNull), &errb)
+	if code != 2 || errb.String() != refusal+"\n" {
 		t.Fatalf("exit %d, stderr %q; want 2 and %q", code, errb.String(), refusal)
+	}
+}
+
+func TestMainInATerminalIsNotImplementedYet(t *testing.T) {
+	tty := openPTY(t)
+	var errb bytes.Buffer
+	code := Main([]string{"RX-41-TEST-01"}, tty, tty, &errb)
+	want := "regcorpus verify: not implemented yet (plan step 19)\n"
+	if code != 1 || errb.String() != want {
+		t.Fatalf("exit %d, stderr %q; want 1 and %q", code, errb.String(), want)
+	}
+	if strings.Contains(errb.String(), refusal) {
+		t.Fatal("refused a terminal")
 	}
 }
