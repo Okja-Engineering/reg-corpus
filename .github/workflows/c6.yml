@@ -18,9 +18,11 @@
 # checker doesn't build, every run fails, the repair's too: the user merges
 # the repair past this check.
 #
-# A PR can edit this workflow; the user, who alone merges, reviews such diffs.
-# The same holds for the scripts it runs. Making this check required (branch
-# protection on main) is the user's step.
+# A PR can edit this workflow, c6.sh and build-checker.sh, which are all part
+# of the gate; the user, who alone merges, reviews such diffs. Branch
+# protection on main is the user's step: require the "C6 gate" check, and
+# "Require branches to be up to date before merging", so the test merge
+# commit that passed is what lands.
 name: C6
 
 on:

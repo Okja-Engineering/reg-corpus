@@ -20,7 +20,7 @@ Spec (authoritative): `docs/03-spec.md`. Plan: `docs/04-plan.md`. Intent:
 - `prompts/`: versioned extraction prompts. `skill/regcorpus/`: the agent skill (R9).
 - `cmd/regcorpus/`, `internal/*/`: the Go CLI. Each package's `doc.go` names its job.
 - `eval/`: seeds, fixtures, judge prompt, runs, results, walk and guard transcripts (R7).
-- `.github/`: CI, the C6 gate. `.githooks/`: a per-commit seatbelt. `.claude/`: the guard (R11).
+- `.github/`: CI, the C6 gate. `.githooks/`: the hook and the gate's build. `.claude/`: R11 guard.
 
 ## Stages and their order
 | Stage | Contract | Who acts |
@@ -79,18 +79,18 @@ else: the table above), read its Inputs and Check, and act within "Who may run i
   the label fields and decomposition the schema asks for; the eval fixture's seeded errors
   and `must_say` are deliberate. Neither is guidance. No product or compliance guidance here.
 - CLI only: no server, API or MCP (decision 6).
-- CI (`.github/workflows/c6.yml`) is the C6 gate; the hook and the R11 guard are seatbelts that
-  stop shortcuts, not attackers. A PR can edit this workflow; the user, who alone merges,
-  reviews such diffs. A person (the user) makes `C6 gate` a required check on main.
+- CI is the C6 gate: `.github/workflows/c6.yml`, `.github/c6.sh`, `.githooks/build-checker.sh`.
+  The hook and the R11 guard are seatbelts against shortcuts, not attackers. A PR can edit the gate;
+  the user, who alone merges, reviews such diffs and protects main (`C6 gate`, branches up to date).
 
 ## Make targets
 - `make help` (default): list targets. `make setup`: point git at `.githooks/` (a person, once).
 - `make build`: build `./regcorpus` (not on PATH). `./regcorpus help` lists the commands
   built today; a contract naming one not built yet names the plan step that builds it.
-- `make test`: Go tests, the R11 guard tests and the pre-commit hook tests (CI runs it too).
+- `make test`: Go tests, the R11 guard, pre-commit hook and CI gate tests (CI runs it too).
 - `make check`: the branch's checker on the working tree (`./regcorpus check --corpus`, C6).
-  The hook (main's checker) and CI (the base's) check the commit (`--tree`); they can differ.
-  make exits 2 on failure; run `./regcorpus` for its own code (0 ok, 1 violations, 2 unreadable).
+  The hook (main's checker) and CI (the base's) check the commit, CI a PR's test merge (`--tree`);
+  they can differ. make exits 2 on failure; `./regcorpus` exits 0 ok, 1 violations, 2 unreadable.
 
 ## Reporting at the end of a stage
 1. Run the contract's "Check that ends it"; report the stage, exact command, full output, exit code.

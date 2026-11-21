@@ -38,8 +38,9 @@ for a record into `registry/`. A person also signs off the inventory, by hand (R
 ## Check that ends it
 - Per record and per commit: `regcorpus check --corpus` exits 0 (C6). CI, the
   gate, runs it on each push and pull request, and the pre-commit hook on each
-  commit: both on the commit's own tree (`--tree`), the hook with main's checker
-  and CI with the base's (main's, for a pull request into main).
+  commit: both with `--tree`, the hook on the commit with main's checker, and
+  CI on the pushed commit or, for a pull request, GitHub's test merge commit,
+  with the base's checker (origin/main's when the base has none).
   `make check` runs the branch's own checker on the working tree, leaving out
   files git ignores. Exit 0 means every registry rule built so far passes.
   Today that is the registry-state rule: each file in `registry/records/` is
