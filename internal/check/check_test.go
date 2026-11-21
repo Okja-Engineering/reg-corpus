@@ -1,5 +1,6 @@
-// Tests for the per-commit C6 registry-state rule and the `check` command
-// surface (C6, R2, R5).
+// Tests for `regcorpus check --corpus` (C6 per-commit registry state, R2, R5):
+// the command contract (exit codes 0/1/2, exact lines, stdout vs stderr), the
+// working-tree and git-tree (--tree) snapshots, and corpus-root validation.
 package check
 
 import (
@@ -7,23 +8,30 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-const record = "id: RX-41-TEST-01\nrev: 1\n"
+const (
+	record   = "id: RX-41-TEST-01\nrev: 1\n"
+	goMod    = "module github.com/okja-engineering/reg-corpus\n\ngo 1.27\n"
+	notRoot  = "regcorpus check: %s is not a corpus root"
+	usageTop = "usage: regcorpus check --corpus [--root DIR] [--tree TREE-ISH]"
+)
 
 func sum(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
 }
 
-// corpus builds a root dir. files maps slash paths to contents; a nil map
-// leaves the root empty.
-func corpus(t *testing.T, files map[string]string) string {
+func logLine(id, hash string) string {
+	return id + ", 1, " + hash + ", tester, 2026-11-21, proposal_review\n"
+}
+
+func write(t *testing.T, root string, files map[string]string) {
 	t.Helper()
-	root := t.TempDir()
 	for p, body := range files {
 		full := filepath.Join(root, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -33,39 +41,93 @@ func corpus(t *testing.T, files map[string]string) string {
 			t.Fatal(err)
 		}
 	}
+}
+
+// corpus builds a corpus root (go.mod declaring this module, and stages/)
+// holding files, keyed by slash path.
+func corpus(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	write(t, root, map[string]string{"go.mod": goMod, "stages/01-fetch-parse/CONTRACT.md": "x\n"})
+	write(t, root, files)
 	return root
 }
 
-func logLine(id, hash string) string {
-	return id + ", 1, " + hash + ", tester, 2026-11-21, proposal_review\n"
+func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	code = Main(args, &out, &errb)
+	return code, out.String(), errb.String()
 }
 
-func TestCorpusRegistryState(t *testing.T) {
+// lines runs check on root and returns exit code and stdout lines; stderr
+// must be empty.
+func lines(t *testing.T, args ...string) (int, []string) {
+	t.Helper()
+	code, out, errOut := run(t, args...)
+	if errOut != "" {
+		t.Fatalf("stderr %q, want empty", errOut)
+	}
+	return code, strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+}
+
+func want(t *testing.T, gotCode int, got []string, wantCode int, wantLines ...string) {
+	t.Helper()
+	if wantCode == 0 {
+		wantLines = []string{"C6 ok"}
+	}
+	if gotCode != wantCode || strings.Join(got, "\n") != strings.Join(wantLines, "\n") {
+		t.Fatalf("exit %d, stdout:\n%s\nwant exit %d, stdout:\n%s",
+			gotCode, strings.Join(got, "\n"), wantCode, strings.Join(wantLines, "\n"))
+	}
+}
+
+const (
+	p1        = "C6 registry-state: registry/records/RX-41-TEST-01.yaml: "
+	unlogged  = p1 + "no matching verify.log line"
+	noLogFile = p1 + "no matching verify.log line (registry/verify.log is missing)"
+	onlyRX    = "registry/records/ holds only RX-*.yaml record files"
+)
+
+func TestRegistryStateRules(t *testing.T) {
 	cases := []struct {
 		name  string
 		files map[string]string
 		dirs  []string
-		want  []string // substrings, one per expected violation line; empty = clean
+		code  int
+		lines []string
 	}{
 		{name: "no registry passes"},
-		{name: "empty registry passes", dirs: []string{"registry/records"}},
+		{name: "empty records passes", dirs: []string{"registry/records"}},
+		{name: "other registry files pass", files: map[string]string{
+			"registry/topics.yaml": "x\n", "registry/inventory/1024.41.yaml": "x\n"}},
 		{
 			name:  "unlogged record fails",
 			files: map[string]string{"registry/records/RX-41-TEST-01.yaml": record, "registry/verify.log": ""},
-			want:  []string{"C6 registry-state: registry/records/RX-41-TEST-01.yaml: no matching verify.log line"},
+			code:  1, lines: []string{unlogged},
 		},
 		{
-			name:  "missing verify.log with records fails",
+			name:  "missing verify.log fails",
 			files: map[string]string{"registry/records/RX-41-TEST-01.yaml": record},
-			want:  []string{"C6 registry-state: registry/records/RX-41-TEST-01.yaml: no matching verify.log line"},
+			code:  1, lines: []string{noLogFile},
 		},
 		{
-			name: "sha mismatch fails",
+			name: "sha256 mismatch fails",
 			files: map[string]string{
 				"registry/records/RX-41-TEST-01.yaml": record,
-				"registry/verify.log":                 logLine("RX-41-TEST-01", sum("something else")),
+				"registry/verify.log":                 logLine("RX-41-TEST-01", sum("other")),
 			},
-			want: []string{"C6 registry-state: registry/records/RX-41-TEST-01.yaml: sha256"},
+			code: 1, lines: []string{p1 + "sha256 mismatch: file is " + sum(record) +
+				"; verify.log has " + sum("other") + " for RX-41-TEST-01"},
+		},
+		{
+			name: "every logged hash is listed on a mismatch",
+			files: map[string]string{
+				"registry/records/RX-41-TEST-01.yaml": record,
+				"registry/verify.log":                 logLine("RX-41-TEST-01", sum("a")) + logLine("RX-41-TEST-01", sum("b")),
+			},
+			code: 1, lines: []string{p1 + "sha256 mismatch: file is " + sum(record) +
+				"; verify.log has " + sum("a") + ", " + sum("b") + " for RX-41-TEST-01"},
 		},
 		{
 			name: "line for another ID does not match",
@@ -73,7 +135,7 @@ func TestCorpusRegistryState(t *testing.T) {
 				"registry/records/RX-41-TEST-01.yaml": record,
 				"registry/verify.log":                 logLine("RX-41-TEST-02", sum(record)),
 			},
-			want: []string{"C6 registry-state: registry/records/RX-41-TEST-01.yaml: no matching verify.log line"},
+			code: 1, lines: []string{unlogged},
 		},
 		{
 			name: "matching line passes",
@@ -83,28 +145,42 @@ func TestCorpusRegistryState(t *testing.T) {
 			},
 		},
 		{
-			name: "matching line with loose spacing passes",
+			name: "loose spacing, upper-case hash and CRLF pass",
 			files: map[string]string{
 				"registry/records/RX-41-TEST-01.yaml": record,
-				"registry/verify.log": "RX-41-TEST-01 ,1,  " + sum(record) +
-					" ,tester,2026-11-21 , proposal_review  \n",
+				"registry/verify.log": " RX-41-TEST-01 ,1,  " + strings.ToUpper(sum(record)) +
+					" ,tester,2026-11-21 , proposal_review  \r\n",
 			},
 		},
 		{
 			name: "a later line matching the current bytes passes",
 			files: map[string]string{
 				"registry/records/RX-41-TEST-01.yaml": record,
-				"registry/verify.log": logLine("RX-41-TEST-01", sum("rev 0")) +
-					logLine("RX-41-TEST-01", sum(record)),
+				"registry/verify.log":                 logLine("RX-41-TEST-01", sum("rev 0")) + logLine("RX-41-TEST-01", sum(record)),
 			},
 		},
 		{
-			name: "non-RX-*.yaml file fails",
+			name: "a line over 64 KiB does not stop the scan",
 			files: map[string]string{
-				"registry/records/notes.txt": "x",
-				"registry/verify.log":        "",
+				"registry/records/RX-41-TEST-01.yaml": record,
+				"registry/verify.log":                 strings.Repeat("x", 200_000) + "\n" + logLine("RX-41-TEST-01", sum(record)),
 			},
-			want: []string{"C6 registry-state: registry/records/notes.txt: "},
+		},
+		{
+			name: "only six-field lines match; malformed lines are skipped",
+			files: map[string]string{
+				"registry/records/RX-41-TEST-01.yaml": record,
+				"registry/verify.log": "\n,,,,,\n,\nRX-41-TEST-01\n" +
+					"RX-41-TEST-01, 1, " + sum(record) + ", tester, 2026-11-21\n" +
+					"RX-41-TEST-01, 1, " + sum(record) + ", tester, 2026-11-21, proposal_review, extra\n" +
+					"RX-41-TEST-01, 1, " + sum(record) + "\n",
+			},
+			code: 1, lines: []string{unlogged},
+		},
+		{
+			name:  "non-RX file fails",
+			files: map[string]string{"registry/records/notes.txt": "x", "registry/verify.log": ""},
+			code:  1, lines: []string{"C6 registry-state: registry/records/notes.txt: " + onlyRX},
 		},
 		{
 			name: "yaml file without the RX- prefix fails",
@@ -112,7 +188,7 @@ func TestCorpusRegistryState(t *testing.T) {
 				"registry/records/41-TEST-01.yaml": record,
 				"registry/verify.log":              logLine("41-TEST-01", sum(record)),
 			},
-			want: []string{"C6 registry-state: registry/records/41-TEST-01.yaml: "},
+			code: 1, lines: []string{"C6 registry-state: registry/records/41-TEST-01.yaml: " + onlyRX},
 		},
 		{
 			name: "RX- file with the wrong extension fails",
@@ -120,19 +196,25 @@ func TestCorpusRegistryState(t *testing.T) {
 				"registry/records/RX-41-TEST-01.yml": record,
 				"registry/verify.log":                logLine("RX-41-TEST-01", sum(record)),
 			},
-			want: []string{"C6 registry-state: registry/records/RX-41-TEST-01.yml: "},
+			code: 1, lines: []string{"C6 registry-state: registry/records/RX-41-TEST-01.yml: " + onlyRX},
 		},
 		{
-			name: "one line per violation",
+			name:  "a directory in records fails",
+			files: map[string]string{"registry/verify.log": ""},
+			dirs:  []string{"registry/records/RX-41-DIR.yaml"},
+			code:  1, lines: []string{"C6 registry-state: registry/records/RX-41-DIR.yaml: " + onlyRX},
+		},
+		{
+			name: "one line per violation, sorted by path",
 			files: map[string]string{
 				"registry/records/RX-41-TEST-01.yaml": record,
 				"registry/records/RX-41-TEST-02.yaml": "id: RX-41-TEST-02\n",
 				"registry/records/readme.md":          "x",
 				"registry/verify.log":                 logLine("RX-41-TEST-01", sum(record)),
 			},
-			want: []string{
+			code: 1, lines: []string{
 				"C6 registry-state: registry/records/RX-41-TEST-02.yaml: no matching verify.log line",
-				"C6 registry-state: registry/records/readme.md: ",
+				"C6 registry-state: registry/records/readme.md: " + onlyRX,
 			},
 		},
 	}
@@ -144,83 +226,228 @@ func TestCorpusRegistryState(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got, err := Corpus(root)
-			if err != nil {
-				t.Fatalf("Corpus: unexpected error: %v", err)
+			code, got := lines(t, "--corpus", "--root", root)
+			want(t, code, got, tc.code, tc.lines...)
+		})
+	}
+}
+
+func mklink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNonRegularEntriesFail(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "verify.log")
+	write(t, filepath.Dir(outside), map[string]string{"verify.log": logLine("RX-41-TEST-01", sum(record))})
+
+	t.Run("symlinked verify.log", func(t *testing.T) {
+		root := corpus(t, map[string]string{"registry/records/RX-41-TEST-01.yaml": record})
+		mklink(t, outside, filepath.Join(root, "registry", "verify.log"))
+		code, got := lines(t, "--corpus", "--root", root)
+		want(t, code, got, 1,
+			unlogged,
+			"C6 registry-state: registry/verify.log: is a symlink; registry/ holds only regular files")
+	})
+	t.Run("symlinked record", func(t *testing.T) {
+		root := corpus(t, map[string]string{"registry/verify.log": "", "registry/records/RX-41-TEST-02.yaml": "x", "staged.yaml": record})
+		mklink(t, filepath.Join(root, "staged.yaml"), filepath.Join(root, "registry", "records", "RX-41-TEST-01.yaml"))
+		code, got := lines(t, "--corpus", "--root", root)
+		want(t, code, got, 1, p1+"is a symlink; registry/ holds only regular files",
+			"C6 registry-state: registry/records/RX-41-TEST-02.yaml: no matching verify.log line")
+	})
+	t.Run("dangling records symlink", func(t *testing.T) {
+		root := corpus(t, map[string]string{"registry/verify.log": ""})
+		mklink(t, filepath.Join(root, "nowhere"), filepath.Join(root, "registry", "records"))
+		code, got := lines(t, "--corpus", "--root", root)
+		want(t, code, got, 1, "C6 registry-state: registry/records: is a symlink; registry/ holds only regular files")
+	})
+	t.Run("symlinked registry", func(t *testing.T) {
+		root := corpus(t, nil)
+		elsewhere := corpus(t, map[string]string{"registry/verify.log": ""})
+		mklink(t, filepath.Join(elsewhere, "registry"), filepath.Join(root, "registry"))
+		code, got := lines(t, "--corpus", "--root", root)
+		want(t, code, got, 1, "C6 registry-state: registry: is a symlink; registry/ holds only regular files")
+	})
+}
+
+func TestUnreadableRecordNamesRuleAndFile(t *testing.T) {
+	root := corpus(t, map[string]string{"registry/records/RX-41-TEST-01.yaml": record, "registry/verify.log": ""})
+	f := filepath.Join(root, "registry", "records", "RX-41-TEST-01.yaml")
+	if err := os.Chmod(f, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(f, 0o644) })
+	if _, err := os.ReadFile(f); err == nil {
+		t.Skip("running with privileges that read a mode-0 file")
+	}
+	code, got := lines(t, "--corpus", "--root", root)
+	if code != 1 || len(got) != 1 || !strings.HasPrefix(got[0], p1+"cannot read: ") {
+		t.Fatalf("exit %d, stdout %q; want 1 and one %q line", code, got, p1+"cannot read: ...")
+	}
+}
+
+func TestRootMustBeACorpus(t *testing.T) {
+	good := corpus(t, map[string]string{"internal/check/x.go": "package check\n"})
+	otherMod := corpus(t, map[string]string{"go.mod": "module example.com/other\n"})
+	noStages := t.TempDir()
+	write(t, noStages, map[string]string{"go.mod": goMod})
+	quoted := corpus(t, map[string]string{"go.mod": "// c\nmodule \"github.com/okja-engineering/reg-corpus\" // x\n"})
+	for _, tc := range []struct {
+		name, root string
+		code       int
+	}{
+		{"missing directory", filepath.Join(good, "typo"), 2},
+		{"empty directory", t.TempDir(), 2},
+		{"a subdirectory of a corpus", filepath.Join(good, "internal"), 2},
+		{"another module", otherMod, 2},
+		{"no stages/", noStages, 2},
+		{"a corpus with no registry", good, 0},
+		{"quoted module path and comments", quoted, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out, errOut := run(t, "--corpus", "--root", tc.root)
+			if code != tc.code {
+				t.Fatalf("exit %d (stdout %q, stderr %q), want %d", code, out, errOut, tc.code)
 			}
-			if len(got) != len(tc.want) {
-				t.Fatalf("got %d violations %q, want %d %q", len(got), got, len(tc.want), tc.want)
-			}
-			for i, w := range tc.want {
-				if !strings.HasPrefix(got[i].String(), w) {
-					t.Errorf("violation %d = %q, want prefix %q", i, got[i].String(), w)
+			if tc.code == 2 {
+				prefix := strings.Replace(notRoot, "%s", tc.root, 1)
+				if out != "" || !strings.HasPrefix(errOut, prefix) {
+					t.Fatalf("stdout %q, stderr %q; want nothing on stdout and %q... on stderr", out, errOut, prefix)
 				}
 			}
 		})
 	}
 }
 
-func TestCorpusSubdirectoryInRecordsFails(t *testing.T) {
-	root := corpus(t, map[string]string{"registry/verify.log": ""})
-	if err := os.MkdirAll(filepath.Join(root, "registry", "records", "RX-41-DIR.yaml"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Corpus(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || !strings.HasPrefix(got[0].String(), "C6 registry-state: registry/records/RX-41-DIR.yaml: ") {
-		t.Fatalf("got %q, want one violation for the directory", got)
-	}
-}
-
-func run(t *testing.T, args ...string) (int, string, string) {
-	t.Helper()
-	var out, errb bytes.Buffer
-	code := Main(args, &out, &errb)
-	return code, out.String(), errb.String()
-}
-
-func TestMainCleanCorpus(t *testing.T) {
-	root := corpus(t, nil)
-	code, out, _ := run(t, "--corpus", "--root", root)
-	if code != 0 || out != "C6 ok\n" {
-		t.Fatalf("exit %d, stdout %q; want 0 and %q", code, out, "C6 ok\n")
-	}
-}
-
-func TestMainViolationsExitOne(t *testing.T) {
-	root := corpus(t, map[string]string{"registry/records/RX-41-TEST-01.yaml": record})
-	code, out, _ := run(t, "--corpus", "--root", root)
-	want := "C6 registry-state: registry/records/RX-41-TEST-01.yaml: no matching verify.log line"
-	if code != 1 || !strings.Contains(out, want) {
-		t.Fatalf("exit %d, stdout %q; want 1 and a line %q", code, out, want)
-	}
-	if strings.Contains(out, "C6 ok") {
-		t.Fatalf("stdout %q reports ok despite a violation", out)
-	}
-}
-
-func TestMainRootDefaultsToCwd(t *testing.T) {
+func TestRootDefaultsToCwd(t *testing.T) {
 	root := corpus(t, map[string]string{"registry/records/RX-41-TEST-01.yaml": record})
 	t.Chdir(root)
-	code, out, _ := run(t, "--corpus")
-	if code != 1 || !strings.Contains(out, "RX-41-TEST-01") {
-		t.Fatalf("exit %d, stdout %q; want 1 naming RX-41-TEST-01 from cwd", code, out)
-	}
+	code, got := lines(t, "--corpus")
+	want(t, code, got, 1, noLogFile)
 }
 
-func TestMainWithoutCorpusExitsTwo(t *testing.T) {
-	code, _, errOut := run(t)
-	if code != 2 || !strings.Contains(errOut, "consumer checks C1–C5 arrive in plan step 22") {
-		t.Fatalf("exit %d, stderr %q; want 2 and the plan step 22 message", code, errOut)
+// gitT runs git in dir and returns its trimmed stdout.
+func gitT(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
+	return strings.TrimSpace(string(out))
 }
 
-func TestMainBadUsageExitsTwo(t *testing.T) {
-	for _, args := range [][]string{{"--bogus"}, {"--corpus", "extra"}} {
-		if code, _, _ := run(t, args...); code != 2 {
-			t.Errorf("args %q: exit %d, want 2", args, code)
+// repo builds a corpus with files and commits it in a new git repo.
+func repo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := corpus(t, files)
+	gitT(t, root, "init", "-q")
+	gitT(t, root, "add", "-A")
+	gitT(t, root, "commit", "-q", "-m", "base")
+	return root
+}
+
+func TestTreeChecksCommittedBytesNotTheWorkingTree(t *testing.T) {
+	root := repo(t, map[string]string{
+		"registry/records/RX-41-TEST-01.yaml": record,
+		"registry/verify.log":                 logLine("RX-41-TEST-01", sum(record)),
+	})
+	write(t, root, map[string]string{"registry/records/RX-41-TEST-01.yaml": "edited, not committed\n"})
+
+	code, got := lines(t, "--corpus", "--root", root, "--tree", "HEAD")
+	want(t, code, got, 0)
+	code, got = lines(t, "--corpus", "--root", root)
+	want(t, code, got, 1, p1+"sha256 mismatch: file is "+sum("edited, not committed\n")+
+		"; verify.log has "+sum(record)+" for RX-41-TEST-01")
+
+	tree := gitT(t, root, "write-tree")
+	code, got = lines(t, "--corpus", "--root", filepath.Join(root, "stages"), "--tree", tree)
+	want(t, code, got, 0)
+}
+
+func TestTreeRules(t *testing.T) {
+	t.Run("unlogged committed record", func(t *testing.T) {
+		root := repo(t, map[string]string{"registry/records/RX-41-TEST-01.yaml": record})
+		code, got := lines(t, "--corpus", "--root", root, "--tree", "HEAD")
+		want(t, code, got, 1, noLogFile)
+	})
+	t.Run("executable record is a regular file", func(t *testing.T) {
+		root := corpus(t, map[string]string{"registry/verify.log": logLine("RX-41-TEST-01", sum(record))})
+		write(t, root, map[string]string{"registry/records/RX-41-TEST-01.yaml": record})
+		os.Chmod(filepath.Join(root, "registry", "records", "RX-41-TEST-01.yaml"), 0o755)
+		gitT(t, root, "init", "-q")
+		gitT(t, root, "add", "-A")
+		code, got := lines(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
+		want(t, code, got, 0)
+	})
+	t.Run("symlinked verify.log", func(t *testing.T) {
+		root := corpus(t, map[string]string{"registry/records/RX-41-TEST-01.yaml": record})
+		mklink(t, "/tmp/elsewhere.log", filepath.Join(root, "registry", "verify.log"))
+		gitT(t, root, "init", "-q")
+		gitT(t, root, "add", "-A")
+		code, got := lines(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
+		want(t, code, got, 1, unlogged,
+			"C6 registry-state: registry/verify.log: is a symlink; registry/ holds only regular files")
+	})
+	t.Run("gitlink under registry", func(t *testing.T) {
+		root := repo(t, map[string]string{"registry/verify.log": ""})
+		head := gitT(t, root, "rev-parse", "HEAD")
+		gitT(t, root, "update-index", "--add", "--cacheinfo", "160000,"+head+",registry/inventory")
+		code, got := lines(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
+		want(t, code, got, 1,
+			"C6 registry-state: registry/inventory: is a gitlink (submodule); registry/ holds only regular files")
+	})
+	t.Run("tree that is not a corpus", func(t *testing.T) {
+		root := repo(t, nil)
+		gitT(t, root, "rm", "-q", "go.mod")
+		code, out, errOut := run(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
+		if code != 2 || out != "" || !strings.Contains(errOut, "is not a corpus root") {
+			t.Fatalf("exit %d, stdout %q, stderr %q; want 2 and a not-a-corpus message", code, out, errOut)
 		}
+	})
+	t.Run("unknown tree-ish", func(t *testing.T) {
+		root := repo(t, nil)
+		code, out, errOut := run(t, "--corpus", "--root", root, "--tree", "no-such-ref")
+		if code != 2 || out != "" || !strings.HasPrefix(errOut, "regcorpus check: ") {
+			t.Fatalf("exit %d, stdout %q, stderr %q; want 2 and an error on stderr", code, out, errOut)
+		}
+	})
+	t.Run("option-like tree-ish", func(t *testing.T) {
+		root := repo(t, nil)
+		code, _, errOut := run(t, "--corpus", "--root", root, "--tree", "--output=/tmp/x")
+		if code != 2 || !strings.HasPrefix(errOut, "regcorpus check: ") {
+			t.Fatalf("exit %d, stderr %q; want 2", code, errOut)
+		}
+	})
+	t.Run("not a git repo", func(t *testing.T) {
+		code, _, errOut := run(t, "--corpus", "--root", corpus(t, nil), "--tree", "HEAD")
+		if code != 2 || !strings.HasPrefix(errOut, "regcorpus check: ") {
+			t.Fatalf("exit %d, stderr %q; want 2", code, errOut)
+		}
+	})
+}
+
+func TestUsage(t *testing.T) {
+	for _, args := range [][]string{{"-h"}, {"--help"}, {"-help"}} {
+		code, out, errOut := run(t, args...)
+		if code != 0 || !strings.HasPrefix(out, usageTop) || errOut != "" {
+			t.Errorf("%q: exit %d, stdout %q, stderr %q; want 0 and usage on stdout", args, code, out, errOut)
+		}
+	}
+	for _, args := range [][]string{{"--bogus"}, {"--corpus", "extra"}, {"--corpus", "--root"}} {
+		code, out, errOut := run(t, args...)
+		if code != 2 || out != "" || !strings.Contains(errOut, usageTop) {
+			t.Errorf("%q: exit %d, stdout %q, stderr %q; want 2 and usage on stderr", args, code, out, errOut)
+		}
+	}
+	code, out, errOut := run(t)
+	if code != 2 || out != "" ||
+		errOut != "regcorpus check: only --corpus exists; consumer checks C1–C5 arrive in plan step 22\n" {
+		t.Errorf("no args: exit %d, stdout %q, stderr %q; want 2 and the plan step 22 message", code, out, errOut)
 	}
 }
