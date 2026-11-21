@@ -273,8 +273,23 @@ protected() {
   return "$hit"
 }
 
+# git_config DIR NAME: succeed when DIR/NAME is a config file git reads for
+# this checkout or its worktrees (any of them can set core.hooksPath):
+# <common>/config, <common>/config.worktree, <common>/worktrees/*/config.worktree.
+git_config() {
+  local hit=1
+  guard_cdir
+  shopt -s nocasematch
+  case $2 in
+    config) [ "$1" -ef "$GUARD_CDIR" ] && hit=0 ;;
+    config.worktree) { [ "$1" -ef "$GUARD_CDIR" ] || [ "${1%/*}" -ef "$GUARD_CDIR/worktrees" ]; } && hit=0 ;;
+  esac
+  shopt -u nocasematch
+  return "$hit"
+}
+
 # judge PATH BASE: return 1 when PATH, resolved against BASE, is protected;
-# REL is then the path inside its work tree, or the git config's path.
+# REL is then the path inside its work tree, or the git config file's path.
 judge() {
   local p=$1 d rest
   if [[ $p != /* ]]; then
@@ -290,15 +305,10 @@ judge() {
   done
   rest=${p#"$d"}
   rest=${rest#/}
-  case $rest in
-    [Cc][Oo][Nn][Ff][Ii][Gg]) # the repo's git config, which holds core.hooksPath
-      guard_cdir
-      if [ "$d" -ef "$GUARD_CDIR" ]; then
-        REL=$GUARD_CDIR/config
-        return 1
-      fi
-      ;;
-  esac
+  if git_config "$d" "$rest"; then
+    REL=$d/$rest
+    return 1
+  fi
   place "$d" || return 0
   REL=$PFX$rest
   REL=${REL%/}
