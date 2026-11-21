@@ -1584,21 +1584,24 @@ check_command() {
 
 # ---- tools -------------------------------------------------------------------
 
-# tool_strings JQPATH: set the positional parameters (via PATHS_SH) to every
-# string under a path-like key of the tool input.
+# tool_strings: set the positional parameters (via PATHS_SH) to every string
+# under a key of the tool input that names a write target (a copy's or an
+# upload's source is read, so it is not one).
 tool_strings() {
   PATHS_SH=$(jq -r '[.tool_input | .. | objects | to_entries[]
-      | select(.key | test("^(file_path|notebook_path|path|paths|source|destination|target|old_path|new_path)$"))
+      | select(.key | test("^(file_path|notebook_path|filePath|file|filename|path|paths|destination|dest|target|to|new_path)$"))
       | .value | if type == "array" then .[] else . end | select(type == "string")]
       | @sh "set -- \(.)"' <<<"$input" 2>/dev/null) ||
     block "unreadable tool input, so the tool call cannot be checked (fail closed)"
 }
 
-# writes_files ACTION: succeed when an MCP tool's name (the part after its
-# server) says it changes files: one of its words (split at _ - . and
-# camelCase) is a write verb.
-writes_files() {
-  local a=$1 words= c i w hit=1
+# reads_only TOOL: succeed when an MCP tool's verb says it leaves local files
+# alone. The verb is the first word of the name after the server (split at
+# _ - . and camelCase), past a repeat of the server's name (git in
+# mcp__git__git_diff). A tool whose verb is not a read verb is judged.
+reads_only() {
+  local a=${1##*__} s=${1%__*} words= c i hit=1
+  s=${s##*[_-]}
   for ((i = 0; i < ${#a}; i++)); do
     c=${a:i:1}
     case $c in
@@ -1607,13 +1610,13 @@ writes_files() {
       *) words=$words$c ;;
     esac
   done
+  set -- $words
   shopt -s nocasematch
-  for w in $words; do
-    case $w in
-      write | writes | edit | edits | move | rename | delete | remove | rm | mv | cp | create | copy | mkdir | save | append | upload | replace | touch | truncate | unlink | put | update | overwrite | modify | patch)
-        hit=0 ;;
-    esac
-  done
+  [[ ${1-} == "$s" ]] && shift
+  case ${1-} in
+    read | get | list | search | view | stat | info | find | query | fetch | show | diff | compare | upload)
+      hit=0 ;;
+  esac
   shopt -u nocasematch
   return "$hit"
 }
@@ -1641,11 +1644,11 @@ case $tool in
     done
     ;;
   mcp__*)
-    # Only tools that write files, and only paths that resolve on their own:
-    # the server's working directory is unknown, so a relative path (often a
+    # Every tool but a read, and only paths that resolve on their own: the
+    # server's working directory is unknown, so a relative path (often a
     # remote repo path) is not judged, nor is a value holding a control
     # character (content, not a path).
-    writes_files "${tool##*__}" || { trap - EXIT; exit 0; }
+    reads_only "$tool" && { trap - EXIT; exit 0; }
     tool_strings
     eval "$PATHS_SH"
     for p in "$@"; do
