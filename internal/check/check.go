@@ -10,12 +10,15 @@ import (
 	"maps"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 )
 
 // Violation is one failed rule at one path. String renders the line the
 // command prints, e.g.
 // "C6 registry-state: registry/records/RX-41-TEST-01.yaml: no matching verify.log line".
+// A path that strconv.Quote would escape (a newline or other non-printable
+// character, '"' or '\') is printed quoted, so every violation is one line.
 type Violation struct {
 	Rule string // e.g. "C6 registry-state"
 	Path string // slash path relative to the corpus root
@@ -23,7 +26,11 @@ type Violation struct {
 }
 
 func (v Violation) String() string {
-	return fmt.Sprintf("%s: %s: %s", v.Rule, v.Path, v.Msg)
+	p := v.Path
+	if q := strconv.Quote(p); q[1:len(q)-1] != p {
+		p = q
+	}
+	return fmt.Sprintf("%s: %s: %s", v.Rule, p, v.Msg)
 }
 
 const (
