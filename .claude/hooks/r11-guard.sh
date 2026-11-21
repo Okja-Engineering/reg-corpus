@@ -720,7 +720,7 @@ lex() {
 # options that take a value, LONG the long options that do (space-separated;
 # an unambiguous abbreviation counts). Sets OPS (operands), OPS_DD (index in
 # OPS of the first operand after "--", or -1), OPT_K/OPT_V (options given a
-# value) and OPT_F (flags seen, " "-separated).
+# value) and OPT_F (flags seen: letters, and long ones as --NAME).
 parse_opts() {
   local short=$1 long=$2 a rest ch name dd=0
   shift 2
@@ -728,7 +728,7 @@ parse_opts() {
   OPS_DD=-1
   OPT_K=()
   OPT_V=()
-  OPT_F=' '
+  OPT_F=()
   while [ $# -gt 0 ]; do
     a=$1
     shift
@@ -749,7 +749,7 @@ parse_opts() {
           OPT_V[${#OPT_V[@]}]=${1-}
           [ $# -eq 0 ] || shift
         else
-          OPT_F="$OPT_F$name "
+          OPT_F[${#OPT_F[@]}]=$a
         fi
         ;;
       -?*)
@@ -769,7 +769,7 @@ parse_opts() {
               break
               ;;
           esac
-          OPT_F="$OPT_F$ch "
+          OPT_F[${#OPT_F[@]}]=$ch
         done
         ;;
       *) OPS[${#OPS[@]}]=$a ;;
@@ -804,10 +804,20 @@ optval() { # NAME...: OPTVAL = the value of the last of these options given
   return 1
 }
 
-hasflag() { # NAME...: succeed when one of these flags was given
-  local n
-  for n in "$@"; do
-    case $OPT_F in *" $n "*) return 0 ;; esac
+# hasflag NAME...: succeed when one of these flags was given. A long NAME
+# (more than one letter) counts in any abbreviation (--work for --worktree),
+# as git and the GNU tools accept.
+hasflag() {
+  local n i=0
+  while [ "$i" -lt "${#OPT_F[@]}" ]; do
+    for n in "$@"; do
+      if [ "${#n}" = 1 ]; then
+        [ "${OPT_F[i]}" = "$n" ] && return 0
+      else
+        case ${OPT_F[i]} in --?*) [[ $n == "${OPT_F[i]#--}"* ]] && return 0 ;; esac
+      fi
+    done
+    i=$((i + 1))
   done
   return 1
 }
