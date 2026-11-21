@@ -42,6 +42,11 @@ Preconditions, all before any extraction starts (stage 05):
 - An agent may draft `units.yaml` and the prompt; a person approves them, and a
   new prompt version is a new file (R2a).
 - A model never writes, moves or edits anything under `registry/`.
+- Blind sample (stage 03): the ceil(10%) proposals with the lowest sha256 of
+  their ID, drawn from the full set, are re-derived by a person before the
+  person sees them. Any proposal may fall in it, so report extraction by IDs
+  and counts only; never print, show or summarize a proposal's fields to the
+  person until stage 03 allows it.
 - Golden records and anchor rules are written by a person, with
   `prompt_version: manual` (plan steps 16 and 17).
 
