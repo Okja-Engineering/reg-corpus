@@ -48,8 +48,9 @@ failed=0
 out=$tmp/out
 opts=() # extra `git commit` options for the next commit_case
 
-# commit_case WANT NAME [LINE]: commit through the hook. WANT 0: it lands.
-# WANT 1: it is blocked, HEAD stays, and the output holds LINE.
+# commit_case WANT NAME [LINE]: commit through the hook. WANT 0: it lands, and
+# the output holds LINE if one is given. WANT 1: it is blocked, HEAD stays,
+# and the output holds LINE.
 commit_case() {
   local want=$1 name=$2 line=${3-} before after rc ok=0
   before=$(g rev-parse -q --verify HEAD || echo none)
@@ -57,7 +58,7 @@ commit_case() {
   rc=$?
   after=$(g rev-parse -q --verify HEAD || echo none)
   if [ "$want" = 0 ]; then
-    [ "$rc" = 0 ] && [ "$after" != "$before" ] && ok=1
+    [ "$rc" = 0 ] && [ "$after" != "$before" ] && { [ -z "$line" ] || grep -qF -- "$line" "$out"; } && ok=1
   else
     [ "$rc" != 0 ] && [ "$after" = "$before" ] && grep -qF -- "$line" "$out" && ok=1
   fi
@@ -72,6 +73,7 @@ commit_case() {
 }
 
 C6=C6\ registry-state:\ registry/records
+boot="C6 checker: warning: bootstrap" # no known main has a checker yet
 
 # --- No main yet (a fresh repo): the checker is built from the staged tree.
 R=$tmp/fresh
@@ -83,7 +85,7 @@ g add -A
 commit_case 1 "no main yet: the staged tree's checker blocks an unlogged record" \
   "$C6/RX-41-TEST-01.yaml: no matching verify.log line (registry/verify.log is missing)"
 g rm -q --cached registry/records/RX-41-TEST-01.yaml
-commit_case 0 "no main yet: the first commit is checked by its own staged checker"
+commit_case 0 "no main yet: the first commit is checked by its own staged checker, with a warning" "$boot"
 
 # --- main without a checker (main before PR #1 merges): same fallback.
 R=$tmp/repo
@@ -100,7 +102,7 @@ g add -A
 commit_case 1 "main has no checker: the staged tree's checker blocks an unlogged record" \
   "$C6/RX-41-TEST-01.yaml: no matching verify.log line (registry/verify.log is missing)"
 g rm -q --cached registry/records/RX-41-TEST-01.yaml
-commit_case 0 "main has no checker: the scaffold lands, checked by its own staged checker"
+commit_case 0 "main has no checker: the scaffold lands, checked by its own staged checker, with a warning" "$boot"
 g checkout -q main && g merge -q --ff-only scaffold || exit 1 # a person merges it
 
 # --- main has the checker.
@@ -112,6 +114,10 @@ log RX-41-TEST-01 "$(sha "$R/registry/records/RX-41-TEST-01.yaml")"
 g add -A
 commit_case 0 "logged record"
 base=$(g rev-parse HEAD)
+if grep -qF "$boot" "$out"; then
+  echo "FAIL  main has a checker, yet the hook warned of a bootstrap"
+  failed=$((failed + 1))
+fi
 
 rec RX-41-TEST-01 'id: RX-41-TEST-01
 changed: true
@@ -256,6 +262,78 @@ rm "$R/.git/info/attributes"
 g config --unset filter.swap.smudge
 g config --unset filter.swap.clean
 reset
+
+# --- Go settings in the committer's environment don't reach the checker's build.
+mkdir -p "$tmp/ws/m"
+printf 'module example.com/m\n\ngo 1.21\n' >"$tmp/ws/m/go.mod"
+printf 'go 1.21\n\nuse ./m\n' >"$tmp/ws/go.work"
+mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
+g add -A
+GOWORK=$tmp/ws/go.work commit_case 0 "a go.work named by GOWORK doesn't reach the checker's build"
+reset
+mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
+g add -A
+GOTOOLCHAIN=go1.999.0 GOPROXY=off commit_case 0 "GOTOOLCHAIN can't switch the checker's toolchain"
+reset
+
+# --- Known mains: once refs/heads/main or refs/remotes/origin/main has a
+# checker, no commit is checked by its own. Each clone below has origin/main
+# with the checker (this repo's main) and stages a weakened checker beside an
+# unlogged record.
+pre=$(g rev-list --max-parents=0 main) # main before the checker
+clone() {                              # clone NAME: a clone of this repo, on branch work
+  git clone -q "$tmp/repo" "$tmp/$1" || exit 1
+  R=$tmp/$1
+  g config core.hooksPath .githooks && g checkout -q -b work || exit 1
+}
+weaken() { # stage a weakened checker and the unlogged record RX-41-TEST-12
+  cp "$tmp/evil.go" "$R/internal/check/check.go"
+  rec RX-41-TEST-12 'id: RX-41-TEST-12
+'
+  g add -A
+}
+
+clone stale
+g branch -q -f main "$pre"
+weaken
+commit_case 1 "a clone whose local main is stale: origin/main's checker checks the commit" \
+  "$C6/RX-41-TEST-12.yaml: no matching verify.log line"
+
+clone nomain
+g branch -q -D main
+weaken
+commit_case 1 "a clone with no local main: origin/main's checker checks the commit" \
+  "$C6/RX-41-TEST-12.yaml: no matching verify.log line"
+
+clone diverged
+g checkout -q -b side origin/main^
+cp "$tmp/evil.go" "$R/internal/check/check.go"
+g commit -qam "weaken the checker beside main" >"$out" 2>&1 || { sed 's/^/      /' "$out"; exit 1; }
+g branch -q -f main side
+g checkout -q work
+rec RX-41-TEST-12 'id: RX-41-TEST-12
+'
+g add -A
+commit_case 1 "a local main that diverged from origin/main: origin/main's checker checks the commit" \
+  "$C6/RX-41-TEST-12.yaml: no matching verify.log line"
+
+clone ahead
+g update-ref refs/remotes/origin/main "$pre"
+weaken
+commit_case 1 "origin/main without a checker, local main with one: local main's checker checks the commit" \
+  "$C6/RX-41-TEST-12.yaml: no matching verify.log line"
+
+clone unbuildable
+g checkout -q -b break
+printf 'this line does not compile\n' >>"$R/internal/check/check.go"
+g commit -qam "a checker that doesn't build" >"$out" 2>&1 || { sed 's/^/      /' "$out"; exit 1; }
+g update-ref refs/remotes/origin/main HEAD
+g checkout -q work
+mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
+g add -A
+commit_case 1 "main's checker doesn't build: every commit is blocked, and the error says how to recover" \
+  "To recover"
+R=$tmp/repo
 
 # --- go.sum travels with go.mod: once a dependency lands, commits still build.
 # A local module proxy serves example.com/dep; nothing is fetched from the network.
