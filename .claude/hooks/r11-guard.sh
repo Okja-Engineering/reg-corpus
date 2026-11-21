@@ -125,6 +125,7 @@ trap 'block "stopped by a signal, so the tool call cannot be checked (fail close
 
 protected_msg='registry/, .githooks/, .claude/ and the git config are not writable by agents (R11)'
 verify_msg='regcorpus verify is run by a person in a terminal, never by an agent (R2a, R11)'
+inventory_msg='regcorpus inventory --init is run by a person, never by an agent (R3, R11)'
 DYN=$'\x01' # marks where a word stops being concrete (an expansion starts)
 HOME_V=${HOME-}
 TMPDIR_V=${TMPDIR-}
@@ -362,7 +363,6 @@ re_assign='^[A-Za-z_][A-Za-z0-9_]*='
 re_assign_head='^[A-Za-z_][A-Za-z0-9_]*=$'
 re_name='^[A-Za-z_][A-Za-z0-9_]*'
 re_tilde='^~[A-Za-z0-9._+-]*'
-re_rcverify='(^|[^[:alnum:]_.-])regcorpus[[:space:]]+verify([^[:alnum:]_-]|$)'
 
 emit() { # TYPE VALUE [TARGET]
   local i=${#TT[@]}
@@ -915,9 +915,10 @@ check_assignment() { # NAME=VALUE
   return 0
 }
 
-# rc_verify WORD...: succeed when the command WORD... runs regcorpus verify.
-rc_verify() {
-  local w=$1 base
+# rc_person WORD...: succeed when the command WORD... runs a regcorpus
+# command a person runs: verify, or inventory --init. RES = the reason.
+rc_person() {
+  local w=$1 base a
   shift
   base=${w##*/}
   if [ "$base" = go ] && [ "${1-}" = run ]; then
@@ -938,7 +939,30 @@ rc_verify() {
   fi
   [ "$base" = regcorpus ] || return 1
   while [ $# -gt 0 ] && [[ $1 == -* ]]; do shift; done
-  [ $# -gt 0 ] && [ "$1" = verify ]
+  [ $# -gt 0 ] || return 1
+  case $1 in
+    verify) RES=$verify_msg; return 0 ;;
+    inventory)
+      for a in "$@"; do
+        case $a in -init | --init | -init=* | --init=*) RES=$inventory_msg; return 0 ;; esac
+      done
+      ;;
+  esac
+  return 1
+}
+
+# rc_person_text STRING: succeed when a command string given to script,
+# expect or unbuffer as one word names a command a person runs. RES = the reason.
+re_rcverify='(^|[^[:alnum:]_.-])regcorpus[[:space:]]+verify([^[:alnum:]_-]|$)'
+re_rcinit='(^|[^[:alnum:]_.-])regcorpus[[:space:]]+inventory([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+--?init([=[:space:];&|]|$)'
+rc_person_text() {
+  if [[ $1 =~ $re_rcverify ]]; then
+    RES=$verify_msg
+  elif [[ $1 =~ $re_rcinit ]]; then
+    RES=$inventory_msg
+  else
+    return 1
+  fi
 }
 
 no_verify_word() { # an abbreviation of --no-verify from --no-v up
@@ -1445,7 +1469,7 @@ cmd() {
   w=$1
   shift
   case $w in *"$DYN"*) return 0 ;; esac # not a concrete command name
-  rc_verify "$w" "$@" && block "$verify_msg"
+  rc_person "$w" "$@" && block "$RES"
   base=${w##*/}
   case $base in
     g?*) case $writers in *" ${base#g} "*) base=${base#g} ;; esac ;; # GNU names on macOS
@@ -1528,8 +1552,8 @@ cmd() {
     script | expect | unbuffer)
       ws=("$w" "$@")
       for ((j = 1; j < ${#ws[@]}; j++)); do
-        if rc_verify "${ws[@]:j}" || [[ ${ws[j]} =~ $re_rcverify ]]; then
-          block "$verify_msg"
+        if rc_person "${ws[@]:j}" || rc_person_text "${ws[j]}"; then
+          block "$RES"
         fi
       done
       ;;
