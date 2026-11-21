@@ -515,6 +515,28 @@ func TestTreeRules(t *testing.T) {
 			"C6 registry-state: regiſtry/records/RX-41-TEST-04.yaml: "+layout,
 		)
 	})
+	t.Run("a directory in records is listed and fails", func(t *testing.T) {
+		root := repo(t, map[string]string{
+			"registry/verify.log":                       "",
+			"registry/records/RX-41-DIR.yaml/RX-1.yaml": record,
+		})
+		code, got := lines(t, "--corpus", "--root", root, "--tree", "HEAD")
+		want(t, code, got, 1,
+			"C6 registry-state: registry/records/RX-41-DIR.yaml: "+onlyRX,
+			"C6 registry-state: registry/records/RX-41-DIR.yaml/RX-1.yaml: "+layout)
+	})
+	t.Run("replace refs don't change the bytes checked", func(t *testing.T) {
+		root := repo(t, map[string]string{
+			"registry/records/RX-41-TEST-01.yaml": record,
+			"registry/verify.log":                 logLine("RX-41-TEST-01", sum("logged\n")),
+		})
+		write(t, root, map[string]string{"logged.txt": "logged\n"})
+		logged := gitT(t, root, "hash-object", "-w", "logged.txt")
+		gitT(t, root, "replace", gitT(t, root, "rev-parse", "HEAD:registry/records/RX-41-TEST-01.yaml"), logged)
+		code, got := lines(t, "--corpus", "--root", root, "--tree", "HEAD")
+		want(t, code, got, 1, p1+"sha256 mismatch: file is "+sum(record)+
+			"; verify.log has "+sum("logged\n")+" for RX-41-TEST-01")
+	})
 	t.Run("tree that is not a corpus", func(t *testing.T) {
 		root := repo(t, nil)
 		gitT(t, root, "rm", "-q", "go.mod")
