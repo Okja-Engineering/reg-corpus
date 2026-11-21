@@ -12,13 +12,13 @@
 # checks it: not by committing a weaker checker first, --amend, an orphan
 # branch or a moved cmd/regcorpus/main.go. And a branch whose own checker
 # doesn't build can still commit. Only while main holds no checker (no
-# cmd/regcorpus/main.go: until PR #1 merges) is it built from the tree being
-# committed. Its source (go.mod, go.sum when present, cmd/, internal/) is
-# copied as raw blobs, the way the check reads the commit (ls-tree, cat-file,
-# no replace refs), so no filter or replace ref can change it. Go settings
-# that could swap it (GOFLAGS, a go env file, go.work, a toolchain switch) are
-# turned off for the build, and a built binary runs, so its exit code reaches
-# this script. Any failure blocks.
+# cmd/regcorpus/main.go: until PR #1 merges) or doesn't exist yet (a fresh
+# repo) is it built from the tree being committed. Its source (go.mod, go.sum
+# when present, cmd/, internal/) is copied as raw blobs, the way the check
+# reads the commit (ls-tree, cat-file, no replace refs), so no filter or
+# replace ref can change it. Go settings that could swap it (GOFLAGS, a go env
+# file, go.work, a toolchain switch) are turned off for the build, and a built
+# binary runs, so its exit code reaches this script. Any failure blocks.
 #
 # Trade-off: a branch that changes what C6 reads (e.g. the verify.log format,
 # plan step 19) is checked by main's older checker until it merges, so it may
@@ -26,8 +26,8 @@
 #
 # Residual (CI later): the index can change between write-tree and the commit;
 # commits that skip pre-commit (merge, rebase, cherry-pick, am, commit-tree)
-# are not checked here; whoever moves the local main ref or the Go toolchain
-# chooses the checker.
+# are not checked here; whoever moves or deletes the local main ref, or
+# changes the Go toolchain, chooses the checker.
 set -euo pipefail
 export GIT_NO_REPLACE_OBJECTS=1
 
