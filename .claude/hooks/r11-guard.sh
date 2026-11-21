@@ -1183,10 +1183,11 @@ write_cmd() {
       ;;
     sed) judge_inplace "$cw" "sed -i" 'i I in-place' 'e f expression file' 'l line-length' "$@" ;;
     perl) judge_inplace "$cw" "perl -i" i 'e E' 'M m I x l d 0 D C V' "$@" ;;
+    yq) judge_inplace "$cw" "yq -i" 'i inplace in-place' from-file '' "$@" ;;
   esac
   return 0
 }
-writers=' rm rmdir unlink tee touch mkdir truncate chmod chown chgrp mv cp ln install rsync dd sed perl '
+writers=' rm rmdir unlink tee touch mkdir truncate chmod chown chgrp mv cp ln install rsync dd sed perl yq '
 
 # move_cwd cd|pushd|popd ARG...: follow the shell's working directory (CWD)
 # and directory stack (DIRS). What can't be followed makes CWD unknown ("?").
