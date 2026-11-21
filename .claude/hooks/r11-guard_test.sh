@@ -43,6 +43,11 @@ printf '.claude/worktrees/\n' >"$MAIN/.gitignore"
 ln -s registry "$MAIN/reglink"                # a directory symlink into registry/
 ln -s registry/verify.log "$MAIN/loglink"     # a file symlink into registry/
 mkdir -p "$tmp/outside/registry"              # not in any git repo
+UPMAIN=$(printf '%s' "$MAIN" | tr '[:lower:]' '[:upper:]') # same dir if case-insensitive
+NFC=$tmp/caf$'\xc3\xa9'                        # a corpus repo whose name is NFC "café"
+NFD=$tmp/cafe$'\xcc\x81'                       # the same name spelled NFD
+mkdir -p "$NFC/.claude/hooks" && touch "$NFC/.claude/hooks/r11-guard.sh" && git -C "$NFC" init -q ||
+  { echo "r11-guard_test: fixture setup failed" >&2; exit 1; }
 OTHER=$tmp/other                              # a git repo that is not a corpus
 mkdir -p "$OTHER/registry" "$OTHER/.claude" && git -C "$OTHER" init -q ||
   { echo "r11-guard_test: fixture setup failed" >&2; exit 1; }
@@ -311,6 +316,37 @@ EOF
   sh_case 2 'cd registry && echo x > verify.log'
   sh_case 2 'cd registry; rm verify.log'
   sh_case 2 'git -C registry rm verify.log'
+
+  echo "-- blocked: relative writes from a cwd inside a protected dir"
+  sh_case 2 'echo x > pre-commit' "$MAIN/.githooks"
+  sh_case 2 'echo x >> verify.log' "$MAIN/registry"
+  sh_case 2 'echo {} > settings.json' "$MAIN/.claude"
+  sh_case 2 'rm r11-guard.sh' "$MAIN/.claude/hooks"
+  file_case 2 Edit 'verify.log' "$MAIN/registry"
+  sh_case 0 'cat pre-commit && ls' "$MAIN/.githooks"
+  sh_case 0 'echo x > ../staging/x.txt' "$MAIN/registry"
+
+  echo "-- blocked: path-qualified writers"
+  sh_case 2 '/bin/cp a registry/records/'
+  sh_case 2 '/bin/rm .githooks/pre-commit'
+  sh_case 2 "/usr/bin/sed -i '' s/a/b/ .claude/settings.json"
+  sh_case 2 '/bin/chmod -x .githooks/pre-commit'
+  sh_case 2 '/usr/bin/git commit -n -m x'
+
+  echo "-- blocked: other spellings of the repo path (case, Unicode normalization)"
+  if [ -d "$UPMAIN" ]; then
+    file_case 2 Write "$UPMAIN/registry/verify.log"
+    file_case 2 Edit "$UPMAIN/Registry/verify.log"
+    sh_case 2 "echo x > $UPMAIN/registry/verify.log"
+    file_case 0 Edit "$UPMAIN/AGENTS.md"
+  else
+    pass "case-sensitive file system: upper-case spelling is another path (skipped)"
+  fi
+  if [ -d "$NFD" ]; then
+    file_case 2 Write "$NFD/registry/verify.log"
+  else
+    pass "normalization-sensitive file system: NFD spelling is another path (skipped)"
+  fi
 
   echo "-- blocked: file tools under registry/, .githooks/, .claude/"
   file_case 2 Edit "$MAIN/registry/records/RX-41-ACK-01.yaml"
