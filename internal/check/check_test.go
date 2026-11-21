@@ -88,6 +88,7 @@ const (
 	noLogFile = p1 + "no matching verify.log line (registry/verify.log is missing)"
 	onlyRX    = "registry/records/ holds only RX-*.yaml record files"
 	layout    = "not in the registry layout: records/RX-*.yaml, verify.log, topics.yaml, inventory/*.yaml (names are case-sensitive)"
+	notASCII  = "top-level name is not ASCII; a checkout could fold it into registry/"
 )
 
 func TestRegistryStateRules(t *testing.T) {
@@ -248,6 +249,47 @@ func TestRegistryStateRules(t *testing.T) {
 			},
 		},
 		{
+			name: "layout places hold only their own kind of entry",
+			files: map[string]string{
+				"registry/records/RX-41-TEST-01.yaml": record,
+				"registry/topics.yaml/x":              "x\n",
+				"registry/inventory/1024.41.yaml/x":   "x\n",
+			},
+			dirs: []string{"registry/verify.log"},
+			code: 1, lines: []string{
+				"C6 registry-state: registry/inventory/1024.41.yaml: " + layout,
+				"C6 registry-state: registry/inventory/1024.41.yaml/x: " + layout,
+				unlogged,
+				"C6 registry-state: registry/topics.yaml: " + layout,
+				"C6 registry-state: registry/topics.yaml/x: " + layout,
+				"C6 registry-state: registry/verify.log: " + layout,
+			},
+		},
+		{
+			name:  "records/ and inventory/ as files are reported",
+			files: map[string]string{"registry/records": "x\n", "registry/inventory": "x\n"},
+			code:  1, lines: []string{
+				"C6 registry-state: registry/inventory: " + layout,
+				"C6 registry-state: registry/records: " + layout,
+			},
+		},
+		{
+			name:  "registry as a file is reported",
+			files: map[string]string{"registry": "x\n"},
+			code:  1, lines: []string{"C6 registry-state: registry: " + layout},
+		},
+		{
+			name: "a top-level name that isn't ASCII is reported, whatever it holds",
+			files: map[string]string{
+				"regiﬆry/records/RX-41-TEST-01.yaml": record, // APFS folds ﬆ to st
+				"café.md":                            "x\n",
+			},
+			code: 1, lines: []string{
+				"C6 registry-state: café.md: " + notASCII,
+				"C6 registry-state: regiﬆry: " + notASCII,
+			},
+		},
+		{
 			name: "a newline in a name stays on the violation's one line, quoted",
 			files: map[string]string{
 				"registry/records/RX-41-TEST-01\nC6 ok.yaml": record,
@@ -391,6 +433,93 @@ func TestRootMustBeACorpus(t *testing.T) {
 	}
 }
 
+// The corpus markers are judged without following a symlink, the same way in
+// a directory and in a git tree: a regular go.mod and a real stages/.
+func TestMarkersAreNotFollowedInEitherMode(t *testing.T) {
+	for _, tc := range []struct {
+		name, marker, reason string
+	}{
+		{"symlinked go.mod", "go.mod", "(no go.mod declaring module github.com/okja-engineering/reg-corpus)\n"},
+		{"symlinked stages/", "stages", "(no stages/ directory)\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			real := corpus(t, nil)
+			root := corpus(t, nil)
+			if err := os.RemoveAll(filepath.Join(root, tc.marker)); err != nil {
+				t.Fatal(err)
+			}
+			mklink(t, filepath.Join(real, tc.marker), filepath.Join(root, tc.marker))
+			gitT(t, root, "init", "-q")
+			gitT(t, root, "add", "-A")
+			tree := gitT(t, root, "write-tree")
+			for _, args := range [][]string{{"--root", root}, {"--root", root, "--tree", tree}} {
+				code, out, errOut := run(t, append([]string{"--corpus"}, args...)...)
+				what := root
+				if len(args) == 4 {
+					what = "tree " + tree
+				}
+				if want := strings.Replace(notRoot, "%s", what, 1) + " " + tc.reason; code != 2 || out != "" || errOut != want {
+					t.Errorf("%q: exit %d, stdout %q, stderr %q; want 2 and %q", args, code, out, errOut, want)
+				}
+			}
+		})
+	}
+}
+
+// What `make check` reads (the working tree) holds files no commit would: a
+// file git ignores and doesn't track never fails the check there. The repo's
+// own .gitignore ignores the usual clutter. A tree is checked as committed.
+func TestDirectoryModeSkipsWhatGitIgnores(t *testing.T) {
+	ignore, err := os.ReadFile(filepath.Join("..", "..", ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clutter := []string{
+		"registry/.DS_Store",
+		"registry/records/.DS_Store",
+		"registry/records/.RX-41-TEST-01.yaml.swp",
+		"registry/records/.RX-41-TEST-01.yaml.swo",
+		"registry/records/RX-41-TEST-01.yaml~",
+		"registry/inventory/1024.41.yaml~",
+	}
+	root := repo(t, map[string]string{
+		".gitignore":                          string(ignore),
+		"registry/records/RX-41-TEST-01.yaml": record,
+		"registry/verify.log":                 logLine("RX-41-TEST-01", sum(record)),
+	})
+	for _, p := range clutter {
+		write(t, root, map[string]string{p: "clutter\n"})
+	}
+	code, got := lines(t, "--corpus", "--root", root)
+	want(t, code, got, 0)
+
+	write(t, root, map[string]string{"registry/notes.txt": "x\n"})
+	code, got = lines(t, "--corpus", "--root", root)
+	want(t, code, got, 1, "C6 registry-state: registry/notes.txt: "+layout)
+	os.Remove(filepath.Join(root, "registry", "notes.txt"))
+
+	gitT(t, root, "add", "-f", "registry/.DS_Store") // tracked: a commit holds it
+	code, got = lines(t, "--corpus", "--root", root)
+	want(t, code, got, 1, "C6 registry-state: registry/.DS_Store: "+layout)
+	code, got = lines(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
+	want(t, code, got, 1, "C6 registry-state: registry/.DS_Store: "+layout)
+}
+
+func TestUnlistableRootIsUnreadable(t *testing.T) {
+	root := corpus(t, map[string]string{"registry/verify.log": ""})
+	if err := os.Chmod(root, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(root, 0o755) })
+	if _, err := os.ReadDir(root); err == nil {
+		t.Skip("running with privileges that list a mode-0300 directory")
+	}
+	code, out, errOut := run(t, "--corpus", "--root", root)
+	if code != 2 || out != "" || !strings.HasPrefix(errOut, "regcorpus check: cannot list "+root+": ") {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want 2 and a cannot-list error", code, out, errOut)
+	}
+}
+
 func TestRootDefaultsToCwd(t *testing.T) {
 	root := corpus(t, map[string]string{"registry/records/RX-41-TEST-01.yaml": record})
 	t.Chdir(root)
@@ -489,6 +618,7 @@ func TestTreeRules(t *testing.T) {
 			"registry/Records/RX-41-TEST-02.yaml",
 			"Registry/records/RX-41-TEST-03.yaml",
 			"regiſtry/records/RX-41-TEST-04.yaml", // long s: folds to s, as APFS does
+			"regiﬆry/records/RX-41-TEST-05.yaml", // ligature st: APFS folds it to st
 		} {
 			gitT(t, root, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+p)
 		}
@@ -499,9 +629,8 @@ func TestTreeRules(t *testing.T) {
 			"C6 registry-state: Registry/records/RX-41-TEST-03.yaml: "+layout,
 			"C6 registry-state: registry/Records: "+layout,
 			"C6 registry-state: registry/Records/RX-41-TEST-02.yaml: "+layout,
-			"C6 registry-state: regiſtry: "+layout,
-			"C6 registry-state: regiſtry/records: "+layout,
-			"C6 registry-state: regiſtry/records/RX-41-TEST-04.yaml: "+layout,
+			"C6 registry-state: regiſtry: "+notASCII,
+			"C6 registry-state: regiﬆry: "+notASCII,
 		)
 	})
 	t.Run("a directory in records is listed and fails", func(t *testing.T) {
