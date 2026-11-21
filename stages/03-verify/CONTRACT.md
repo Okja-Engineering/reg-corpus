@@ -36,15 +36,19 @@ for a record into `registry/`. A person also signs off the inventory, by hand (R
   disagreement is built in plan step 19; `check --complete` reports the rate.
 
 ## Check that ends it
-- Per record and per commit: `regcorpus check --corpus` exits 0 (C6). The
-  pre-commit hook runs it on the commit's own tree (`--tree`); `make check` runs
-  it on the working tree. Exit 0 means every registry rule built so far passes.
-  Today that is the registry-state rule: every entry under `registry/` (or any
-  case variant of that name) is a regular file or directory; each file in
-  `registry/records/` is named `RX-*.yaml` and has a `verify.log` line whose
-  ID and sha256 match it; and nothing else is there but `verify.log`,
+- Per record and per commit: `regcorpus check --corpus` exits 0 (C6). CI, the
+  gate, runs it on each push and pull request, and the pre-commit hook on each
+  commit: both on the commit's own tree (`--tree`), with main's checker.
+  `make check` runs the branch's own checker on the working tree, leaving out
+  files git ignores. Exit 0 means every registry rule built so far passes.
+  Today that is the registry-state rule: each file in `registry/records/` is
+  named `RX-*.yaml` and has a `verify.log` line whose ID and sha256 match it.
+  With it runs a layout rule that the spec's C6 list doesn't name (a C6
+  addition, recorded as a finding in PR #1): no top-level name outside ASCII;
+  every entry under `registry/` (or any ASCII case variant of that name) is a
+  regular file or directory; and nothing else is there but `verify.log`,
   `topics.yaml` and `inventory/*.yaml`, spelled exactly. The other C6 rules
-  arrive in plan step 13.
+  arrive in plan step 13, and the skill's 8-word rule in plan step 23.
 - For the stage as a whole: `regcorpus check --corpus --complete` exits 0 (R2/R3;
   plan step 13). Exit 0 means every operative anchor is cited or `na`, every
   inventory entry is `reviewed`, and every active record is in a topic. So it

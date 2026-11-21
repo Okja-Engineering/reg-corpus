@@ -20,7 +20,7 @@ Spec (authoritative): `docs/03-spec.md`. Plan: `docs/04-plan.md`. Intent:
 - `prompts/`: versioned extraction prompts. `skill/regcorpus/`: the agent skill (R9).
 - `cmd/regcorpus/`, `internal/*/`: the Go CLI. Each package's `doc.go` names its job.
 - `eval/`: seeds, fixtures, judge prompt, runs, results, walk and guard transcripts (R7).
-- `.githooks/pre-commit`: the C6 gate, built from `main`'s checker. `.claude/`: the agent guard (R11).
+- `.github/`: CI, the C6 gate. `.githooks/`: a per-commit seatbelt. `.claude/`: the guard (R11).
 
 ## Stages and their order
 | Stage | Contract | Who acts |
@@ -56,12 +56,12 @@ Order (plan, decision-critical path):
 | 24 | `eval/negative/`, `make negative` | agent | spec "Acceptance" R4/R5 |
 | 25 | `make build CORPUS_REF=`/`LOOKUP_ONLY=1`; `eval/render` | agent | spec "Releases and distribution"; stage 05 |
 
-A tool step ends when it is built, `make test` passes and its acceptance command
-behaves as the spec says (e.g. `check --complete` names each gap), not when the
-requirement is met. Needed across stages: 12 before 02; 13, 14 and 20 before 03 ends
-(`check --complete` reads the inventory and `registry/topics.yaml`); 22, 23 and 25
-before 05's arms (b) and (c). A person approves `units.yaml` and
-`prompts/extract-v1.md` (an agent may draft them) before extraction (stage 02).
+A tool step ends when it is built, `make test` passes and its acceptance command behaves as
+the spec says (e.g. `check --complete` names each gap), not when the requirement is met.
+Needed across stages: 12 before 02; 13 before 02 ends (`check --staging` runs C6); 15 and 19
+before 03 (`show --staging`, `verify`); 13, 14 and 20 before 03 ends (`check --complete`
+reads the inventory and `registry/topics.yaml`); 22, 23 and 25 before 05's arms (b) and (c).
+A person approves `units.yaml` and `prompts/extract-v1.md` (an agent may draft) before extraction.
 
 To pick up work, open the contract for your task (fetch or parse: 01; propose
 records: 02; verify a record: 03; tag: 04; eval runs or grading: 05; anything
@@ -79,21 +79,21 @@ else: the table above), read its Inputs and Check, and act within "Who may run i
   the label fields and decomposition the schema asks for; the eval fixture's seeded errors
   and `must_say` are deliberate. Neither is guidance. No product or compliance guidance here.
 - CLI only: no server, API or MCP (decision 6).
-- The R11 guard stops shortcuts, not attackers; C6 is the gate (see `.claude/hooks/r11-guard.sh`).
+- CI (`.github/workflows/c6.yml`) is the C6 gate; the hook and the R11 guard are seatbelts that
+  stop shortcuts, not attackers. A PR can edit this workflow; the user, who alone merges,
+  reviews such diffs. A person (the user) makes `C6 gate` a required check on main.
 
 ## Make targets
-- `make setup`: point git at `.githooks/`; run by a person, once per clone.
+- `make help` (default): list targets. `make setup`: point git at `.githooks/` (a person, once).
 - `make build`: build `./regcorpus` (not on PATH). `./regcorpus help` lists the commands
   built today; a contract naming one not built yet names the plan step that builds it.
-- `make test`: Go tests, the R11 guard tests and the pre-commit gate tests.
-- `make check`: `./regcorpus check --corpus` on the working tree (C6); the hook checks
-  the commit itself (`--tree`), which can differ. On any failure make exits 2; for
-  the check's own code (0 ok, 1 violations, 2 unreadable) run `./regcorpus` directly.
-- `make help` (default): list targets.
+- `make test`: Go tests, the R11 guard tests and the pre-commit hook tests (CI runs it too).
+- `make check`: the branch's checker on the working tree (`./regcorpus check --corpus`, C6).
+  The hook and CI run main's checker on the commit (`--tree`), so they can differ. make exits
+  2 on failure; run `./regcorpus` for the check's own code (0 ok, 1 violations, 2 unreadable).
 
 ## Reporting at the end of a stage
-1. Run the "Check that ends it" command from that stage's contract.
-2. Report the stage, the exact command, its full output and its exit code.
-3. If the check is not built yet, say so, name the plan step, and report what
-   you did instead. Do not claim the stage is done.
-4. List any file you changed. Never report a `registry/` change as yours.
+1. Run the contract's "Check that ends it"; report the stage, exact command, full output, exit code.
+2. If the check is not built yet, say so, name the plan step, and report what you did
+   instead. Do not claim the stage is done.
+3. List any file you changed. Never report a `registry/` change as yours.

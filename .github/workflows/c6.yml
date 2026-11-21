@@ -8,7 +8,9 @@
 # merges) is it built from the commit under test, with a warning annotation.
 # .github/c6.sh runs the check; .githooks/build-checker.sh builds the checker,
 # the same way the pre-commit hook does. A push to main is checked by main's
-# own checker; as a pull request it was checked by the old main's.
+# own checker; as a pull request it was checked by the old main's. If main's
+# checker doesn't build, every run fails, the repair's too: the user merges the
+# repair past this check.
 #
 # A PR can edit this workflow; the user, who alone merges, reviews such diffs.
 # The same holds for the scripts it runs. Making this check required (branch

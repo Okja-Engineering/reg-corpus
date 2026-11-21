@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the per-commit corpus gate (.githooks/pre-commit; C6, R5).
+# Tests for the per-commit corpus check (.githooks/pre-commit, a seatbelt; CI is the gate; C6, R5).
 #
 # Builds throwaway corpus repos from this checkout's go.mod, cmd/, internal/
 # and stages/ (working-tree copies), installs the hook under test and its

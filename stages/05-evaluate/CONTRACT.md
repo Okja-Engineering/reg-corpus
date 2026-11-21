@@ -66,3 +66,9 @@ the final decision (R7 acceptance). Two gates come before it:
   written in `docs/03-spec.md`.
 - Spec "Evaluation (R7)": fixture source, seeds, `key.yaml`, arms, grading,
   metrics and results fields.
+- R10 walk test (plan step 18): a fresh session given only the repo names
+  `stages/03-verify/CONTRACT.md` and the correct staged record; the transcript
+  and corpus commit are saved under `eval/walk/`.
+- R11 guard check (plan step 21): `git commit --no-verify`, an edit under
+  `registry/` and `regcorpus verify` are each blocked; the transcript is saved
+  under `eval/guard/`.
