@@ -24,10 +24,15 @@ tmp=$(cd "$tmp" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 errfile=$tmp/stderr
 
-# The fixture: MAIN is a main checkout holding this repo's guard and settings;
-# WT is a git worktree of it at MAIN/.claude/worktrees/wt1.
-MAIN=$tmp/main
+# The fixture: MAIN is a main checkout holding this repo's guard and settings,
+# under a directory whose name is NFC "café"; WT is a git worktree of it at
+# MAIN/.claude/worktrees/wt1; WTN is a worktree outside it whose guard file is
+# gone (still this checkout); CLONE is a throwaway clone (not this checkout).
+ROOT=$tmp/caf$'\xc3\xa9'
+MAIN=$ROOT/main
 WT=$MAIN/.claude/worktrees/wt1
+WTN=$tmp/wt-nomarker
+CLONE=$tmp/clone
 mkdir -p "$MAIN/.claude/hooks" "$MAIN/registry/records" "$MAIN/.githooks" \
   "$MAIN/internal/registry" "$MAIN/staging" "$MAIN/docs"
 cp "$src/.claude/settings.json" "$MAIN/.claude/settings.json"
@@ -38,18 +43,20 @@ printf '.claude/worktrees/\n' >"$MAIN/.gitignore"
 (
   cd "$MAIN" && git init -q && git add -A &&
     git -c user.name=t -c user.email=t@example.com commit -qm base &&
-    git worktree add -q "$WT" -b wt1
+    git worktree add -q "$WT" -b wt1 &&
+    git worktree add -q --detach "$WTN" && rm "$WTN/.claude/hooks/r11-guard.sh" &&
+    git clone -q "$MAIN" "$CLONE"
 ) || { echo "r11-guard_test: fixture setup failed" >&2; exit 1; }
 ln -s registry "$MAIN/reglink"                # a directory symlink into registry/
 ln -s registry/verify.log "$MAIN/loglink"     # a file symlink into registry/
+ln -s ../registry/records "$MAIN/staging/recl" # cd staging/recl && cd .. is staging (logical)
+mkdir -p "$MAIN/.claude/worktrees/stale-dir"  # a leftover non-git dir
 mkdir -p "$tmp/outside/registry"              # not in any git repo
 UPMAIN=$(printf '%s' "$MAIN" | tr '[:lower:]' '[:upper:]') # same dir if case-insensitive
-NFC=$tmp/caf$'\xc3\xa9'                        # a corpus repo whose name is NFC "café"
-NFD=$tmp/cafe$'\xcc\x81'                       # the same name spelled NFD
-mkdir -p "$NFC/.claude/hooks" && touch "$NFC/.claude/hooks/r11-guard.sh" && git -C "$NFC" init -q ||
-  { echo "r11-guard_test: fixture setup failed" >&2; exit 1; }
-OTHER=$tmp/other                              # a git repo that is not a corpus
-mkdir -p "$OTHER/registry" "$OTHER/.claude" && git -C "$OTHER" init -q ||
+NFD=$tmp/cafe$'\xcc\x81'/main                 # MAIN with its parent spelled NFD
+OTHER=$tmp/other                              # a git repo that is not a corpus,
+mkdir -p "$OTHER/registry" "$OTHER/.claude/hooks" && git -C "$OTHER" init -q && # whose guard
+  ln -s "$MAIN/.claude/hooks/r11-guard.sh" "$OTHER/.claude/hooks/r11-guard.sh" || # is a link
   { echo "r11-guard_test: fixture setup failed" >&2; exit 1; }
 
 hookcmd=$(jq -er '.hooks.PreToolUse[0].hooks[0].command' "$MAIN/.claude/settings.json") ||
@@ -79,10 +86,14 @@ payload() {
 }
 
 # expect WANT NAME JSON [PROJECT_DIR [PATH]]: run the hook command from
-# settings.json on JSON as Claude Code does and compare the exit code.
+# settings.json on JSON as Claude Code does and compare the exit code. XENV
+# (NAME=VALUE words, default none) is added to the hook's environment.
+XENV=
 expect() {
   local want=$1 name=$2 json=$3 pd=${4-$MAIN} path=${5-$PATH} got
-  printf '%s' "$json" | env PATH="$path" CLAUDE_PROJECT_DIR="$pd" /bin/sh -c "$hookcmd" >/dev/null 2>"$errfile"
+  [ -z "$XENV" ] || name="$name [$XENV]"
+  # shellcheck disable=SC2086 # XENV is a list of NAME=VALUE words
+  printf '%s' "$json" | env PATH="$path" CLAUDE_PROJECT_DIR="$pd" $XENV /bin/sh -c "$hookcmd" >/dev/null 2>"$errfile"
   got=$?
   if [ "$got" = "$want" ] && { [ "$want" != 2 ] || grep -q '^R11 guard: blocked — ' "$errfile"; } &&
     { [ "$want" != 0 ] || [ ! -s "$errfile" ]; }; then
@@ -101,12 +112,23 @@ mcp_case() { # WANT TOOL JSON-INPUT
 
 table() {
   echo "-- settings: matcher and deny rules"
+  # Claude Code tests a regex matcher unanchored (JavaScript RegExp.test), so
+  # it also runs the guard on tools whose names merely contain an alternative
+  # (TodoWrite); the guard must let those through.
   local t
   for t in Bash Edit Write MultiEdit NotebookEdit mcp__plugin_desktop-commander_desktop-commander__write_file mcp__srv__put; do
-    if [[ $t =~ ^($matcher)$ ]]; then pass "matcher covers $t"; else fail "matcher misses $t"; fi
+    if [[ $t =~ $matcher ]]; then pass "matcher covers $t"; else fail "matcher misses $t"; fi
   done
-  for t in Read Grep Glob WebFetch; do
-    if [[ $t =~ ^($matcher)$ ]]; then fail "matcher runs the guard on $t"; else pass "matcher skips $t"; fi
+  for t in Read Grep Glob WebFetch WebSearch Task; do
+    if [[ $t =~ $matcher ]]; then fail "matcher runs the guard on $t"; else pass "matcher skips $t"; fi
+  done
+  for t in TodoWrite ExitPlanMode; do
+    if [[ $t =~ $matcher ]]; then
+      expect 0 "$t: matched unanchored, let through" \
+        "$(jq -cn --arg t "$t" '{tool_name: $t, cwd: "/", tool_input: {todos: [{content: "rm -rf registry"}]}}')"
+    else
+      pass "matcher skips $t"
+    fi
   done
   for t in 'Edit(/registry/**)' 'Edit(/.githooks/**)' 'Edit(/.claude/settings.json)' \
     'Edit(/.claude/settings.local.json)' 'Edit(/.claude/hooks/**)' 'Bash(git commit -n *)' \
@@ -306,7 +328,6 @@ EOF
   sh_case 2 "sed -e 's/a/b/' -i registry/verify.log"
   sh_case 2 "perl -pi -e 's/a/b/' registry/verify.log"
   sh_case 2 'git rm registry/records/RX-41-ACK-01.yaml'
-  sh_case 2 'git rm --cached registry/verify.log'
   sh_case 2 'git mv registry/verify.log registry/old.log'
   sh_case 2 'git checkout -- registry/verify.log'
   sh_case 2 'git checkout HEAD -- .githooks/pre-commit'
@@ -337,16 +358,191 @@ EOF
   if [ -d "$UPMAIN" ]; then
     file_case 2 Write "$UPMAIN/registry/verify.log"
     file_case 2 Edit "$UPMAIN/Registry/verify.log"
+    file_case 2 Edit "$UPMAIN/REGISTRY/new/x.yaml"
     sh_case 2 "echo x > $UPMAIN/registry/verify.log"
+    sh_case 2 'echo x > verify.log' "$UPMAIN/registry"
     file_case 0 Edit "$UPMAIN/AGENTS.md"
+    sh_case 0 'echo x > staging/x.txt' "$UPMAIN"
   else
     pass "case-sensitive file system: upper-case spelling is another path (skipped)"
   fi
   if [ -d "$NFD" ]; then
     file_case 2 Write "$NFD/registry/verify.log"
+    sh_case 2 'rm verify.log' "$NFD/registry"
+    file_case 0 Write "$NFD/staging/x.yaml"
   else
     pass "normalization-sensitive file system: NFD spelling is another path (skipped)"
   fi
+
+  echo "-- corpus: this checkout and its worktrees, never a clone (G-I2)"
+  file_case 2 Write "$WTN/registry/x.yaml" "$WTN"
+  sh_case 2 'echo x > .githooks/pre-commit' "$WTN"
+  sh_case 2 'echo x > .claude/worktrees/wt1/registry/verify.log'
+  sh_case 2 'rm -rf .claude/worktrees/*/registry'
+  file_case 0 Write "$CLONE/registry/verify.log"
+  sh_case 0 "echo bad >> $CLONE/registry/verify.log"
+  sh_case 0 "cd $CLONE && echo bad >> registry/verify.log && git commit -qam neg"
+  sh_case 0 "cp /tmp/bad.yaml $CLONE/registry/records/ && rm -rf $CLONE/.claude/worktrees/x"
+  sh_case 0 'git clone -q . /tmp/negclone && echo bad >> /tmp/negclone/registry/verify.log'
+  file_case 0 Write "$OTHER/registry/x.yaml"
+  echo "-- allowed: housekeeping under .claude/worktrees/"
+  sh_case 0 'rm -rf .claude/worktrees/stale-dir'
+  sh_case 0 'mkdir -p .claude/worktrees'
+  sh_case 0 'git worktree prune && rm -rf .claude/worktrees/*'
+  sh_case 0 'rm -rf .claude/worktrees/agent-*'
+  sh_case 0 'rm -rf .claude/worktrees/wt1'
+  sh_case 0 'du -sh .claude/worktrees/* > /tmp/du.txt'
+
+  echo "-- allowed: targets that are not concrete paths (G-I1)"
+  sh_case 0 'x=$(mktemp); ls > "$x"'
+  sh_case 0 'cat "$x" > "$y"; echo hi > "${OUT}/a"; cp a "$DEST"' "$MAIN/registry"
+  sh_case 0 'echo hi > "$TMPDIR/out.txt"' "$MAIN/.claude/hooks"
+  sh_case 0 'go test ./... 2>&1 | tee "$TMPDIR/t.log"' "$MAIN/registry"
+  sh_case 0 'ls > ~/listing.txt' "$MAIN/registry"
+  sh_case 0 'cd registry && grep -rn ACK . > ~/acks.txt'
+  sh_case 0 'cd .claude/hooks && bash r11-guard_test.sh 2>&1 | tee ~/guard-test.log'
+  sh_case 0 'if (( 2 > 1 )); then echo y; fi' "$MAIN/registry"
+  sh_case 0 'cd registry && echo $(( 3 > 2 ))'
+  sh_case 0 'cd registry && n=$(ls records | wc -l); if (( n > 0 )); then echo some; fi'
+  sh_case 0 'for ((i=10; i>0; i--)); do echo $i; done' "$MAIN/registry"
+  sh_case 0 'while (( $# > 0 )); do shift; done' "$MAIN/.claude"
+  sh_case 0 '[[ b > a ]] && echo y' "$MAIN/.githooks"
+  sh_case 0 'if [[ "$a" > "$b" || ( -n $c ) ]]; then echo gt; fi' "$MAIN/registry"
+  sh_case 0 'echo $[1+2] $((x<<2)) $((x>>2))' "$MAIN/registry"
+  sh_case 0 'touch -r registry/verify.log staging/stamp'
+  sh_case 0 'git clean -fdx -e registry'
+  sh_case 0 'git clean -fdx -e .claude --exclude=.githooks'
+  sh_case 0 'truncate -s 0 /tmp/x.log' "$MAIN/registry"
+  sh_case 0 'cp -t /tmp/snap registry/records/RX-41-ACK-01.yaml'
+  sh_case 0 'cp --target-directory=staging registry/verify.log'
+  sh_case 0 'cp -rt staging registry/records'
+  sh_case 0 'ln -st staging ../registry/verify.log'
+  sh_case 0 'gcp -t staging/ registry/verify.log'
+  sh_case 0 'rsync -t registry/verify.log /tmp/snap/'
+  sh_case 0 'rsync -a --exclude .claude -e ssh registry/ host:/srv/snap/'
+  sh_case 0 'ln -s registry/verify.log'
+  sh_case 0 'chmod 644 /tmp/x && chown me:staff /tmp/x' "$MAIN/registry"
+  sh_case 0 "sed -i '' s/a/b/ /tmp/x" "$MAIN/.claude/hooks"
+  sh_case 0 "sed -i.bak -e s/a/b/ /tmp/x" "$MAIN/.claude/hooks"
+  sh_case 0 'mkdir -m 755 /tmp/d' "$MAIN/registry"
+  sh_case 0 'cd "$(git rev-parse --show-toplevel)" && ls registry'
+
+  echo "-- blocked: \$HOME, ~ and \$TMPDIR are expanded (G-I1)"
+  XENV="HOME=$ROOT"
+  sh_case 2 'echo x > ~/main/registry/verify.log'
+  sh_case 2 'cp a "$HOME/main/registry/"'
+  sh_case 2 'echo x > ${HOME}/main/.githooks/pre-commit'
+  sh_case 2 'cd ~/main && rm registry/verify.log' "$tmp"
+  sh_case 2 'cd && rm main/registry/verify.log' "$tmp"
+  sh_case 2 'dd if=/dev/zero of=~/main/registry/verify.log count=1' "$tmp"
+  sh_case 0 'echo x > ~/main/staging/x.txt'
+  sh_case 0 'echo x > "~/main/registry/verify.log"' "$tmp"
+  XENV="TMPDIR=$ROOT"
+  sh_case 2 'echo x > "$TMPDIR/main/registry/verify.log"'
+  sh_case 2 'cd $TMPDIR/main/registry && rm verify.log' "$tmp"
+  XENV=
+
+  echo "-- cwd: followed through pushd/popd, env -C and \$(...) (G-I3)"
+  sh_case 0 'pushd /tmp && rm -rf registry && popd'
+  sh_case 0 'pushd /tmp >/dev/null; mkdir -p .claude/x; popd'
+  sh_case 0 'env -C /tmp rm -rf registry'
+  sh_case 0 '/usr/bin/env --chdir=/tmp rm -rf .claude'
+  sh_case 0 'cd /tmp && x="$(touch registry)"'
+  sh_case 0 'cd /tmp && echo `rm -rf registry`'
+  sh_case 0 '(cd /tmp && rm -rf registry) && ls'
+  sh_case 0 'cd .claude/hooks && bash r11-guard_test.sh > "$TMPDIR/out.txt" 2>&1'
+  sh_case 0 'cd staging/recl && cd .. && echo x > verify.log'
+  sh_case 0 'cd "$d" && rm -rf registry'
+  sh_case 0 'pushd registry && popd && popd && rm -rf registry'
+  sh_case 2 'pushd registry && rm verify.log'
+  sh_case 2 'pushd /tmp && popd && rm registry/verify.log'
+  sh_case 2 'pushd registry/records >/dev/null && pushd /tmp && popd && rm x.yaml'
+  sh_case 2 'env -C registry rm verify.log'
+  sh_case 2 '/usr/bin/env -C .githooks rm pre-commit'
+  sh_case 2 'cd registry && echo "$(rm verify.log)"'
+  sh_case 2 'cd registry && x=`touch new.yaml`'
+  sh_case 2 'cd /tmp && echo "$(cd '"$MAIN"' && rm registry/verify.log)"'
+  sh_case 2 'cd registry/records && cd .. && rm verify.log'
+  sh_case 2 'cd -P staging/recl && cd .. && echo x > verify.log'
+  sh_case 2 'cd reglink && cd ../.githooks && echo x > pre-commit'
+
+  echo "-- blocked: writers run by xargs, find, parallel and wrappers"
+  sh_case 2 'ls staging | xargs -I{} cp {} registry/records/'
+  sh_case 2 'echo a | xargs cp -t registry/records'
+  sh_case 2 'xargs rm registry/verify.log < /dev/null'
+  sh_case 2 'ls | xargs -0 -n 1 rm -f .githooks/pre-commit'
+  sh_case 2 'find staging -name "*.yaml" -exec cp {} registry/records/ \;'
+  sh_case 2 'find registry -name "*.yaml" -exec rm {} +'
+  sh_case 2 'find . -execdir rm {} \;' "$MAIN/registry"
+  sh_case 2 'find -L staging registry -type f -ok rm {} ";"'
+  sh_case 2 'parallel cp {} registry/records/ ::: a b'
+  sh_case 2 'parallel rm ::: staging/a registry/verify.log'
+  sh_case 2 "parallel ::: 'rm registry/verify.log'"
+  sh_case 2 '/usr/bin/env cp a registry/'
+  sh_case 2 'env -i PATH=/bin cp a registry/'
+  sh_case 2 "env -S 'rm registry/verify.log'"
+  sh_case 2 'nohup cp a registry/x &'
+  sh_case 2 'time cp a registry/'
+  sh_case 2 'time -p cp a registry/'
+  sh_case 2 '/usr/bin/time -p rm registry/verify.log'
+  sh_case 2 '/usr/bin/time -o registry/t.txt ls'
+  sh_case 2 'nice -n 5 rm registry/verify.log'
+  sh_case 2 'stdbuf -oL tee registry/verify.log'
+  sh_case 2 'timeout -s KILL 5 rm registry/verify.log'
+  sh_case 2 'command -p rm registry/verify.log'
+  sh_case 2 'git checkout registry/verify.log'
+  sh_case 2 'git checkout HEAD registry/verify.log .githooks/pre-commit'
+  sh_case 2 'git checkout .' "$MAIN/registry"
+  sh_case 2 'gsed -i s/a/b/ registry/verify.log'
+  sh_case 2 'gcp a registry/records/'
+  sh_case 2 'gmv registry/verify.log /tmp/'
+  sh_case 2 'grm -f .githooks/pre-commit'
+  sh_case 2 'gtouch registry/x && gmkdir -p registry/y'
+  sh_case 2 'ln -s /tmp/x' "$MAIN/registry"
+  sh_case 2 'cp -rt registry/records staging/a'
+  sh_case 2 'mv -t /tmp registry/verify.log'
+  sh_case 2 'install -d registry/new'
+  sh_case 2 'chmod -R u+w registry'
+  sh_case 2 'chmod -x .githooks/pre-commit'
+  sh_case 2 'chown -R me registry'
+  sh_case 2 'touch -r /tmp/ref registry/verify.log'
+  sh_case 2 "sed -i '' -e s/a/b/ .claude/settings.json"
+  sh_case 2 "bash -o pipefail -c 'rm registry/verify.log | cat'"
+  sh_case 0 'find registry -name "*.yaml" -print0 | xargs -0 cp -t /tmp/snap'
+  sh_case 0 'find registry -name "*.yaml" -exec cp {} /tmp/snap/ \;'
+  sh_case 0 'find . -name "*.tmp" -exec rm {} +'
+  sh_case 0 'xargs -n1 echo < /tmp/list'
+  sh_case 0 'ls registry | xargs -I{} cat registry/{}'
+  sh_case 0 'ls registry | xargs cp -t /tmp/snap'
+  sh_case 0 'parallel gzip ::: /tmp/a /tmp/b'
+  sh_case 0 'parallel cp {} /tmp/snap/ ::: registry/verify.log'
+  sh_case 0 'nohup make test > /tmp/nohup.out 2>&1 &'
+  sh_case 0 'time go test ./... && timeout 60 go vet ./...'
+  sh_case 0 'git checkout main && git checkout -b feature/registry-types'
+  sh_case 0 'git checkout main' "$MAIN/registry"
+  sh_case 0 'git checkout -'
+  sh_case 0 'git checkout HEAD~1 -- internal/registry/doc.go'
+  sh_case 0 'gsed -n p registry/verify.log && grep -c x registry/verify.log'
+
+  echo "-- allowed: index-only git operations"
+  sh_case 0 'git restore --staged registry/records/RX-41-ACK-01.yaml'
+  sh_case 0 'git restore --staged .claude/settings.json'
+  sh_case 0 'git restore -S -- registry/'
+  sh_case 0 'git rm --cached .claude/settings.local.json'
+  sh_case 0 'git rm -r --cached registry/records'
+  sh_case 0 'git rm --cached registry/verify.log'
+  sh_case 2 'git restore --staged --worktree registry/verify.log'
+  sh_case 2 'git restore -SW registry/verify.log'
+
+  echo "-- lexer: here-strings, nesting"
+  sh_case 2 $'cat <<< x\necho bad > registry/verify.log'
+  sh_case 2 $'grep -c a <<< "$v"\ngit commit --no-verify -m x'
+  sh_case 0 'cat <<< "registry/verify.log" | xargs wc -l'
+  local flat= deep=x i
+  for ((i = 0; i < 300; i++)); do flat+='echo "$(date +%s)"'$'\n'; done
+  sh_case 0 "$flat"
+  for ((i = 0; i < 40; i++)); do deep="\$(echo $deep)"; done
+  expect 2 "Bash: 40 nested \$(...) (fail closed)" "$(payload Bash command "echo $deep")"
 
   echo "-- blocked: file tools under registry/, .githooks/, .claude/"
   file_case 2 Edit "$MAIN/registry/records/RX-41-ACK-01.yaml"
@@ -381,6 +577,24 @@ EOF
   mcp_case 2 mcp__plugin_desktop-commander_desktop-commander__move_file "{\"source\": \"$MAIN/staging/x\", \"destination\": \"$MAIN/registry/records/x.yaml\"}"
   mcp_case 2 mcp__plugin_desktop-commander_desktop-commander__edit_block "{\"file_path\": \"$MAIN/.claude/settings.json\"}"
   mcp_case 2 mcp__srv__write_files "{\"paths\": [\"$MAIN/staging/a\", \"$MAIN/.githooks/pre-commit\"]}"
+  mcp_case 2 mcp__filesystem__create_directory "{\"path\": \"$MAIN/registry/new\"}"
+  mcp_case 2 mcp__srv__writeFile "{\"options\": {\"target\": \"$MAIN/registry/verify.log\"}}"
+  XENV="HOME=$ROOT"
+  mcp_case 2 mcp__filesystem__write_file '{"path": "~/main/registry/verify.log", "content": "x"}'
+  XENV=
+
+  echo "-- allowed: MCP reads, remote paths, non-path values"
+  mcp_case 0 mcp__filesystem__read_text_file "{\"path\": \"$MAIN/registry/verify.log\"}"
+  mcp_case 0 mcp__filesystem__list_directory "{\"path\": \"$MAIN/.claude\"}"
+  mcp_case 0 mcp__filesystem__search_files "{\"path\": \"$MAIN\", \"pattern\": \"*.yaml\", \"excludePatterns\": [\"registry\"]}"
+  mcp_case 0 mcp__github__get_file_contents '{"owner": "o", "repo": "r", "path": "registry/records/RX-41-ACK-01.yaml", "ref": "main"}'
+  mcp_case 0 mcp__github__list_commits '{"owner": "o", "repo": "r", "path": ".claude/settings.json"}'
+  mcp_case 0 mcp__github__create_or_update_file '{"owner": "o", "repo": "r", "path": "registry/verify.log", "content": "x"}'
+  mcp_case 0 mcp__srv__write_file '{"path": "registry/verify.log"}'
+  mcp_case 0 mcp__jupyter__insert_cell '{"cell_type": "code", "source": "import json\nprint(1)"}'
+  mcp_case 0 mcp__jupyter__edit_cell '{"source": "/* js */\nconsole.log(1)"}'
+  mcp_case 0 mcp__srv__x '{"path": "registry", "paths": ["a\tb"], "target": ".claude"}'
+  mcp_case 0 mcp__vercel__create_redirect '{"source": "/old", "destination": "/new"}'
 }
 
 ran=
