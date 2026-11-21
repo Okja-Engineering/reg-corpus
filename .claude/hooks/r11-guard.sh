@@ -136,6 +136,9 @@ judge() {
     case $REL in
       registry | registry/* | .githooks | .githooks/* | .claude | .claude/*) hit=1 ;;
     esac
+  elif [[ $p != "$top" ]]; then # spelled unlike git's toplevel (e.g. Unicode form)
+    shopt -u nocasematch
+    block "cannot place $p inside its git toplevel $top, so it cannot be checked (fail closed)"
   fi
   shopt -u nocasematch
   [ "$hit" -eq 0 ]
