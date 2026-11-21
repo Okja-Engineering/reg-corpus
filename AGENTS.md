@@ -14,23 +14,20 @@ Spec (authoritative): `docs/03-spec.md`. Plan: `docs/04-plan.md`. Intent:
   `1024.30/`, `1024.31/`. Each holds `raw/<date>.xml`, `tree.json`, `text.md`,
   `meta.yaml` and an optional reviewed `overrides.yaml`.
 - `staging/`: records proposed by extraction, at `fetched`.
-- `registry/`: written by a person, never by an agent:
-  - `records/RX-*.yaml` enter only through `regcorpus verify` (text-verified or above);
-  - `verify.log` is appended only by `regcorpus verify`;
-  - `inventory/` is created by `regcorpus inventory --init`, run by a person; its
-    `reviewed` and `na` entries are written by a person;
-  - `topics.yaml` is built by hand by a person.
+- `registry/`: written by a person, never by an agent. `records/RX-*.yaml` and `verify.log`
+  change only through `regcorpus verify`; a person runs `regcorpus inventory --init` to make
+  `inventory/`, and writes its `reviewed` and `na` entries and `topics.yaml` by hand.
 - `prompts/`: versioned extraction prompts. `skill/regcorpus/`: the agent skill (R9).
 - `cmd/regcorpus/`, `internal/*/`: the Go CLI. Each package's `doc.go` names its job.
 - `eval/`: seeds, fixtures, judge prompt, runs, results, walk and guard transcripts (R7).
-- `.githooks/pre-commit`: the per-commit C6 gate. `.claude/`: the agent guard (R11).
+- `.githooks/pre-commit`: the C6 gate, built from `main`'s checker. `.claude/`: the agent guard (R11).
 
 ## Stages and their order
 | Stage | Contract | Who acts |
 |---|---|---|
 | 01 fetch-parse | `stages/01-fetch-parse/CONTRACT.md` | person or agent; fetches run on the owner's machine |
 | 02 extract | `stages/02-extract/CONTRACT.md` | agent proposes into `staging/` only |
-| 03 verify | `stages/03-verify/CONTRACT.md` | a person only, in a terminal |
+| 03 verify | `stages/03-verify/CONTRACT.md` | a person only: records via `verify` in a terminal, inventory sign-off by hand |
 | 04 release | `stages/04-release/CONTRACT.md` | a person tags; only after the decision is accept |
 | 05 evaluate | `stages/05-evaluate/CONTRACT.md` | a person launches runs and does the blind author checks |
 
@@ -43,26 +40,32 @@ Order (plan, decision-critical path):
 5. 05 evaluate, second part: arms (b) and (c), grading, decision 5.
 6. 04 release, only if the decision is accept.
 
-## Plan steps that build tools (outside the five stages)
-| Step | Builds | Who | Governed by |
+## Plan steps outside the five stages
+| Step | Builds or does | Who | Governed by |
 |---|---|---|---|
+| 7 | `regcorpus text <anchor>` | agent | R8 |
 | 12 | `internal/registry` types and enums | agent | spec "L1 record", "Anchor rules", "Inventory" |
 | 13 | C6 per-commit and `--complete` | agent | spec "Check rules"; R5 |
 | 14 | `regcorpus inventory --init` | agent builds; a person runs it | R3; spec "Inventory" |
 | 15 | `regcorpus show` and `--staging` | agent | R8; stage 03 (blind-sample rule) |
+| 18 | walk test, saved to `eval/walk/` | a person starts a fresh session | R10; stage 05 contract |
 | 20 | `regcorpus topics` | agent builds; a person writes `registry/topics.yaml` | R8; C6 `--complete` |
+| 21 | guard check, saved to `eval/guard/` | a person, in a Claude Code session | R11; stage 05 contract |
 | 22 | C1–C5; `eval/levels/{cover,strict}` | agent | R4; spec "Check rules" |
 | 23 | `skill/regcorpus/SKILL.md`; 8-word check | agent drafts; a person reviews | R9 |
 | 24 | `eval/negative/`, `make negative` | agent | spec "Acceptance" R4/R5 |
 | 25 | `make build CORPUS_REF=`/`LOOKUP_ONLY=1`; `eval/render` | agent | spec "Releases and distribution"; stage 05 |
 
-A tool step ends when `make test` passes and its spec "Acceptance" command behaves
-as stated. `stages/02-extract/units.yaml` and `prompts/extract-v1.md` may be drafted
-by an agent; a person approves them before extraction (stage 02).
+A tool step ends when it is built, `make test` passes and its acceptance command
+behaves as the spec says (e.g. `check --complete` names each gap), not when the
+requirement is met. Needed across stages: 12 before 02; 13, 14 and 20 before 03 ends
+(`check --complete` reads the inventory and `registry/topics.yaml`); 22, 23 and 25
+before 05's arms (b) and (c). A person approves `units.yaml` and
+`prompts/extract-v1.md` (an agent may draft them) before extraction (stage 02).
 
 To pick up work, open the contract for your task (fetch or parse: 01; propose
-records: 02; verify a record: 03; tag: 04; eval runs or grading: 05; a tool: the
-table above), read its Inputs and Check, and act within "Who may run it".
+records: 02; verify a record: 03; tag: 04; eval runs or grading: 05; anything
+else: the table above), read its Inputs and Check, and act within "Who may run it".
 
 ## Hard rules
 - No agent writes, moves or deletes anything under `registry/` (writers above).
@@ -72,24 +75,21 @@ table above), read its Inputs and Check, and act within "Who may run it".
   `core.hooksPath`, no edits under `.githooks/` or `.claude/`.
 - L0 text is verbatim. A source defect is fixed only by a reviewed `overrides.yaml`
   entry (location, replacement, reason), never in parser code or stored text.
-- No interpretations of the regulation. Records hold verbatim quotes in their
-  cited fields, plus the label fields and decomposition the spec's schema asks
-  for; the eval fixture deliberately holds seeded errors and `must_say`
-  statements. Neither is guidance. Product decisions and compliance guidance
-  never go in this repo.
+- No interpretations of the regulation. Records hold verbatim quotes in cited fields plus
+  the label fields and decomposition the schema asks for; the eval fixture's seeded errors
+  and `must_say` are deliberate. Neither is guidance. No product or compliance guidance here.
 - CLI only: no server, API or MCP (decision 6).
 - The R11 guard stops shortcuts, not attackers; C6 is the gate (see `.claude/hooks/r11-guard.sh`).
 
 ## Make targets
 - `make setup`: point git at `.githooks/`; run by a person, once per clone.
-- `make build`: build `./regcorpus` (not on PATH; build it before running it).
+- `make build`: build `./regcorpus` (not on PATH). `./regcorpus help` lists the commands
+  built today; a contract naming one not built yet names the plan step that builds it.
 - `make test`: Go tests, the R11 guard tests and the pre-commit gate tests.
-- `make check`: `./regcorpus check --corpus` on the working tree (C6). The
-  pre-commit hook checks the commit itself (`--tree`), which can differ.
+- `make check`: `./regcorpus check --corpus` on the working tree (C6); the hook checks
+  the commit itself (`--tree`), which can differ. On any failure make exits 2; for
+  the check's own code (0 ok, 1 violations, 2 unreadable) run `./regcorpus` directly.
 - `make help` (default): list targets.
-
-`./regcorpus help` lists the commands that exist today; a contract naming a
-command not built yet names the plan step that builds it.
 
 ## Reporting at the end of a stage
 1. Run the "Check that ends it" command from that stage's contract.
