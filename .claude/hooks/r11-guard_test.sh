@@ -272,6 +272,13 @@ EOF
   sh_case 2 'git config --unset core.hooksPath'
   sh_case 2 'git config set core.hooksPath x'
   sh_case 2 'git config --local include.path /tmp/evil.cfg'
+  sh_case 2 'git config --remove-section core'
+  sh_case 2 'git config --rename-section core old'
+  sh_case 2 "printf '[core]\\n\\thooksPath = /dev/null\\n' >> .git/config"
+  sh_case 2 "sed -i '' /hooksPath/d .git/config"
+  file_case 2 Edit "$MAIN/.git/config"
+  file_case 2 Write "$MAIN/.git/config" "$WT"
+  sh_case 0 'echo "*.log" >> .git/info/exclude'
 
   echo "-- blocked: regcorpus verify, any common form"
   sh_case 2 'regcorpus verify RX-41-ACK-01'
@@ -337,6 +344,9 @@ EOF
   sh_case 2 'cd registry && echo x > verify.log'
   sh_case 2 'cd registry; rm verify.log'
   sh_case 2 'git -C registry rm verify.log'
+  sh_case 2 'cp "staging/$id.yaml" "registry/records/$id.yaml"'
+  sh_case 2 'rm registry/records/$ID.yaml'
+  sh_case 2 'ls staging | xargs -I{} cp staging/{} registry/records/{}'
 
   echo "-- blocked: relative writes from a cwd inside a protected dir"
   sh_case 2 'echo x > pre-commit' "$MAIN/.githooks"
@@ -396,6 +406,10 @@ EOF
   echo "-- allowed: targets that are not concrete paths (G-I1)"
   sh_case 0 'x=$(mktemp); ls > "$x"'
   sh_case 0 'cat "$x" > "$y"; echo hi > "${OUT}/a"; cp a "$DEST"' "$MAIN/registry"
+  sh_case 0 'cd registry && touch "$f"'
+  sh_case 0 'cd "registry/$d" && touch x'
+  sh_case 0 'env -C "registry/$d" touch x'
+  sh_case 0 'git -C "registry/$d" rm x'
   sh_case 0 'echo hi > "$TMPDIR/out.txt"' "$MAIN/.claude/hooks"
   sh_case 0 'go test ./... 2>&1 | tee "$TMPDIR/t.log"' "$MAIN/registry"
   sh_case 0 'ls > ~/listing.txt' "$MAIN/registry"
@@ -472,6 +486,22 @@ EOF
   sh_case 0 'cd registry | cat; echo x > verify.log'
   sh_case 2 'cd /tmp | rm -rf registry'
   sh_case 0 'cd registry | echo x > verify.log'
+  sh_case 2 'cd /tmp && sleep 1 & rm registry/verify.log'
+  sh_case 2 $'true && \\\n rm -rf registry'
+  sh_case 0 $'cp -t /tmp/out \\\n  registry/records/RX-41-ACK-01.yaml'
+
+  echo "-- cwd: compound commands"
+  sh_case 0 '{ cd .claude/hooks && bash r11-guard_test.sh; } > guard-test.log 2>&1'
+  sh_case 0 'if cd .claude/hooks; then bash r11-guard_test.sh; fi > guard.log'
+  sh_case 0 'for f in a; do cd registry; done > staging/x.txt'
+  sh_case 0 'while false; do cd .claude; done > out.txt'
+  sh_case 0 '[ -d nonexistent ] && cd .claude/hooks; touch staging/x'
+  sh_case 0 'f() { cd .claude/hooks; }; touch x'
+  sh_case 2 '{ cd /tmp; } | cat; rm -rf registry'
+  sh_case 2 'if cd /tmp; then :; fi | cat; rm -rf registry'
+  sh_case 2 'test -d registry && cd registry && rm verify.log'
+  sh_case 2 'if cd registry; then rm verify.log; fi'
+  sh_case 2 '(cd registry; case x in x) true;; esac; rm verify.log)'
 
   echo "-- blocked: writers run by xargs, find, parallel and wrappers"
   sh_case 2 'ls staging | xargs -I{} cp {} registry/records/'
@@ -509,6 +539,7 @@ EOF
   sh_case 2 'cp -rt registry/records staging/a'
   sh_case 2 'mv -t /tmp registry/verify.log'
   sh_case 2 'install -d registry/new'
+  sh_case 2 'install --dir registry/new'
   sh_case 2 'chmod -R u+w registry'
   sh_case 2 'chmod -x .githooks/pre-commit'
   sh_case 2 'chown -R me registry'
@@ -540,6 +571,10 @@ EOF
   sh_case 0 'git rm --cached registry/verify.log'
   sh_case 2 'git restore --staged --worktree registry/verify.log'
   sh_case 2 'git restore -SW registry/verify.log'
+  sh_case 2 'git restore --staged --work registry/verify.log'
+  sh_case 2 'git restore --staged --w registry/verify.log'
+  sh_case 2 'git restore --staged --worktre registry/verify.log'
+  sh_case 0 'git restore --stage registry/verify.log'
 
   echo "-- lexer: here-strings, nesting"
   sh_case 2 $'cat <<< x\necho bad > registry/verify.log'
@@ -586,6 +621,12 @@ EOF
   mcp_case 2 mcp__srv__write_files "{\"paths\": [\"$MAIN/staging/a\", \"$MAIN/.githooks/pre-commit\"]}"
   mcp_case 2 mcp__filesystem__create_directory "{\"path\": \"$MAIN/registry/new\"}"
   mcp_case 2 mcp__srv__writeFile "{\"options\": {\"target\": \"$MAIN/registry/verify.log\"}}"
+  mcp_case 2 mcp__srv__make_directory "{\"path\": \"$MAIN/registry/new\"}"
+  mcp_case 2 mcp__srv__apply_diff "{\"filePath\": \"$MAIN/registry/verify.log\", \"diff\": \"x\"}"
+  mcp_case 2 mcp__srv__insert_text "{\"file\": \"$MAIN/.claude/settings.json\", \"text\": \"x\"}"
+  mcp_case 2 mcp__srv__set_file_contents "{\"filename\": \"$MAIN/.githooks/pre-commit\"}"
+  mcp_case 2 mcp__srv__new_file "{\"dest\": \"$MAIN/registry/records/x.yaml\"}"
+  mcp_case 2 mcp__srv__copy "{\"from\": \"$MAIN/staging/x\", \"to\": \"$MAIN/registry/records/x.yaml\"}"
   XENV="HOME=$ROOT"
   mcp_case 2 mcp__filesystem__write_file '{"path": "~/main/registry/verify.log", "content": "x"}'
   XENV=
@@ -602,6 +643,9 @@ EOF
   mcp_case 0 mcp__jupyter__edit_cell '{"source": "/* js */\nconsole.log(1)"}'
   mcp_case 0 mcp__srv__x '{"path": "registry", "paths": ["a\tb"], "target": ".claude"}'
   mcp_case 0 mcp__vercel__create_redirect '{"source": "/old", "destination": "/new"}'
+  mcp_case 0 mcp__fs__copy_file "{\"source\": \"$MAIN/registry/verify.log\", \"destination\": \"$MAIN/staging/v.log\"}"
+  mcp_case 0 mcp__slack__upload_file "{\"path\": \"$MAIN/registry/verify.log\", \"channel\": \"C1\"}"
+  mcp_case 0 mcp__git__git_diff "{\"repo_path\": \"$MAIN\", \"target\": \"$MAIN/registry\"}"
 }
 
 ran=
