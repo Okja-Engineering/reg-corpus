@@ -206,6 +206,14 @@ func TestRegistryStateRules(t *testing.T) {
 			code:  1, lines: []string{"C6 registry-state: registry/records/RX-41-DIR.yaml: " + onlyRX},
 		},
 		{
+			name: "a newline in a name stays on the violation's one line, quoted",
+			files: map[string]string{
+				"registry/records/RX-41-TEST-01\nC6 ok.yaml": record,
+				"registry/verify.log":                        "",
+			},
+			code: 1, lines: []string{`C6 registry-state: "registry/records/RX-41-TEST-01\nC6 ok.yaml": no matching verify.log line`},
+		},
+		{
 			name: "one line per violation, sorted by path",
 			files: map[string]string{
 				"registry/records/RX-41-TEST-01.yaml": record,
