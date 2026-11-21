@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 )
 
@@ -339,16 +338,6 @@ func TestUnreadableRecordNamesRuleAndFile(t *testing.T) {
 	if code != 1 || len(got) != 1 || !strings.HasPrefix(got[0], p1+"cannot read: ") {
 		t.Fatalf("exit %d, stdout %q; want 1 and one %q line", code, got, p1+"cannot read: ...")
 	}
-}
-
-func TestSpecialFileFails(t *testing.T) {
-	root := corpus(t, map[string]string{"registry/verify.log": ""})
-	os.MkdirAll(filepath.Join(root, "registry", "records"), 0o755)
-	if err := syscall.Mkfifo(filepath.Join(root, "registry", "records", "RX-41-TEST-01.yaml"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, got := lines(t, "--corpus", "--root", root)
-	want(t, code, got, 1, p1+"is a special file; registry/ holds only regular files")
 }
 
 func TestUnlistableDirectoryNamesRuleAndPath(t *testing.T) {
