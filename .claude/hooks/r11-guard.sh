@@ -308,15 +308,14 @@ protected() {
 # this checkout or its worktrees (any of them can set core.hooksPath):
 # <common>/config, <common>/config.worktree, <common>/worktrees/*/config.worktree.
 git_config() {
-  local hit=1
-  guard_cdir
+  local name
   shopt -s nocasematch
-  case $2 in
-    config) [ "$1" -ef "$GUARD_CDIR" ] && hit=0 ;;
-    config.worktree) { [ "$1" -ef "$GUARD_CDIR" ] || [ "${1%/*}" -ef "$GUARD_CDIR/worktrees" ]; } && hit=0 ;;
-  esac
+  case $2 in config | config.worktree) name=1 ;; *) name=0 ;; esac
   shopt -u nocasematch
-  return "$hit"
+  [ "$name" = 1 ] || return 1
+  guard_cdir
+  [ "$1" -ef "$GUARD_CDIR" ] && return 0
+  [ "${#2}" -gt 6 ] && [ "${1%/*}" -ef "$GUARD_CDIR/worktrees" ]
 }
 
 # judge PATH BASE: return 1 when PATH, resolved against BASE, is protected;
