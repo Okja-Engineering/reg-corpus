@@ -2,6 +2,7 @@
 // it: LoadDir reads a directory (the working tree: `make check`, manual runs),
 // LoadTree reads a git tree object (the commit: the pre-commit hook). Neither
 // follows a symlink, so no rule ever reads outside the snapshot.
+
 package check
 
 import (
