@@ -3,7 +3,11 @@
 # pre-commit hook and CI (.github/workflows/c6.yml) both call it, so the build
 # lives in one place.
 #
-# Usage: build-checker.sh OUT UNDER-TEST [TRUSTED...]
+# Usage: build-checker.sh [--auto-toolchain] OUT UNDER-TEST [TRUSTED...]
+#   --auto-toolchain  build with the Go the source's go.mod names, downloaded
+#               when the installed Go is older (CI). Without it the installed
+#               Go builds, and one too old fails, naming the version (the
+#               hook: nothing is downloaded on commit).
 #   OUT         where to write the binary
 #   UNDER-TEST  the tree-ish being checked (hook: the staged tree; CI: the commit)
 #   TRUSTED...  revisions to build from, preferred first (hook: the known mains;
@@ -17,8 +21,8 @@
 # The source (go.mod, go.sum when present, cmd/, internal/) is copied as raw
 # blobs (ls-tree, cat-file, no replace refs), the way the check reads a commit,
 # so no filter or replace ref can change it. Go settings that could swap it
-# (GOFLAGS, a go env file, go.work, a toolchain switch) are off for the build.
-# Any failure exits 1 with the reason on stderr.
+# (GOFLAGS, a go env file, go.work, a toolchain the environment names) are
+# off for the build. Any failure exits 1 with the reason on stderr.
 set -euo pipefail
 export GIT_NO_REPLACE_OBJECTS=1
 
@@ -27,7 +31,12 @@ die() {
   exit 1
 }
 
-[ $# -ge 2 ] || die "usage: build-checker.sh OUT UNDER-TEST [TRUSTED...]"
+toolchain=local
+if [ "${1-}" = --auto-toolchain ]; then
+  toolchain=auto
+  shift
+fi
+[ $# -ge 2 ] || die "usage: build-checker.sh [--auto-toolchain] OUT UNDER-TEST [TRUSTED...]"
 out=$1 under=$2
 shift 2
 case $out in /*) ;; *) out=$PWD/$out ;; esac
@@ -62,7 +71,7 @@ while IFS= read -r -d '' entry; do # "<mode> blob <oid>\t<path>"
   git cat-file blob "${meta##* }" >"$tmp/src/$path" || die "reading $path from $what"
 done <"$tmp/files"
 [ -f "$tmp/src/go.mod" ] || die "no go.mod in $what"
-if ! (cd "$tmp/src" && env GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN=local \
+if ! (cd "$tmp/src" && env GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN="$toolchain" \
   go build -o "$out" ./cmd/regcorpus); then
   [ "$trusted" = 1 ] || die "building the checker from $what failed (go output above)."
   die "building the checker from $what failed (go output above).

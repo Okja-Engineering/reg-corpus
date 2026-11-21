@@ -10,8 +10,9 @@
 # run uses any other. Only while neither has it (bootstrap: before the checker
 # first lands on main) is it built from COMMIT, and a warning annotation says
 # so. BASE, origin/main and COMMIT must each name a commit; a run that can't
-# resolve one fails. Exits non-zero on any failure, with the check's
-# violations on stdout.
+# resolve one fails. The checker is built with the Go its own go.mod names,
+# downloaded when the installed one (setup-go reads COMMIT's go.mod) is
+# older. Exits non-zero on any failure, with the check's violations on stdout.
 set -euo pipefail
 [ $# = 2 ] || { echo "usage: bash .github/c6.sh BASE COMMIT" >&2; exit 2; }
 
@@ -25,7 +26,7 @@ commit=$(resolve "the commit under test" "$2")
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-ci.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
-src=$(bash .githooks/build-checker.sh "$tmp/regcorpus" "$commit" "$base" "$main")
+src=$(bash .githooks/build-checker.sh --auto-toolchain "$tmp/regcorpus" "$commit" "$base" "$main")
 case $src in
   "$base") echo "C6 checker built from the base, $1 ($base)" ;;
   "$main") echo "C6 checker built from origin/main ($main): the base, $1, has none" ;;
