@@ -134,10 +134,12 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "regcorpus check: only --corpus exists; consumer checks C1–C5 arrive in plan step 22")
 		return 2
 	}
+	treeSet := false // an empty --tree is an error, never the working tree
+	fl.Visit(func(f *flag.Flag) { treeSet = treeSet || f.Name == "tree" })
 	var s *Snapshot
 	var err error
 	what := *root
-	if *tree != "" {
+	if treeSet {
 		what = "tree " + *tree
 		s, err = LoadTree(*root, *tree)
 	} else {

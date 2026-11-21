@@ -142,7 +142,11 @@ func kindOf(m fs.FileMode) kind {
 // holds dir. It reads raw blobs: no filters, no end-of-line conversion and no
 // replace refs.
 func LoadTree(dir, treeish string) (*Snapshot, error) {
-	oid, err := git(dir, "", "rev-parse", "--verify", "--quiet", "--end-of-options", treeish+"^{tree}")
+	// Resolve first, then peel: "rev:path^{tree}" would name the path "path^{tree}".
+	oid, err := git(dir, "", "rev-parse", "--verify", "--quiet", "--end-of-options", treeish)
+	if err == nil {
+		oid, err = git(dir, "", "rev-parse", "--verify", "--quiet", strings.TrimSpace(oid)+"^{tree}")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve tree %q in %s: %v", treeish, dir, err)
 	}
