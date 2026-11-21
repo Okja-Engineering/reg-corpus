@@ -865,19 +865,27 @@ optval() { # NAME...: OPTVAL = the value of the last of these options given
   return 1
 }
 
-# hasflag NAME...: succeed when one of these flags was given. A long NAME
-# (more than one letter) counts in any abbreviation (--work for --worktree),
-# as git and the GNU tools accept.
+# names FLAG NAME...: succeed when FLAG (a letter, or --LONG) is one of the
+# options NAME. A long NAME (more than one letter) counts in any abbreviation
+# (--work for --worktree), as git and the GNU tools accept.
+names() {
+  local f=$1 n
+  shift
+  for n in "$@"; do
+    if [ "${#n}" = 1 ]; then
+      [ "$f" = "$n" ] && return 0
+    else
+      case $f in --?*) [[ $n == "${f#--}"* ]] && return 0 ;; esac
+    fi
+  done
+  return 1
+}
+
+# hasflag NAME...: succeed when one of these flags was given (see names).
 hasflag() {
-  local n i=0
+  local i=0
   while [ "$i" -lt "${#OPT_F[@]}" ]; do
-    for n in "$@"; do
-      if [ "${#n}" = 1 ]; then
-        [ "${OPT_F[i]}" = "$n" ] && return 0
-      else
-        case ${OPT_F[i]} in --?*) [[ $n == "${OPT_F[i]#--}"* ]] && return 0 ;; esac
-      fi
-    done
+    names "${OPT_F[i]}" "$@" && return 0
     i=$((i + 1))
   done
   return 1
@@ -972,30 +980,17 @@ check_commit_opts() {
 }
 
 check_config_args() { # git config ARGS: block a write that mentions a hooks key
-  local a risky=0 read=0 write=0 pos=0 skip=0 first=
-  for a in "$@"; do
-    if [ "$skip" = 1 ]; then
-      skip=0
-      continue
-    fi
-    risky_config "$a" && risky=1
-    case $a in
-      --get | --get-all | --get-regexp | --get-urlmatch | --get-color | --get-colorbool | -l | --list) read=1 ;;
-      --unset | --unset-all | --add | --replace-all | --rename-section | --remove-section | -e | --edit) write=1 ;;
-      -f | --file | --blob | --type | --default | --comment | --value) skip=1 ;;
-      -*) ;;
-      *)
-        pos=$((pos + 1))
-        [ "$pos" = 1 ] && first=$a
-        ;;
-    esac
-  done
+  local a risky=0 read=0 write=0
+  for a in "$@"; do risky_config "$a" && risky=1; done
   [ "$risky" = 1 ] || return 0
-  case $first in
+  parse_opts f 'file blob type default comment value' "$@"
+  hasflag get get-all get-regexp get-urlmatch get-color get-colorbool l list && read=1
+  hasflag unset unset-all add replace-all rename-section remove-section e edit && write=1
+  case ${OPS[0]-} in
     get | list) read=1 ;;
     set | unset | rename-section | remove-section | edit) write=1 ;;
   esac
-  if [ "$write" = 0 ] && { [ "$read" = 1 ] || [ "$pos" -le 1 ]; }; then return 0; fi
+  if [ "$write" = 0 ] && { [ "$read" = 1 ] || [ "${#OPS[@]}" -le 1 ]; }; then return 0; fi
   block "git config changes core.hooksPath or include.path; hooks are configured only by make setup (R11)"
 }
 
@@ -1067,10 +1062,12 @@ check_git() { # CW ARG...: ARG follows "git"
   esac
 }
 
-# judge_inplace CW WHAT INPLACE SCRIPT TAKES ARG...: sed and perl edit files
-# only with an in-place option. Option letters: INPLACE turn it on, SCRIPT
-# give the script (so the first operand is a file), TAKES take an argument
-# (ending the cluster). Without a SCRIPT option the first operand is the
+# judge_inplace CW WHAT INPLACE SCRIPT TAKES ARG...: sed, perl and yq edit
+# files only with an in-place option. Each of INPLACE, SCRIPT and TAKES is a
+# list of options (see names: a letter, or a long name in any abbreviation):
+# INPLACE turn it on, SCRIPT give the script (so the first operand is a
+# file), TAKES take an argument (a letter's ends the cluster; a long one's is
+# after = or the next word). Without a SCRIPT option the first operand is the
 # script. sed's bare -i may be followed by a BSD backup suffix ('' or .bak).
 judge_inplace() {
   local cw=$1 what=$2 inl=$3 scl=$4 takes=$5 a inplace=0 script=0 skip=0 suffix=0 rest ch
@@ -1087,30 +1084,33 @@ judge_inplace() {
       case $a in '' | .*) [[ $a == */* ]] || continue ;; esac
     fi
     case $a in
-      --in-place*) inplace=1 ;;
-      --expression | --file) skip=1; script=1 ;;
-      --expression=* | --file=*) script=1 ;;
-      --*) ;;
+      --) ;;
+      --?*)
+        if names "${a%%=*}" $inl; then
+          inplace=1
+        elif names "${a%%=*}" $scl; then
+          script=1
+          [[ $a == *=* ]] || skip=1
+        elif names "${a%%=*}" $takes; then
+          [[ $a == *=* ]] || skip=1
+        fi
+        ;;
       -?*)
         rest=${a#-}
         while [ -n "$rest" ]; do
           ch=${rest:0:1}
           rest=${rest:1}
-          case $inl in
-            *"$ch"*)
-              inplace=1
-              [ -z "$rest" ] && [ "$what" = "sed -i" ] && suffix=1
-              break
-              ;;
-          esac
-          case $scl in
-            *"$ch"*)
-              script=1
-              [ -z "$rest" ] && skip=1
-              break
-              ;;
-          esac
-          case $takes in *"$ch"*) break ;; esac
+          if names "$ch" $inl; then
+            inplace=1
+            [ -z "$rest" ] && [ "$what" = "sed -i" ] && suffix=1
+            break
+          fi
+          if names "$ch" $scl; then
+            script=1
+            [ -z "$rest" ] && skip=1
+            break
+          fi
+          names "$ch" $takes && break
         done
         ;;
       *) files[${#files[@]}]=$a ;;
@@ -1181,8 +1181,8 @@ write_cmd() {
         case $a in of=*) judge_sh "${a#of=}" "$cw" "dd of=" ;; esac
       done
       ;;
-    sed) judge_inplace "$cw" "sed -i" iI ef l "$@" ;;
-    perl) judge_inplace "$cw" "perl -i" i eE MmIxld0DCV "$@" ;;
+    sed) judge_inplace "$cw" "sed -i" 'i I in-place' 'e f expression file' 'l line-length' "$@" ;;
+    perl) judge_inplace "$cw" "perl -i" i 'e E' 'M m I x l d 0 D C V' "$@" ;;
   esac
   return 0
 }
