@@ -166,6 +166,8 @@ func TestBuiltBinaryExitCodes(t *testing.T) {
 		{"violation", []string{"check", "--corpus", "--root", corpus(t, true)}, 1, "C6 registry-state: ", ""},
 		{"not a corpus", []string{"check", "--corpus", "--root", t.TempDir()}, 2, "", "regcorpus check: "},
 		{"no command", nil, 2, "", usageLine},
+		{"bad check flag: one message, ours", []string{"check", "--bogus"}, 2, "",
+			"regcorpus check: flag provided but not defined: -bogus\nusage: regcorpus check"},
 		{"help", []string{"--help"}, 0, usageLine, ""},
 		{"verify < /dev/null", []string{"verify", "RX-41-TEST-01"}, 2, "", "regcorpus verify requires an interactive terminal"},
 	} {

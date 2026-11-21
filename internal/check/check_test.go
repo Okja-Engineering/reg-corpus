@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -289,23 +290,51 @@ func TestUnreadableRecordNamesRuleAndFile(t *testing.T) {
 	}
 }
 
+func TestSpecialFileFails(t *testing.T) {
+	root := corpus(t, map[string]string{"registry/verify.log": ""})
+	os.MkdirAll(filepath.Join(root, "registry", "records"), 0o755)
+	if err := syscall.Mkfifo(filepath.Join(root, "registry", "records", "RX-41-TEST-01.yaml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, got := lines(t, "--corpus", "--root", root)
+	want(t, code, got, 1, p1+"is a special file; registry/ holds only regular files")
+}
+
+func TestUnlistableDirectoryNamesRuleAndPath(t *testing.T) {
+	root := corpus(t, map[string]string{"registry/inventory/1024.41.yaml": "x\n"})
+	d := filepath.Join(root, "registry", "inventory")
+	if err := os.Chmod(d, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(d, 0o755) })
+	if _, err := os.ReadDir(d); err == nil {
+		t.Skip("running with privileges that list a mode-0 directory")
+	}
+	code, got := lines(t, "--corpus", "--root", root)
+	if code != 1 || len(got) != 1 || !strings.HasPrefix(got[0], "C6 registry-state: registry/inventory: cannot read: ") {
+		t.Fatalf("exit %d, stdout %q; want 1 and one cannot-read line for registry/inventory", code, got)
+	}
+}
+
 func TestRootMustBeACorpus(t *testing.T) {
 	good := corpus(t, map[string]string{"internal/check/x.go": "package check\n"})
 	otherMod := corpus(t, map[string]string{"go.mod": "module example.com/other\n"})
 	noStages := t.TempDir()
 	write(t, noStages, map[string]string{"go.mod": goMod})
 	quoted := corpus(t, map[string]string{"go.mod": "// c\nmodule \"github.com/okja-engineering/reg-corpus\" // x\n"})
+	noMod := "(no go.mod declaring module github.com/okja-engineering/reg-corpus)\n"
 	for _, tc := range []struct {
 		name, root string
 		code       int
+		reason     string
 	}{
-		{"missing directory", filepath.Join(good, "typo"), 2},
-		{"empty directory", t.TempDir(), 2},
-		{"a subdirectory of a corpus", filepath.Join(good, "internal"), 2},
-		{"another module", otherMod, 2},
-		{"no stages/", noStages, 2},
-		{"a corpus with no registry", good, 0},
-		{"quoted module path and comments", quoted, 0},
+		{"missing directory", filepath.Join(good, "typo"), 2, noMod},
+		{"empty directory", t.TempDir(), 2, noMod},
+		{"a subdirectory of a corpus", filepath.Join(good, "internal"), 2, noMod},
+		{"another module", otherMod, 2, noMod},
+		{"no stages/", noStages, 2, "(no stages/ directory)\n"},
+		{"a corpus with no registry", good, 0, ""},
+		{"quoted module path and comments", quoted, 0, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out, errOut := run(t, "--corpus", "--root", tc.root)
@@ -313,9 +342,9 @@ func TestRootMustBeACorpus(t *testing.T) {
 				t.Fatalf("exit %d (stdout %q, stderr %q), want %d", code, out, errOut, tc.code)
 			}
 			if tc.code == 2 {
-				prefix := strings.Replace(notRoot, "%s", tc.root, 1)
-				if out != "" || !strings.HasPrefix(errOut, prefix) {
-					t.Fatalf("stdout %q, stderr %q; want nothing on stdout and %q... on stderr", out, errOut, prefix)
+				want := strings.Replace(notRoot, "%s", tc.root, 1) + " " + tc.reason
+				if out != "" || errOut != want {
+					t.Fatalf("stdout %q, stderr %q; want nothing on stdout and %q on stderr", out, errOut, want)
 				}
 			}
 		})
@@ -394,6 +423,14 @@ func TestTreeRules(t *testing.T) {
 		want(t, code, got, 1, unlogged,
 			"C6 registry-state: registry/verify.log: is a symlink; registry/ holds only regular files")
 	})
+	t.Run("symlinked registry", func(t *testing.T) {
+		root := corpus(t, nil)
+		mklink(t, "/tmp/elsewhere", filepath.Join(root, "registry"))
+		gitT(t, root, "init", "-q")
+		gitT(t, root, "add", "-A")
+		code, got := lines(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
+		want(t, code, got, 1, "C6 registry-state: registry: is a symlink; registry/ holds only regular files")
+	})
 	t.Run("gitlink under registry", func(t *testing.T) {
 		root := repo(t, map[string]string{"registry/verify.log": ""})
 		head := gitT(t, root, "rev-parse", "HEAD")
@@ -405,8 +442,10 @@ func TestTreeRules(t *testing.T) {
 	t.Run("tree that is not a corpus", func(t *testing.T) {
 		root := repo(t, nil)
 		gitT(t, root, "rm", "-q", "go.mod")
-		code, out, errOut := run(t, "--corpus", "--root", root, "--tree", gitT(t, root, "write-tree"))
-		if code != 2 || out != "" || !strings.Contains(errOut, "is not a corpus root") {
+		tree := gitT(t, root, "write-tree")
+		code, out, errOut := run(t, "--corpus", "--root", root, "--tree", tree)
+		if code != 2 || out != "" || errOut != "regcorpus check: tree "+tree+
+			" is not a corpus root (no go.mod declaring module github.com/okja-engineering/reg-corpus)\n" {
 			t.Fatalf("exit %d, stdout %q, stderr %q; want 2 and a not-a-corpus message", code, out, errOut)
 		}
 	})
@@ -438,6 +477,10 @@ func TestUsage(t *testing.T) {
 		if code != 0 || !strings.HasPrefix(out, usageTop) || errOut != "" {
 			t.Errorf("%q: exit %d, stdout %q, stderr %q; want 0 and usage on stdout", args, code, out, errOut)
 		}
+	}
+	if code, _, errOut := run(t, "--corpus", "extra"); code != 2 ||
+		!strings.HasPrefix(errOut, "regcorpus check: unexpected argument \"extra\"\n"+usageTop) {
+		t.Errorf("extra argument: exit %d, stderr %q; want 2 naming \"extra\" then usage", code, errOut)
 	}
 	for _, args := range [][]string{{"--bogus"}, {"--corpus", "extra"}, {"--corpus", "--root"}} {
 		code, out, errOut := run(t, args...)
