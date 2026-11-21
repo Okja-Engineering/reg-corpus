@@ -60,7 +60,7 @@ func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return code, out.String(), errb.String()
 }
 
-// lines runs check on root and returns exit code and stdout lines; stderr
+// lines runs check with args and returns exit code and stdout lines; stderr
 // must be empty.
 func lines(t *testing.T, args ...string) (int, []string) {
 	t.Helper()

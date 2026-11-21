@@ -29,7 +29,7 @@ const (
 	directory
 	symlink
 	gitlink
-	irregular // a device, socket or pipe
+	irregular // a device, socket or pipe; in a git tree, any other mode
 )
 
 func (k kind) String() string {
