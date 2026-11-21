@@ -70,15 +70,15 @@ table above), read its Inputs and Check, and act within "Who may run it".
   terminal. Never run it, wrap it (`script`, `expect`, `unbuffer`) or emulate it.
 - Never bypass hooks: no `--no-verify`, no `git commit -n`, no changes to
   `core.hooksPath`, no edits under `.githooks/` or `.claude/`.
-- L0 text is verbatim. A source defect is fixed only through a reviewed
-  `overrides.yaml` entry (location, replacement, reason), never in parser code
-  and never by editing stored text.
+- L0 text is verbatim. A source defect is fixed only by a reviewed `overrides.yaml`
+  entry (location, replacement, reason), never in parser code or stored text.
 - No interpretations of the regulation. Records hold verbatim quotes in their
   cited fields, plus the label fields and decomposition the spec's schema asks
   for; the eval fixture deliberately holds seeded errors and `must_say`
   statements. Neither is guidance. Product decisions and compliance guidance
   never go in this repo.
 - CLI only: no server, API or MCP (decision 6).
+- The R11 guard stops shortcuts, not attackers; C6 is the gate (see `.claude/hooks/r11-guard.sh`).
 
 ## Make targets
 - `make setup`: point git at `.githooks/`; run by a person, once per clone.

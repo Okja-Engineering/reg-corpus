@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# R11 agent guard: a Claude Code PreToolUse hook (spec R11). .claude/settings.json
-# runs it for Bash, Edit, Write, MultiEdit, NotebookEdit and MCP tools, through a
-# wrapper that blocks when this file is missing or not executable.
+# R11 agent guard: a Claude Code PreToolUse hook (spec R11).
 #
-# Accurate, not complete: it must never block normal work, and it stops the
-# shortcuts a well-meaning agent takes. Exit 2 blocks, with
-# "R11 guard: blocked — <reason>" on stderr; exit 0 allows, silently.
+# Threat model. This guards against a well-meaning agent's shortcuts; it is
+# not a security boundary. The gate is C6 (the pre-commit hook now, CI later),
+# and `regcorpus verify` separately requires a real terminal.
+# It stops: edit/write tools and common shell writers and redirects into
+# registry/, .githooks/ or .claude/ (also from inside those dirs and through
+# path-qualified tools like /bin/cp); skipping the commit hook (--no-verify and
+# its abbreviations, commit -n, hooksPath set via git config, -c or
+# GIT_CONFIG_*); and running `regcorpus verify`.
+# Design priority: never block normal work, even when that leaves a hole.
+# It deliberately does not stop (left to C6 and CI): obfuscated commands
+# (quoting tricks, encoded strings, variables, eval), git aliases and plumbing
+# (commit-tree, update-ref, update-index), interpreters writing files (python,
+# node), writers it doesn't know (find -delete, git apply), .git/config edits,
+# and commits that skip pre-commit (merge, rebase, cherry-pick, am). A hook
+# that times out does not block on this Claude Code version (2.1.221).
+#
+# .claude/settings.json runs it for Bash, Edit, Write, MultiEdit, NotebookEdit
+# and MCP tools, through a wrapper that blocks when this file is missing or not
+# executable. Exit 2 blocks, with "R11 guard: blocked — <reason>" on stderr;
+# exit 0 allows, silently.
 #
 # Paths are judged physically. A path is resolved against the tool call's cwd
 # (symlinks followed), then taken relative to the git toplevel of its deepest
@@ -32,14 +47,6 @@
 #       git rm/mv/restore/clean/checkout --) whose target is protected.
 # Fails closed: unreadable input, jq or git missing, any internal error and a
 # terminating signal all exit 2.
-#
-# Accepted residual, caught by C6 in the pre-commit gate (and CI later):
-# obfuscation (variables, globs or quoting in a directory name, $'\x..',
-# base64 | sh, eval), git aliases and plumbing (commit-tree, update-ref,
-# update-index, hash-object), writers it doesn't know (python, node,
-# find -delete, git apply/stash), direct .git/config edits, and
-# merge/rebase/cherry-pick commits, which never run pre-commit. A hook that
-# times out does not block on this Claude Code version (2.1.221).
 #
 # Bash 3.2 compatible (macOS /bin/bash): no empty "${a[@]}" under set -u, no
 # ${x,,}, no associative arrays. Results come back in globals, not $(...), so
