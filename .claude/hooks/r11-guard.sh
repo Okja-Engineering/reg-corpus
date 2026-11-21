@@ -180,14 +180,39 @@ lexical() {
   RES=${cur:-/}
 }
 
-# join_dir BASE DIR: RES = DIR taken relative to BASE; "?" when DIR is not
-# concrete, or is relative and BASE is unknown ("?").
+# Working directories. The shell's working directory is tracked as a set of
+# candidates (joined by SEP): every directory the shell could be in. "?" is a
+# candidate that can't be tracked; a relative path is judged against every
+# other candidate.
+SEP=$'\x02'
+
+# union SET SET: RES = the candidates of both, each once.
+union() {
+  local out=$1 c rest=$2$SEP
+  while [ -n "$rest" ]; do
+    c=${rest%%"$SEP"*}
+    rest=${rest#*"$SEP"}
+    case $SEP$out$SEP in *"$SEP$c$SEP"*) ;; *) out=$out$SEP$c ;; esac
+  done
+  RES=$out
+}
+
+# join_dir BASE DIR: RES = DIR taken relative to each candidate in BASE; "?"
+# when DIR is not concrete, and for a relative DIR against "?".
 join_dir() {
+  local rest c out=
   case $2 in
-    '' | *"$DYN"*) RES='?' ;;
-    /*) RES=$2 ;;
-    *) if [ "$1" = '?' ]; then RES='?'; else RES=$1/$2; fi ;;
+    '' | *"$DYN"*) RES='?'; return 0 ;;
+    /*) RES=$2; return 0 ;;
   esac
+  rest=$1$SEP
+  while [ -n "$rest" ]; do
+    c=${rest%%"$SEP"*}
+    rest=${rest#*"$SEP"}
+    [ "$c" = '?' ] || c=$c/$2
+    if [ -z "$out" ]; then out=$c; else union "$out" "$c"; out=$RES; fi
+  done
+  RES=$out
 }
 
 # place DIR: ask git where the existing directory DIR is. Returns 1 when DIR
@@ -321,9 +346,9 @@ judge() {
 # judge_sh PATH BASE WHAT: judge a path named in a shell command. A word that
 # is not concrete is judged by the directory its concrete leading part names
 # (registry/ in registry/$id.yaml), and not at all when that part holds no
-# "/". A relative path when BASE is unknown ("?") is not judged.
+# "/". A relative path is judged against each candidate in BASE but "?".
 judge_sh() {
-  local p=$1
+  local p=$1 rest c
   case $p in
     *"$DYN"*)
       p=${p%%"$DYN"*}
@@ -332,8 +357,13 @@ judge_sh() {
       ;;
   esac
   [ -n "$p" ] || return 0
-  if [[ $p != /* ]] && [ "$2" = '?' ]; then return 0; fi
-  judge "$p" "$2" || block "$3 $REL: $protected_msg"
+  rest=$2$SEP
+  [[ $p != /* ]] || rest=/$SEP
+  while [ -n "$rest" ]; do
+    c=${rest%%"$SEP"*}
+    rest=${rest#*"$SEP"}
+    [ "$c" = '?' ] || judge "$p" "$c" || block "$3 $REL: $protected_msg"
+  done
 }
 
 # dyn WORD MARK: RES = WORD, not concrete from its first MARK ({} filled in by
@@ -1018,11 +1048,19 @@ check_config_args() { # git config ARGS: block a write that mentions a hooks key
   block "git config changes core.hooksPath or include.path; hooks are configured only by make setup (R11)"
 }
 
-# exists_at BASE PATH: succeed when the concrete PATH exists (or is a link).
+# exists_at BASE PATH: succeed when the concrete PATH exists (or is a link)
+# against some candidate in BASE.
 exists_at() {
+  local rest c
   case $2 in '' | *"$DYN"*) return 1 ;; esac
   join_dir "$1" "$2"
-  [ "$RES" != '?' ] && { [ -e "$RES" ] || [ -L "$RES" ]; }
+  rest=$RES$SEP
+  while [ -n "$rest" ]; do
+    c=${rest%%"$SEP"*}
+    rest=${rest#*"$SEP"}
+    [ "$c" != '?' ] && { [ -e "$c" ] || [ -L "$c" ]; } && return 0
+  done
+  return 1
 }
 
 check_git() { # CW ARG...: ARG follows "git"
@@ -1249,11 +1287,18 @@ move_cwd() {
   fi
   [ "$1" = - ] && set -- "$DYN" # cd -: back to $OLDPWD
   join_dir "$CWD" "$1"
-  if [ "$RES" != '?' ]; then
-    if [ "$phys" = 1 ]; then physical "$RES"; else lexical "$RES"; fi
-  fi
+  local rest=$RES$SEP c out=
+  while [ -n "$rest" ]; do
+    c=${rest%%"$SEP"*}
+    rest=${rest#*"$SEP"}
+    if [ "$c" != '?' ]; then
+      if [ "$phys" = 1 ]; then physical "$c"; else lexical "$c"; fi
+      c=$RES
+    fi
+    if [ -z "$out" ]; then out=$c; else union "$out" "$c"; out=$RES; fi
+  done
   [ "$kind" = pushd ] && DIRS[${#DIRS[@]}]=$CWD
-  CWD=$RES
+  CWD=$out
 }
 
 # env_cmd CW ARG...: env [options] [NAME=VALUE...] [command]
@@ -1330,7 +1375,7 @@ xargs_cmd() {
 # find_cmd CW ARG...: each -exec/-execdir/-ok/-okdir command, with {} taken
 # as the start point that every path find passes it lies under.
 find_cmd() {
-  local cw=$1 a kind sp cwx
+  local cw=$1 a kind sp sp0 sps cwx
   local -a starts ex ws
   shift
   starts=()
@@ -1362,24 +1407,31 @@ find_cmd() {
       ex[${#ex[@]}]=$a
     done
     [ "${#ex[@]}" -gt 0 ] || continue
-    for sp in "${starts[@]}"; do
+    for sp0 in "${starts[@]}"; do
       cwx=$cw
+      sps=$sp0
       case $kind in
         -execdir | -okdir) # runs in each found file's directory
           cwx='?'
-          join_dir "$cw" "$sp"
-          if [ "$RES" = '?' ]; then sp=$DYN$sp; else sp=$RES; fi
+          join_dir "$cw" "$sp0"
+          sps=$RES
           ;;
       esac
-      ws=()
-      for a in "${ex[@]}"; do
-        case $a in
-          '{}') ws[${#ws[@]}]=$sp ;;
-          *'{}'*) dyn "$a" '{}'; ws[${#ws[@]}]=$RES ;;
-          *) ws[${#ws[@]}]=$a ;;
-        esac
+      sps=$sps$SEP
+      while [ -n "$sps" ]; do # the start point, as each candidate directory names it
+        sp=${sps%%"$SEP"*}
+        sps=${sps#*"$SEP"}
+        case $kind$sp in -execdir'?' | -okdir'?') sp=$DYN$sp0 ;; esac
+        ws=()
+        for a in "${ex[@]}"; do
+          case $a in
+            '{}') ws[${#ws[@]}]=$sp ;;
+            *'{}'*) dyn "$a" '{}'; ws[${#ws[@]}]=$RES ;;
+            *) ws[${#ws[@]}]=$a ;;
+          esac
+        done
+        cmd sub "$cwx" "${ws[@]}"
       done
-      cmd sub "$cwx" "${ws[@]}"
     done
   done
 }
@@ -1586,10 +1638,13 @@ cmd() {
 # for or case is a level of its own, and the redirects on its closer are
 # judged where it started. What runs in a subshell keeps its cd to itself:
 # a ( ) body, each command of a pipeline (a { } or if there too) and a
-# background job (a whole && || list). A cd that may not run, after && or ||
-# or in the body of an if, a loop or a case, leaves CWD unknown once that
-# list or compound is over. A function body's cd does not move the shell
-# where the function is defined.
+# background job (a whole && || list). A cd is taken to succeed when it runs.
+# A cd that may not run, after && or || or in the body of an if, a loop or a
+# case, leaves CWD holding both directories once that list or compound is
+# over: where the shell was without it and where it went (a loop: after one
+# pass). The first command of a && || list always runs, so its cd is
+# followed alone. A function body's cd does not move the shell where the
+# function is defined.
 
 # collect: gather the words, redirects and nested strings of a command from T
 # up to the next operator.
@@ -1647,20 +1702,21 @@ walk_list() {
   done
 }
 
-walk_andor() { # pipelines joined by && and ||
-  local cond=0 sure
+# walk_andor: pipelines joined by && and ||. The first always runs; the list
+# may stop after any later one, so it leaves every CWD it had from the first on.
+walk_andor() {
+  local seen
   walk_pipeline
+  seen=$CWD
   while [ "$T" -lt "$NT" ]; do
     case ${TT[T]}${TV[T]} in 'O&&' | 'O||') ;; *) break ;; esac
-    if [ "$cond" = 0 ]; then
-      cond=1
-      sure=$CWD
-    fi
     T=$((T + 1))
     skip_nl
     walk_pipeline
+    union "$seen" "$CWD"
+    seen=$RES
   done
-  if [ "$cond" = 1 ] && [ "$CWD" != "$sure" ]; then CWD='?'; fi
+  CWD=$seen
 }
 
 walk_pipeline() { # commands joined by |, each in a subshell when there are two
@@ -1707,7 +1763,7 @@ funcdef() { # T is past the function's name; its body runs when called
 # compound: T is at ( { if while until for case. The parts after then, do
 # and a case pattern may not run.
 compound() {
-  local start=$CWD kw=${TV[T]} w pat=0 body=0 c= moved=0
+  local start=$CWD kw=${TV[T]} w pat=0 body=0 c= ends=
   T=$((T + 1))
   case $kw in
     for | case) # the head: up to ; or a newline (for), or "in" (case)
@@ -1733,14 +1789,16 @@ compound() {
     fi
     T=$((T + 1))
     case $w in
-      then | do) [ "$body" = 1 ] || { body=1; c=$CWD; } ;;
-      elif | else | ';;') [ "$CWD" = "$c" ] || moved=1; CWD=$c ;;
+      then | do) [ "$body" = 1 ] || { body=1; c=$CWD; ends=$c; } ;;
+      elif | else | ';;') union "$ends" "$CWD"; ends=$RES; CWD=$c ;;
       *) break ;;
     esac
     [ "$kw$w" != 'case;;' ] || pat=1
   done
-  [ "$body" = 0 ] || [ "$CWD" = "$c" ] || moved=1
-  [ "$moved" = 0 ] || CWD='?'
+  if [ "$body" = 1 ]; then # no part may have run, or any one of them
+    union "$ends" "$CWD"
+    CWD=$RES
+  fi
   [ "$kw" != '(' ] || CWD=$start
   collect # redirects on the closer, opened where the compound started
   simple "$start"
