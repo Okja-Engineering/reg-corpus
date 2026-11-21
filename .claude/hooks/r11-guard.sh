@@ -95,7 +95,7 @@ trap 'block "stopped by a signal, so the tool call cannot be checked (fail close
 
 protected_msg='registry/, .githooks/ and .claude/ are not writable by agents (R11)'
 verify_msg='regcorpus verify is run by a person in a terminal, never by an agent (R2a, R11)'
-DYN=$'\x01' # leads a word that is not a concrete string (it holds an expansion)
+DYN=$'\x01' # marks where a word stops being concrete (an expansion starts)
 HOME_V=${HOME-}
 TMPDIR_V=${TMPDIR-}
 MAX_DEPTH=16 # nested command strings ($(...), sh -c) checked, at most
@@ -153,7 +153,7 @@ lexical() {
 # concrete, or is relative and BASE is unknown ("?").
 join_dir() {
   case $2 in
-    '' | "$DYN"*) RES='?' ;;
+    '' | *"$DYN"*) RES='?' ;;
     /*) RES=$2 ;;
     *) if [ "$1" = '?' ]; then RES='?'; else RES=$1/$2; fi ;;
   esac
@@ -264,12 +264,31 @@ judge() {
 }
 
 # judge_sh PATH BASE WHAT: judge a path named in a shell command. A word that
-# is not concrete, or a relative path when BASE is unknown ("?"), is not
-# judged.
+# is not concrete is judged by the directory its concrete leading part names
+# (registry/ in registry/$id.yaml), and not at all when that part holds no
+# "/". A relative path when BASE is unknown ("?") is not judged.
 judge_sh() {
-  case $1 in '' | "$DYN"*) return 0 ;; esac
-  if [[ $1 != /* ]] && [ "$2" = '?' ]; then return 0; fi
-  judge "$1" "$2" || block "$3 $REL: $protected_msg"
+  local p=$1
+  case $p in
+    *"$DYN"*)
+      p=${p%%"$DYN"*}
+      [[ $p == */* ]] || return 0
+      p=${p%/*}/
+      ;;
+  esac
+  [ -n "$p" ] || return 0
+  if [[ $p != /* ]] && [ "$2" = '?' ]; then return 0; fi
+  judge "$p" "$2" || block "$3 $REL: $protected_msg"
+}
+
+# dyn WORD MARK: RES = WORD, not concrete from its first MARK ({} filled in by
+# xargs, find or parallel) on.
+dyn() {
+  local p=${1%%"$2"*}
+  case $p in
+    *"$DYN"*) RES=$1 ;;
+    *) RES=$p$DYN${1#"$p"} ;;
+  esac
 }
 
 # ---- shell lexer -------------------------------------------------------------
@@ -278,7 +297,7 @@ judge_sh() {
 # a $(...), `...` or <(...) found in the next word (checked as a command of
 # its own, in the directory the shell is in when it reaches it). Quotes are
 # removed from words; a word that holds an expansion other than ~, $HOME and
-# $TMPDIR keeps its source text and is marked with a leading DYN.
+# $TMPDIR keeps its source text, with DYN inserted where the first starts.
 
 re_plain=$'^[^ \t\n;&|()<>\\\'"$`~]+'
 re_dqplain=$'^[^"\\\\$`]+'
@@ -298,13 +317,21 @@ emit() { # TYPE VALUE [TARGET]
   TX[i]=${3-}
 }
 
-# word_value: the current word (WV, WD) as a token value.
+# word_value: the current word (WV, WD, WP) as a token value.
 word_value() {
-  if [ "$WD" = 1 ]; then WORD=$DYN$WV; else WORD=$WV; fi
+  if [ "$WD" = 1 ]; then WORD=${WV:0:WP}$DYN${WV:WP}; else WORD=$WV; fi
 }
 
-nest() { # BODY CWD DEPTH: queue a command string to check
-  NESTED[${#NESTED[@]}]=$1
+# mark_dyn: an expansion that is not followed starts at the end of WV.
+mark_dyn() {
+  if [ "$WD" = 0 ]; then
+    WD=1
+    WP=${#WV}
+  fi
+}
+
+nest() { # BODY CWD DEPTH: queue a command string (its source text) to check
+  NESTED[${#NESTED[@]}]=${1//$DYN/}
   NESTED_CWD[${#NESTED_CWD[@]}]=$2
   NESTED_DEPTH[${#NESTED_DEPTH[@]}]=$3
 }
@@ -312,8 +339,11 @@ nest() { # BODY CWD DEPTH: queue a command string to check
 # subst: I is just past "$(", "<(" or ">("; consume through the closing ")"
 # and emit the body as an S token.
 subst() {
-  local start=$I keep=${#TT[@]} i body
+  local start=$I keep=${#TT[@]} i body wv=$WV wd=$WD wp=$WP
   lex 1
+  WV=$wv
+  WD=$wd
+  WP=$wp
   body=${S:start:I-start}
   [ "$I" -lt "$N" ] && I=$((I + 1))
   i=${#TT[@]}
@@ -357,8 +387,8 @@ backtick() { # I is at "`"
   done
   [ "$I" -le "$N" ] || I=$N
   emit S "$body"
+  mark_dyn
   WV=$WV${S:start:I-start}
-  WD=1
 }
 
 # expand_var NAME: append $HOME or $TMPDIR to WV when set; 1 otherwise.
@@ -384,8 +414,8 @@ tilde() {
   if [ "$pre" = '~' ] && [ -n "$HOME_V" ]; then
     WV=$WV$HOME_V
   else
-    WV=$WV$pre # ~user, ~+, ~-: not followed
-    WD=1
+    mark_dyn # ~user, ~+, ~-: not followed
+    WV=$WV$pre
   fi
 }
 
@@ -400,14 +430,14 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
         I=$((I + 2))
         subst
       fi
+      mark_dyn
       WV=$WV${S:start:I-start}
-      WD=1
       ;;
     '[')
       I=$((I + 2))
       skip_balanced '[' ']' 1
+      mark_dyn
       WV=$WV${S:start:I-start}
-      WD=1
       ;;
     '{')
       I=$((I + 2))
@@ -421,8 +451,8 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
       done
       name=${S:start+2:I-start-3}
       if ! expand_var "$name"; then
+        mark_dyn
         WV=$WV${S:start:I-start}
-        WD=1
       fi
       ;;
     "'")
@@ -435,8 +465,8 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
       while [ "$I" -lt "$N" ]; do
         c=${S:I:1}
         if [ "$c" = '\' ]; then
+          mark_dyn
           WV=$WV${S:I:2}
-          WD=1
           I=$((I + 2))
         elif [ "$c" = "'" ]; then
           I=$((I + 1))
@@ -461,13 +491,13 @@ dollar() { # I is at "$"; $1: u (unquoted) or d (in double quotes)
       name=${BASH_REMATCH[0]}
       I=$((I + 1 + ${#name}))
       if ! expand_var "$name"; then
+        mark_dyn
         WV="$WV\$$name"
-        WD=1
       fi
       ;;
     [0-9] | '@' | '*' | '#' | '?' | '$' | '!' | '-')
+      mark_dyn
       WV=$WV${S:I:2}
-      WD=1
       I=$((I + 2))
       ;;
     *) WV="$WV\$"; I=$((I + 1)) ;;
@@ -499,7 +529,10 @@ dquote() { # I is just past the opening quote
 }
 
 # read_word: WV = the unquoted value of the word at I; WD = 1 when it holds
-# an expansion that is not followed.
+# an expansion that is not followed, which starts at WP.
+WV=
+WD=0
+WP=0
 read_word() {
   local c part rest
   WV=
@@ -897,7 +930,7 @@ check_config_args() { # git config ARGS: block a write that mentions a hooks key
 
 # exists_at BASE PATH: succeed when the concrete PATH exists (or is a link).
 exists_at() {
-  case $2 in '' | "$DYN"*) return 1 ;; esac
+  case $2 in '' | *"$DYN"*) return 1 ;; esac
   join_dir "$1" "$2"
   [ "$RES" != '?' ] && { [ -e "$RES" ] || [ -L "$RES" ]; }
 }
@@ -1146,19 +1179,18 @@ env_cmd() {
     esac
   done
   while [ $# -gt 0 ]; do
-    u=${1#"$DYN"}
-    [[ $u =~ $re_assign ]] || break
-    check_assignment "$u"
+    [[ $1 =~ $re_assign ]] || break
+    check_assignment "$1"
     shift
   done
   if [ -n "$s" ]; then # -S: the string is split into the command's words
     for a in "$@"; do
       case $a in
-        "$DYN"*) s="$s \"\$_\"" ;;
+        *"$DYN"*) s="$s \"\$_\"" ;;
         *) printf -v q '%q' "$a"; s="$s $q" ;;
       esac
     done
-    nest "${s#"$DYN"}" "$cw" $((DEPTH + 1))
+    nest "$s" "$cw" $((DEPTH + 1))
     return 0
   fi
   cmd sub "$cw" "$@"
@@ -1192,7 +1224,7 @@ xargs_cmd() {
   ws=()
   for a in "$@"; do
     case $a in
-      *"$rep"*) ws[${#ws[@]}]=$DYN$a ;;
+      *"$rep"*) dyn "$a" "$rep"; ws[${#ws[@]}]=$RES ;;
       *) ws[${#ws[@]}]=$a ;;
     esac
   done
@@ -1247,7 +1279,7 @@ find_cmd() {
       for a in "${ex[@]}"; do
         case $a in
           '{}') ws[${#ws[@]}]=$sp ;;
-          *'{}'*) ws[${#ws[@]}]=$DYN$a ;;
+          *'{}'*) dyn "$a" '{}'; ws[${#ws[@]}]=$RES ;;
           *) ws[${#ws[@]}]=$a ;;
         esac
       done
@@ -1295,7 +1327,7 @@ parallel_cmd() {
   if [ "${#tpl[@]}" -eq 0 ]; then # the inputs are the commands
     if [ "$known" = 1 ]; then
       for in in "${ins[@]}"; do
-        case $in in "$DYN"*) ;; *) nest "$in" "$cw" $((DEPTH + 1)) ;; esac
+        case $in in *"$DYN"*) ;; *) nest "$in" "$cw" $((DEPTH + 1)) ;; esac
       done
     fi
     return 0
@@ -1306,7 +1338,7 @@ parallel_cmd() {
   if [ "$known" = 0 ]; then
     ws=()
     for a in "${tpl[@]}"; do
-      case $a in *'{'*'}'*) ws[${#ws[@]}]=$DYN$a ;; *) ws[${#ws[@]}]=$a ;; esac
+      case $a in *'{'*'}'*) dyn "$a" '{'; ws[${#ws[@]}]=$RES ;; *) ws[${#ws[@]}]=$a ;; esac
     done
     if [ "$rep" = 1 ]; then cmd sub "$cw" "${ws[@]}"; else cmd tail "$cw" "${ws[@]}"; fi
     return 0
@@ -1316,7 +1348,7 @@ parallel_cmd() {
     for a in "${tpl[@]}"; do
       case $a in
         '{}') ws[${#ws[@]}]=$in ;;
-        *'{'*'}'*) ws[${#ws[@]}]=$DYN$a ;;
+        *'{'*'}'*) dyn "$a" '{'; ws[${#ws[@]}]=$RES ;;
         *) ws[${#ws[@]}]=$a ;;
       esac
     done
@@ -1334,9 +1366,8 @@ cmd() {
   local -a ws
   shift 2
   while [ $# -gt 0 ]; do
-    u=${1#"$DYN"}
-    if [[ $u =~ $re_assign ]]; then
-      check_assignment "$u"
+    if [[ $1 =~ $re_assign ]]; then
+      check_assignment "$1"
       shift
       continue
     fi
@@ -1348,7 +1379,7 @@ cmd() {
   [ $# -gt 0 ] || return 0
   w=$1
   shift
-  case $w in "$DYN"*) return 0 ;; esac # not a concrete command name
+  case $w in *"$DYN"*) return 0 ;; esac # not a concrete command name
   rc_verify "$w" "$@" && block "$verify_msg"
   base=${w##*/}
   case $base in
@@ -1443,7 +1474,7 @@ cmd() {
           -o | +o | -O | +O) shift $(($# > 1 ? 2 : 1)) ;;
           --*) shift ;;
           -*c*)
-            [ $# -gt 1 ] && nest "${2#"$DYN"}" "$cw" $((DEPTH + 1))
+            [ $# -gt 1 ] && nest "$2" "$cw" $((DEPTH + 1))
             break
             ;;
           [-+]*) shift ;;
@@ -1453,7 +1484,7 @@ cmd() {
       ;;
     cd | pushd | popd) [ "$mode" = top ] && move_cwd "$base" "$@" ;;
     export | declare | typeset | readonly | local)
-      for u in "$@"; do check_assignment "${u#"$DYN"}"; done
+      for u in "$@"; do check_assignment "$u"; done
       ;;
     *) case $writers in *" $base "*) write_cmd "$base" "$mode" "$cw" "$@" ;; esac ;;
   esac
