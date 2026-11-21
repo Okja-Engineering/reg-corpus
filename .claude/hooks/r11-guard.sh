@@ -660,7 +660,10 @@ lex() {
         rest=${rest%%$'\n'*}
         I=$((I + ${#rest}))
         ;;
-      ';') [ "${S:I+1:1}" = ';' ] && I=$((I + 2)) || I=$((I + 1)); emit O ';'; cs=1 ;;
+      ';')
+        if [ "${S:I+1:1}" = ';' ]; then I=$((I + 2)); emit O ';;'; else I=$((I + 1)); emit O ';'; fi
+        cs=1
+        ;;
       '&')
         case ${S:I+1:1} in
           '&') I=$((I + 2)); emit O '&&'; cs=1 ;;
@@ -1393,16 +1396,9 @@ cmd() {
   local mode=$1 cw=$2 w u base j
   local -a ws
   shift 2
-  while [ $# -gt 0 ]; do
-    if [[ $1 =~ $re_assign ]]; then
-      check_assignment "$1"
-      shift
-      continue
-    fi
-    case $1 in
-      '!' | '{' | '}' | if | then | else | elif | do | while | until) shift ;;
-      *) break ;;
-    esac
+  while [ $# -gt 0 ] && [[ $1 =~ $re_assign ]]; do
+    check_assignment "$1"
+    shift
   done
   [ $# -gt 0 ] || return 0
   w=$1
@@ -1519,14 +1515,45 @@ cmd() {
   return 0
 }
 
-# simple: check the simple command in SW (words), SR_OP / SR_T (redirects).
+# ---- walking the commands ------------------------------------------------------
+# The tokens are walked the way the shell runs them (T is the next token, NT
+# their count), following CWD. A compound command ( ), { }, if, while, until,
+# for or case is a level of its own, and the redirects on its closer are
+# judged where it started. What runs in a subshell keeps its cd to itself:
+# a ( ) body, each command of a pipeline (a { } or if there too) and a
+# background job (a whole && || list). A cd that may not run, after && or ||
+# or in the body of an if, a loop or a case, leaves CWD unknown once that
+# list or compound is over. A function body's cd does not move the shell
+# where the function is defined.
+
+# collect: gather the words, redirects and nested strings of a command from T
+# up to the next operator.
+collect() {
+  SW=()
+  SR_OP=()
+  SR_T=()
+  while [ "$T" -lt "$NT" ] && [ "${TT[T]}" != O ]; do
+    case ${TT[T]} in
+      W) SW[${#SW[@]}]=${TV[T]} ;;
+      R)
+        SR_OP[${#SR_OP[@]}]=${TV[T]}
+        SR_T[${#SR_T[@]}]=${TX[T]}
+        ;;
+      S) nest "${TV[T]}" "$CWD" $((DEPTH + 1)) ;;
+    esac
+    T=$((T + 1))
+  done
+}
+
+# simple BASE: check the command in SW (words) and SR_OP / SR_T (redirects,
+# opened in BASE).
 simple() {
   local r=0
   while [ "$r" -lt "${#SR_OP[@]}" ]; do
     case ${SR_OP[r]} in
       *'<<' | *'<<-' | *'<<<' | *'<' | *'<&') ;;
-      *'>&') [[ ${SR_T[r]} =~ $re_fddup ]] || judge_sh "${SR_T[r]}" "$CWD" "redirect to" ;;
-      *) judge_sh "${SR_T[r]}" "$CWD" "redirect to" ;;
+      *'>&') [[ ${SR_T[r]} =~ $re_fddup ]] || judge_sh "${SR_T[r]}" "$1" "redirect to" ;;
+      *) judge_sh "${SR_T[r]}" "$1" "redirect to" ;;
     esac
     r=$((r + 1))
   done
@@ -1534,12 +1561,130 @@ simple() {
   cmd top "$CWD" "${SW[@]}"
 }
 
-# check_command CMD CWD: lex CMD and check each simple command in it, then
-# every command string nested inside it, each in the directory it runs in.
-# A pipeline's commands and a background job run in subshells: a cd there
-# does not move the shell (pipe_cwd is where the pipeline started).
+skip_nl() {
+  while [ "$T" -lt "$NT" ] && [ "${TT[T]}${TV[T]}" = Onl ]; do T=$((T + 1)); done
+}
+
+# walk_list: and-or lists separated by ; & or newlines, up to a token that
+# ends the enclosing level ( ) } then do fi done esac ;; ...) or the end.
+walk_list() {
+  local bg
+  while [ "$T" -lt "$NT" ]; do
+    bg=$CWD
+    walk_andor
+    [ "$T" -lt "$NT" ] || return 0
+    case ${TT[T]}${TV[T]} in
+      'O&') CWD=$bg ;; # a background job runs in a subshell
+      'O;' | Onl) ;;
+      *) return 0 ;;
+    esac
+    T=$((T + 1))
+  done
+}
+
+walk_andor() { # pipelines joined by && and ||
+  local cond=0 sure
+  walk_pipeline
+  while [ "$T" -lt "$NT" ]; do
+    case ${TT[T]}${TV[T]} in 'O&&' | 'O||') ;; *) break ;; esac
+    if [ "$cond" = 0 ]; then
+      cond=1
+      sure=$CWD
+    fi
+    T=$((T + 1))
+    skip_nl
+    walk_pipeline
+  done
+  if [ "$cond" = 1 ] && [ "$CWD" != "$sure" ]; then CWD='?'; fi
+}
+
+walk_pipeline() { # commands joined by |, each in a subshell when there are two
+  local start=$CWD n=0
+  walk_command
+  while [ "$T" -lt "$NT" ] && [ "${TT[T]}${TV[T]}" = 'O|' ]; do
+    T=$((T + 1))
+    CWD=$start
+    n=1
+    skip_nl
+    walk_command
+  done
+  [ "$n" = 0 ] || CWD=$start
+}
+
+walk_command() {
+  while [ "$T" -lt "$NT" ]; do
+    case ${TT[T]}${TV[T]} in
+      'W!') T=$((T + 1)) ;;
+      'O(' | 'W{' | Wif | Wwhile | Wuntil | Wfor | Wcase) compound; return 0 ;;
+      'W}' | Wthen | Wdo | Welif | Welse | Wfi | Wdone | Wesac | O*) return 0 ;;
+      Wfunction) T=$((T + 2)); funcdef; return 0 ;;
+      *) break ;;
+    esac
+  done
+  if [ "${TT[T+1]-}${TV[T+1]-}${TT[T+2]-}${TV[T+2]-}" = 'O(O)' ]; then
+    T=$((T + 1)) # NAME ()
+    funcdef
+    return 0
+  fi
+  collect
+  simple "$CWD"
+  [ "${TT[T]-}${TV[T]-}" != 'O(' ] || compound # time ( ... )
+}
+
+funcdef() { # T is past the function's name; its body runs when called
+  local here=$CWD
+  [ "${TT[T]-}${TV[T]-}${TT[T+1]-}${TV[T+1]-}" != 'O(O)' ] || T=$((T + 2))
+  skip_nl
+  walk_command
+  CWD=$here
+}
+
+# compound: T is at ( { if while until for case. The parts after then, do
+# and a case pattern may not run.
+compound() {
+  local start=$CWD kw=${TV[T]} w pat=0 body=0 c= moved=0
+  T=$((T + 1))
+  case $kw in
+    for | case) # the head: up to ; or a newline (for), or "in" (case)
+      while [ "$T" -lt "$NT" ]; do
+        w=${TT[T]}${TV[T]}
+        [ "${TT[T]}" != S ] || nest "${TV[T]}" "$CWD" $((DEPTH + 1))
+        T=$((T + 1))
+        case $kw$w in 'forO;' | forOnl | caseWin) break ;; esac
+      done
+      ;;
+  esac
+  [ "$kw" != case ] || pat=1
+  while [ "$T" -lt "$NT" ]; do
+    if [ "$pat" = 1 ]; then # a case pattern up to its ")", or esac
+      skip_nl
+      [ "${TT[T]-}${TV[T]-}" != Wesac ] || { T=$((T + 1)); break; }
+      while [ "$T" -lt "$NT" ] && [ "${TT[T]}${TV[T]}" != 'O)' ]; do T=$((T + 1)); done
+      w=then
+      pat=0
+    else
+      walk_list
+      w=${TV[T]-}
+    fi
+    T=$((T + 1))
+    case $w in
+      then | do) [ "$body" = 1 ] || { body=1; c=$CWD; } ;;
+      elif | else | ';;') [ "$CWD" = "$c" ] || moved=1; CWD=$c ;;
+      *) break ;;
+    esac
+    [ "$kw$w" != 'case;;' ] || pat=1
+  done
+  [ "$body" = 0 ] || [ "$CWD" = "$c" ] || moved=1
+  [ "$moved" = 0 ] || CWD='?'
+  [ "$kw" != '(' ] || CWD=$start
+  collect # redirects on the closer, opened where the compound started
+  simple "$start"
+}
+
+# check_command CMD CWD: lex CMD and walk the commands in it, then every
+# command string nested inside it, each in the directory it runs in.
 check_command() {
-  local q=0 t nt pipe_cwd inpipe
+  local q=0
   NESTED=("$1")
   NESTED_CWD=("$2")
   NESTED_DEPTH=(0)
@@ -1556,46 +1701,13 @@ check_command() {
     HD_DELIM=()
     HD_STRIP=()
     lex 0
-    CWD_STACK=()
     DIRS=()
-    SW=()
-    SR_OP=()
-    SR_T=()
-    pipe_cwd=
-    inpipe=0
-    nt=${#TT[@]}
-    for ((t = 0; t < nt; t++)); do
-      case ${TT[t]} in
-        W) SW[${#SW[@]}]=${TV[t]} ;;
-        R)
-          SR_OP[${#SR_OP[@]}]=${TV[t]}
-          SR_T[${#SR_T[@]}]=${TX[t]}
-          ;;
-        S) nest "${TV[t]}" "$CWD" $((DEPTH + 1)) ;;
-        O)
-          [ "$inpipe" = 1 ] || pipe_cwd=$CWD
-          simple
-          SW=()
-          SR_OP=()
-          SR_T=()
-          case ${TV[t]} in
-            '|') inpipe=1; CWD=$pipe_cwd ;;
-            '&') inpipe=0; CWD=$pipe_cwd ;;
-            *) [ "$inpipe" = 1 ] && CWD=$pipe_cwd; inpipe=0 ;; # a pipeline's last command
-          esac
-          case ${TV[t]} in
-            '(') CWD_STACK[${#CWD_STACK[@]}]=$CWD ;;
-            ')')
-              if [ "${#CWD_STACK[@]}" -gt 0 ]; then
-                CWD=${CWD_STACK[${#CWD_STACK[@]}-1]}
-                unset "CWD_STACK[${#CWD_STACK[@]}-1]"
-              fi
-              ;;
-          esac
-          ;;
-      esac
+    NT=${#TT[@]}
+    T=0
+    while [ "$T" -lt "$NT" ]; do
+      walk_list
+      T=$((T + 1)) # a closer with nothing open: skip it
     done
-    simple
     q=$((q + 1))
   done
 }
