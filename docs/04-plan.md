@@ -10,7 +10,7 @@
 **Stack:**
 - Go: one CLI, `regcorpus`
 - Dependencies: `gopkg.in/yaml.v3` and `golang.org/x/text/unicode/norm`
-- Git and GitHub; the gate is CI's `C6 gate` check, and the pre-commit hook plus the R11 agent guard are seatbelts (ADR 0007)
+- Git and GitHub; the gate is CI's `C6 gate` check, once `main`'s branch protection requires it (step 1), and the pre-commit hook plus the R11 agent guard are seatbelts (ADR 0007)
 
 ## Files that change
 New repo `regcorpus/`:
@@ -66,7 +66,7 @@ VERSION  CHANGES.json             # after accept
 
 ## Order of work
 ### Weekend 1 (Nov 21–22): 1024.41 L0
-1. Init the repo, the Go module and the Makefile, and run `make setup` (sets `core.hooksPath`). Write `AGENTS.md`, the five `stages/*/CONTRACT.md` files and `.claude/settings.json` (R11) first. Add the CI gate, `.github/workflows/c6.yml` (ADR 0007).
+1. Init the repo, the Go module and the Makefile, and run `make setup` (sets `core.hooksPath`). Write `AGENTS.md`, the five `stages/*/CONTRACT.md` files and `.claude/settings.json` (R11) first. Add the CI gate, `.github/workflows/c6.yml` (ADR 0007). The owner then sets branch protection on `main` to require the `C6 gate` check and up-to-date branches (a person's step); CI is the gate only from then.
 2. `internal/ecfr`: fetch the version lists and point-in-time XML for 1024.41, 1024.30 and 1024.31, and store the raw XML untouched.
 3. **Version-date question:**
    - Fetch 1024.41 at 2025-05-15, 2025-05-16 and 2025-07-15, and diff them.
@@ -159,7 +159,7 @@ VERSION  CHANGES.json             # after accept
 | The early arm (a) is too strong | Margin unreachable | Pre-registered as a fail for that model; stop if both fail (step 11) |
 | Weekend 2 is Thanksgiving | Lost time | Steps 10–11 are fixed; 14–16 can slip to weekend 3 |
 | Full verification overruns | Decision slips | Buffer evenings, then fallback 1 (which caps the outcome at revise), never an undefined outcome |
-| An agent bypasses the git hook or edits `registry/` | Unverified content lands | R11 guard; `verify` needs a terminal; `verify.log` checked by C6, which CI gates (ADR 0007) |
+| An agent bypasses the git hook or edits `registry/` | Unverified content lands | R11 guard; `verify` needs a terminal; `verify.log` checked by C6, which CI also runs, so a bypassed hook doesn't skip it once `main`'s branch protection requires the `C6 gate` check (ADR 0007); C6 can't tell who wrote a record |
 | eCFR, govinfo and the Federal Register API are blocked from the cloud workspace | Cloud agents can't fetch | Fetch steps run on your machine; later steps work offline from committed XML |
 
 ## Proof
