@@ -30,8 +30,10 @@
 //     entry in raw/, a meta.yaml that isn't fetch's, lacks its raw file, or
 //     names another date or sha256) exits 1 and stores nothing. A stored file
 //     is never overwritten (store.go, by hard link), and every directory on
-//     the way to one, under sources/ or .cache/, must be a real directory,
-//     not a symlink or a file (exit 1 otherwise).
+//     the way to one, from sources/ down and under .cache/, must be a real
+//     directory, not a symlink or a file (realDirs, the one check of that;
+//     exit 1 otherwise, before any request for sources/ecfr/title-12/). A
+//     root without sources/ecfr/title-12/ is not the corpus root (exit 2).
 //   - Beside it, when missing, fetch writes meta.yaml's fetch-owned fields in
 //     the spec's order: cfr, tier, role, source, official, source_version_date,
 //     retrieved_at (UTC), ecfr_up_to_date_as_of, sha256_raw. internal/anchors
