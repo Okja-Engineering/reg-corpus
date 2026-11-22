@@ -21,7 +21,9 @@ row per ADR, so ADR numbers continue from 0007.
 4. The issue is closed when that PR merges.
 
 A later ADR that replaces one sets the old one's status to "Superseded by NNNN",
-and amends the spec's row for the old one.
+and amends the spec's row for the old one. One that changes what an older ADR
+says without replacing it adds an "Amended" line to that ADR's header, naming
+the sentences that now describe the past, and leaves them as written.
 
 ## Index
 | # | Decision | Status |
