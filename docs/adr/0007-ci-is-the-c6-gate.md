@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-21
 - **Decided by:** the owner, 2026-11-21 (time not recorded), in chat: "CI gate, guard seatbelt"
+- **Amended:** 2026-11-22 by ADR 0009, which made accepted ADRs part of the spec. The spec now states this decision: decision 3 and "Enforcement" make the corpus gate CI from phase 1, and decision 7 is this ADR. The Context, the Decision's "This departs from spec decision 3's 'CI closes that later'" and the Consequences line "The spec's decision 3 text is unchanged" describe the spec when this was recorded. Requirement IDs add decision 7.
 
 ## Context
 Spec decision 3 made phase 1 local only: a git pre-commit hook runs the check,
@@ -35,7 +36,7 @@ decision 3's "CI closes that later": CI arrives in phase 1, with plan step 1.
   decision.
 
 ## Requirement IDs
-C6, R5, R11; spec decision 3.
+C6, R5, R11; spec decisions 3 and 7.
 
 ## Links
 - PR #1 (https://github.com/Okja-Engineering/reg-corpus/pull/1): Summary and

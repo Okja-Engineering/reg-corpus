@@ -1,11 +1,11 @@
 name: Decision
-description: An open technical call for the owner. Once made, it is recorded as an ADR under docs/adr/.
+description: An open technical call for the owner. Once made, it is recorded as an ADR under docs/adr/, part of the spec.
 labels: [decision]
 body:
   - type: markdown
     attributes:
       value: |
-        Technical calls only: no interpretation of the regulation, and no product or compliance guidance (AGENTS.md, hard rules). The owner decides. Once decided, the call is quoted here with its date, time and timezone and where it was given, recorded as the next `docs/adr/NNNN-*.md` in a PR, and this issue is closed (see `docs/adr/README.md`).
+        Technical calls only: no interpretation of the regulation, and no product or compliance guidance (AGENTS.md, hard rules). The owner decides. Once decided, the call is quoted here with its date, time and timezone and where it was given, recorded as the next `docs/adr/NNNN-*.md` in a PR that also adds its row to the spec's decisions table and amends the intent, spec, plan, stage contract or AGENTS.md text it changes (an accepted ADR is part of the spec), and this issue is closed (see `docs/adr/README.md`).
   - type: input
     id: call
     attributes:

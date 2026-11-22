@@ -3,17 +3,23 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Intent:** `intent.md` (accepted 2026-11-21)
+- **Amended:** 2026-11-22 by ADRs 0007–0009
+- **Intent:** `docs/01-intent.md` (accepted 2026-11-21)
 
 ## Decisions on the intent's open questions
+Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no-go. Rows 7 on are accepted ADRs (`docs/adr/`), which are part of this spec.
+
 | # | Question | Decision |
 |---|---|---|
 | 1 | What is one obligation? | One duty-holder, one action, one deadline. A paragraph can hold several obligations, and one obligation can draw on several paragraphs. A notice's required contents belong to one obligation, held in `contents`. A permission is a record with `modality: permission`, and its limit (e.g. the (e)(1) 14- or 7-day floor) is a `deadline` with `bound: floor`. A deadline that depends on a condition stays one record, using `combine: by_condition`. |
 | 2 | What evidence does each verification level require? | Three levels: `fetched` (staging only; no review), `text-verified` (a person checked every cited field against the text using `regcorpus verify`; quotes machine-matched by C6), `second-reviewed` (a second person re-checks the decomposition; rules carried forward). `registry/` holds only records at `text-verified` or above. |
-| 3 | Hard gate or advisory? | Hard gate at whatever consumer level a repo adopts (R4), and always for the corpus repo (C6). Phase 1 is local only: a git pre-commit hook runs the check, and an agent guard (R11) blocks bypasses. A person can still bypass the git hook; CI closes that later. |
+| 3 | Hard gate or advisory? | Hard gate at whatever consumer level a repo adopts (R4), and always for the corpus repo (C6). In the corpus repo the gate is CI from phase 1, once `main`'s branch protection requires it (decision 7); its git pre-commit hook and the agent guard (R11) are seatbelts, which a person can bypass. In consumers, phase 1 is local only: a git pre-commit hook runs the check, a person can still bypass it, and CI closes that later. |
 | 4 | Revision in IDs? | Yes. Citations take the form `ID@rev`. Any change to a record's meaning bumps `rev`, and so does a change to an anchor rule that applies to it. |
 | 5 | Pass rule | Applied separately to each model (Opus 5.5 and Sonnet 5.5), over 5 runs per arm. A model passes only if all three hold: mean recall(c) ≥ 0.8; mean recall(c) − mean recall(a) ≥ 0.4; mean precision(c) ≥ 0.5. Pass on both = accept; one = revise; neither = kill. Pre-registered rules: <br>• mean recall(a) > 0.6 fails that model, and the fixture isn't reseeded; <br>• if only one model runs, or any in-scope record is below `text-verified` at run time, the best outcome is revise; <br>• arm (b) is diagnostic: if (c) passes and mean recall(c) − mean recall(b) < 0.1 on both models, record that lookups, not the check, carry the result, and move C1 and the strict level to phase 2. |
 | 6 | Interface | CLI only in phase 1, with no server, API or MCP. Every phase-1 consumer has a shell, and the gate needs a binary anyway. |
+| 7 | What is the corpus repo's gate? | CI: the `C6 gate` check runs C6 on the commit under test (for a pull request, GitHub's test merge commit), then `make test`. It is the gate once branch protection on `main` requires the `C6 gate` check and up-to-date branches (the owner's setting). The pre-commit hook and the R11 guard are seatbelts. [ADR 0007](adr/0007-ci-is-the-c6-gate.md) |
+| 8 | What may an eval arm see? | No arm's run directory holds `key.yaml`; only grading reads it. [ADR 0008](adr/0008-no-arm-sees-key-yaml.md) |
+| 9 | How do ADRs relate to this spec? | An accepted ADR is part of this spec. The intent, spec, plan, stage contracts and AGENTS.md never conflict with one: the PR that adds an ADR amends their text where it states what the ADR changes, and adds its row here. [ADR 0009](adr/0009-adrs-are-part-of-the-spec.md) |
 
 ## Definitions
 - **Anchor:** a stable ID for one labeled unit of L0 text: a regulation paragraph at any depth (`1024-41-b-2-i-B`), one official comment (`1024-41-b-2-i-interp-1`), or a definition (`1024-31-day`).
@@ -324,7 +330,7 @@ Records are derived from cites, so each entry carries only a `reviewed` sign-off
 
 **Suppressing C1:** use `[obl:none reason="…"]`. An empty reason fails C1, and `regcorpus check` reports the suppression count.
 
-**Enforcement:** in phase 1 the pre-commit hook (per-commit C6 in the corpus, the adopted level in consumers) and the R11 guard enforce; CI takes over later. An agent hook running the check on edit is a convenience, not the control.
+**Enforcement:** in the corpus, CI's `C6 gate` check runs per-commit C6 and is the control once `main`'s branch protection requires it (decision 7); the pre-commit hook and the R11 guard are seatbelts. In consumers, in phase 1 the pre-commit hook runs the adopted level; CI takes over later. An agent hook running the check on edit is a convenience, not the control.
 
 ### Releases and distribution
 - **Version numbers:**
@@ -356,11 +362,11 @@ Records are derived from cites, so each entry carries only a `reviewed` sign-off
   - **Selection:** seed anchors are drawn by lowest `sha256(seed‖anchor)` from per-type eligibility lists committed before selection.
 - **`key.yaml`:** per seed `id`, `location`, `type`, `check_detectable: C1 | C5 | false`, and `must_say` (the substance a finding has to state).
 - **Arms:** five runs each per model, all with the same prompt ("review this spec for regulatory errors; one finding per line with location and problem"):
-  - (a) L0 text files + `fixture-src`
+  - (a) L0 text files + `fixture-src` without `key.yaml`
   - (b) L0 + the lookup-only binary + the skill + `fixture`
   - (c) as (b), but with the full binary and the `regcorpus check` output
 
-  Every run uses project-only settings (no user config, memory, skills or MCP), with web tools disallowed. The skill is installed as a project skill in arms (b) and (c).
+  Every run uses project-only settings (no user config, memory, skills or MCP), with web tools disallowed. The skill is installed as a project skill in arms (b) and (c). No arm's run directory holds `key.yaml`; only grading reads it (decision 8).
 - **Grading:**
   - **A catch** is a finding at the seed's location that states its `must_say`.
   - **The judge:** a committed prompt (`eval/judge-v1.md`, written before any run) grades normalized outputs. Normalization maps IDs to CFR cites, strips arm, model and `regcorpus` mentions, and shuffles findings.

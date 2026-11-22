@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-21
 - **Decided by:** the owner, 2026-11-21 20:55 CST, in chat: "Yes, hide key.yaml"
+- **Amended:** 2026-11-22 by ADR 0009, which made accepted ADRs part of the spec. The spec now states this decision: its arm (a) line gives `fixture-src` without `key.yaml`, and decision 8 is this ADR. The Context, the Decision's "This departs from the spec's arm (a) line" and the Consequences line "The spec's arm (a) line is unchanged; PR #1's Findings note that it needs the owner's update" describe the spec when this was recorded; PR #4 made that update. Requirement IDs add decision 8.
 
 ## Context
 The spec's "Evaluation (R7)" section puts `key.yaml`, the fixture's answer key,
@@ -21,7 +22,7 @@ from the spec's arm (a) line.
   the owner's update.
 
 ## Requirement IDs
-R7; spec decision 5 (the pass rule the arms feed).
+R7; spec decision 8, and decision 5 (the pass rule the arms feed).
 
 ## Links
 - PR #1 review comment recording the call
