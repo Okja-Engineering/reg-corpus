@@ -18,11 +18,18 @@ type conflictError struct{ msg string }
 
 func (e *conflictError) Error() string { return e.msg }
 
+// tempPattern names the temporary file storeOnce writes beside its target.
+// .gitignore ignores it under sources/, so an interrupted run leaves nothing
+// that can be committed.
+const tempPattern = ".fetch-*"
+
 // storeOnce writes body to the file at slash path p under root unless a file
 // is already there. Identical bytes are a no-op (stored false); different
 // bytes are a *conflictError and the file is left as it was. The body is
-// written to a temporary file and hard-linked into place, which fails if p
-// exists, so a file is never overwritten and never seen half-written.
+// written to a temporary file, synced, and hard-linked into place, which
+// fails if anything is at p, so a file is never overwritten, never seen
+// half-written, and never left short by a crash. So the corpus needs a
+// filesystem with hard links (not FAT or exFAT); there is no fallback.
 func storeOnce(root, p string, body []byte) (stored bool, err error) {
 	full := filepath.Join(root, filepath.FromSlash(p))
 	have, err := os.ReadFile(full)
@@ -36,7 +43,7 @@ func storeOnce(root, p string, body []byte) (stored bool, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
-	tmp, err := os.CreateTemp(dir, ".fetch-*")
+	tmp, err := os.CreateTemp(dir, tempPattern)
 	if err != nil {
 		return false, err
 	}
@@ -44,6 +51,9 @@ func storeOnce(root, p string, body []byte) (stored bool, err error) {
 	_, err = tmp.Write(body)
 	if err == nil {
 		err = tmp.Chmod(0o644)
+	}
+	if err == nil {
+		err = tmp.Sync()
 	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
@@ -53,10 +63,12 @@ func storeOnce(root, p string, body []byte) (stored bool, err error) {
 	}
 	if err := os.Link(tmp.Name(), full); err != nil {
 		if !errors.Is(err, fs.ErrExist) {
-			return false, err
+			return false, fmt.Errorf("storing %s: fetch places a file by hard link so it never overwrites one, and the link failed (a filesystem without hard links, such as FAT or exFAT, can't hold the corpus): %w", p, err)
 		}
-		if have, err = os.ReadFile(full); err != nil { // written since the read above
-			return false, err
+		// Something is at p after all: written since the read above, or a
+		// symlink to nothing. It is compared, never replaced.
+		if have, err = os.ReadFile(full); err != nil {
+			return false, fmt.Errorf("%s exists but can't be read: %w", p, err)
 		}
 		return false, compare(p, have, body)
 	}
