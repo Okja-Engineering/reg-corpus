@@ -97,15 +97,9 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "regcorpus fetch: %v\n", err)
 		return 2
 	}
-	// realDirs alone judges what is on the way (a symlink or a file: exit 1),
-	// here as under every source; then a corpus root is one that has it.
-	if err := realDirs(f.root, sourcesDir); err != nil {
+	if err := checkRoot(f.root, "fetch"); err != nil {
 		fmt.Fprintf(stderr, "regcorpus fetch: %v\n", err)
 		return exitCode(err)
-	}
-	if _, err := os.Lstat(filepath.Join(f.root, filepath.FromSlash(sourcesDir))); err != nil {
-		fmt.Fprintf(stderr, "regcorpus fetch: %s is not a corpus root (no %s/ directory); run fetch from the corpus root\n", f.root, sourcesDir)
-		return 2
 	}
 
 	// Every fetch, --date's too, asks first whether eCFR is up to date and not
@@ -136,6 +130,21 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return code
+}
+
+// checkRoot returns nil when root is a corpus root: one with a real
+// sources/ecfr/title-12/ directory. realDirs alone judges what is on the way
+// (a symlink or a file: a *conflictError, exit 1), here as under every
+// source; then a root without it is not the corpus root (exit 2), and the
+// error says to run cmd from there.
+func checkRoot(root, cmd string) error {
+	if err := realDirs(root, sourcesDir); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(sourcesDir))); err != nil {
+		return fmt.Errorf("%s is not a corpus root (no %s/ directory); run %s from the corpus root", root, sourcesDir, cmd)
+	}
+	return nil
 }
 
 // latest stores s's latest eCFR version under sources/, and its meta.yaml

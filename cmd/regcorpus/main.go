@@ -1,9 +1,10 @@
 // Command regcorpus is the corpus CLI (decision 6: CLI only; R5: the gate
 // needs a binary). Plan step 1 builds two subcommands: check (C6, R5) and
-// verify (R2a, terminal requirement only); plan step 2 adds fetch (R1). The
-// rest of the plan's command list (inventory, upgrade, release, show, text,
-// topics, version) and fetch --verify and --latest (plan step 6) arrive in
-// later plan steps.
+// verify (R2a, terminal requirement only); plan step 2 adds fetch (R1); plan
+// step 3 adds meta set, which is not in the plan's command list (ADR 0010).
+// The rest of the plan's command list (inventory, upgrade, release, show,
+// text, topics, version) and fetch --verify and --latest (plan step 6) arrive
+// in later plan steps.
 package main
 
 import (
@@ -32,6 +33,8 @@ func run(args []string, stdin, stdout, stderr *os.File) int {
 		return check.Main(args[1:], stdout, stderr)
 	case "fetch":
 		return ecfr.Main(args[1:], stdout, stderr)
+	case "meta":
+		return ecfr.MetaMain(args[1:], stdout, stderr)
 	case "verify":
 		return verify.Main(args[1:], stdin, stdout, stderr)
 	case "-h", "--help", "help":
@@ -52,14 +55,19 @@ commands:
         store eCFR's latest raw XML for 1024.41, 1024.30, 1024.31 under
         sources/ (R1), or with --date a point-in-time copy under .cache/,
         from the corpus root; --verify and --latest: plan step 6
+  meta set <section> version_effective_date YYYY-MM-DD
+  meta set <section> version_fr_citations "<vol> FR <page>" ...
+        set one of these two fields in a stored source's meta.yaml (R1),
+        keeping the rest; each citation must be in the raw XML's <CITA>
   verify <ID>
         move a staged record into registry/ (a person, in a terminal; R2a);
         not implemented yet (plan step 19)
 
-"regcorpus check -h" and "regcorpus fetch -h" show their flags and their exit
-codes, which are the authority. In short: 0 ok, 1 violations or a conflict
-with a stored file, 2 anything that stops the command (usage, network, eCFR,
-or a file it can't read or write). A missing or unknown command exits 2.
+"regcorpus check -h", "regcorpus fetch -h" and "regcorpus meta -h" show their
+flags and their exit codes, which are the authority. In short: 0 ok, 1
+violations, or a command a stored file refuses (a conflict with it), 2
+anything that stops the command (usage, network, eCFR, or a file it can't
+read or write). A missing or unknown command exits 2.
 verify exits 2 without an interactive terminal and 1 until it is built
 (plan step 19).
 `

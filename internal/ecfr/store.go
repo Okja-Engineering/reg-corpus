@@ -13,13 +13,16 @@ import (
 	"strings"
 )
 
-// conflictError is a fetch that would change a stored file. fetch never
-// overwrites one; it reports the conflict and exits 1.
+// conflictError is a command that what is stored refuses: a fetch that would
+// change a stored file (fetch never overwrites one), or a meta set that the
+// stored meta.yaml or raw XML doesn't support. It is reported, nothing is
+// written, and the command exits 1.
 type conflictError struct{ msg string }
 
 func (e *conflictError) Error() string { return e.msg }
 
-// tempPattern names the temporary file storeOnce writes beside its target.
+// tempPattern names the temporary file storeOnce and replace write beside
+// their target.
 // .gitignore ignores it under sources/, so an interrupted run leaves nothing
 // that can be committed.
 const tempPattern = ".fetch-*"
@@ -48,11 +51,41 @@ func storeOnce(root, p string, body []byte) (stored bool, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
-	tmp, err := os.CreateTemp(dir, tempPattern)
+	tmp, err := writeTemp(dir, body)
 	if err != nil {
 		return false, err
 	}
-	defer os.Remove(tmp.Name())
+	defer os.Remove(tmp)
+	return link(tmp, full, p, body)
+}
+
+// replace writes body to the file at slash path p under root, which the
+// caller has read as a regular file, in one step: a temporary file beside it,
+// synced, then renamed over it, so the file is never seen half-written and
+// never left short by a crash. Only meta.yaml is replaced, and only by `meta
+// set`, which keeps every field it doesn't set (internal/meta); raw XML is
+// stored once (storeOnce). Every directory on the way to p must be a real
+// one (realDirs).
+func replace(root, p string, body []byte) error {
+	if err := realDirs(root, path.Dir(p)); err != nil {
+		return err
+	}
+	full := filepath.Join(root, filepath.FromSlash(p))
+	tmp, err := writeTemp(filepath.Dir(full), body)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	return os.Rename(tmp, full)
+}
+
+// writeTemp writes body, mode 0644 and synced, to a new temporary file in
+// dir (tempPattern) and returns its path. The caller removes it.
+func writeTemp(dir string, body []byte) (string, error) {
+	tmp, err := os.CreateTemp(dir, tempPattern)
+	if err != nil {
+		return "", err
+	}
 	_, err = tmp.Write(body)
 	if err == nil {
 		err = tmp.Chmod(0o644)
@@ -64,9 +97,10 @@ func storeOnce(root, p string, body []byte) (stored bool, err error) {
 		err = cerr
 	}
 	if err != nil {
-		return false, err
+		os.Remove(tmp.Name())
+		return "", err
 	}
-	return link(tmp.Name(), full, p, body)
+	return tmp.Name(), nil
 }
 
 // link places tmp, holding body, at full (slash path p) by a hard link, which
