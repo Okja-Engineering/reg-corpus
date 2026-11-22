@@ -6,8 +6,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,6 +309,9 @@ func TestXMLReturnsTheDecodedBodyByteForByte(t *testing.T) {
 		{"CRLF and a BOM", reply{body: crlfBOM}},
 		{"comments and a PI around the root", reply{body: around}},
 		{"no declaration", reply{body: `<DIV8 N="1024.41" TYPE="SECTION"/>`}},
+		{"every XML whitespace outside the root", reply{body: "\t\r\n <DIV8 N=\"1024.41\" TYPE=\"SECTION\"/>\t\r\n "}},
+		{"a PI whose target starts with xml", reply{body: `<DIV8 N="1024.41" TYPE="SECTION"/><?xml-stylesheet href="a"?>`}},
+		{"CDATA and character references inside the root", reply{body: `<DIV8 N="1024.41" TYPE="SECTION"><![CDATA[<x>]]>&#167;</DIV8>`}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
@@ -324,9 +330,12 @@ func TestXMLReturnsTheDecodedBodyByteForByte(t *testing.T) {
 
 // TestXMLIsOneDocumentWhoseRootIsTheSectionAsked: a body is stored only when
 // it is exactly one well-formed XML document (strict: no unknown entities, no
-// unquoted attributes) whose root element is the one eCFR serves for the
-// section asked for, <DIV8 TYPE="SECTION" N="<section>">. Anything else, from
-// an empty body to another section's XML, names the URL and what is wrong.
+// unquoted attributes, no duplicate attributes) whose root element is the one
+// eCFR serves for the section asked for, <DIV8 TYPE="SECTION" N="<section>">.
+// Outside the root only XML whitespace (space, tab, CR, LF) as written,
+// comments and PIs may appear; an XML declaration, <?xml version=...?> in
+// that case, only at the very start. Anything else, from an empty body to
+// another section's XML, names the URL and what is wrong.
 func TestXMLIsOneDocumentWhoseRootIsTheSectionAsked(t *testing.T) {
 	const root = `<DIV8 N="1024.41" TYPE="SECTION">`
 	const decl = `<?xml version="1.0" encoding="UTF-8"?>` + "\n"
@@ -339,10 +348,23 @@ func TestXMLIsOneDocumentWhoseRootIsTheSectionAsked(t *testing.T) {
 		{"text after the root", decl + root + "</DIV8>junk\n", "text outside the root element"},
 		{"text before the root", "junk" + root + "</DIV8>", "text outside the root element"},
 		{"a maintenance page", "Service Unavailable<br/>", "text outside the root element"},
+		{"a no-break space outside the root", decl + root + "</DIV8> ", "text outside the root element"},
+		{"a vertical tab outside the root", decl + root + "</DIV8>\v", "not well-formed XML"},
+		{"a form feed outside the root", decl + root + "</DIV8>\f", "not well-formed XML"},
+		{"a second BOM", "\xef\xbb\xbf\xef\xbb\xbf" + root + "</DIV8>", "text outside the root element"},
+		{"CDATA after the root", decl + root + "</DIV8><![CDATA[ ]]>", "text outside the root element"},
+		{"a character reference after the root", decl + root + "</DIV8>&#32;", "text outside the root element"},
+		{"a character reference before the root", "&#10;" + root + "</DIV8>", "text outside the root element"},
 		{"a declaration after the root", root + "</DIV8>" + decl, "XML declaration"},
 		{"a second declaration", decl + decl + root + "</DIV8>", "XML declaration"},
 		{"whitespace before the declaration", " " + decl + root + "</DIV8>", "XML declaration"},
+		{"an upper-case declaration", `<?XML version="1.0"?>` + root + "</DIV8>", "XML declaration"},
+		{"a mixed-case declaration", `<?Xml version="1.0"?>` + root + "</DIV8>", "XML declaration"},
+		{"a declaration without a version", `<?xml encoding="UTF-8"?>` + root + "</DIV8>", "XML declaration"},
 		{"a doctype", decl + "<!DOCTYPE DIV8>" + root + "</DIV8>", "<!DOCTYPE DIV8>"},
+		{"a duplicate N on the root", decl + `<DIV8 N="1024.40" N="1024.41" TYPE="SECTION"></DIV8>`, `duplicate attribute N`},
+		{"a duplicate TYPE on the root", decl + `<DIV8 TYPE="APPENDIX" N="1024.41" TYPE="SECTION"></DIV8>`, `duplicate attribute TYPE`},
+		{"a duplicate attribute inside", decl + root + `<P a="1" a="2"/></DIV8>`, `duplicate attribute a`},
 		{"an unknown entity", decl + root + "&nbsp;</DIV8>", "not well-formed XML"},
 		{"an unquoted attribute", decl + `<DIV8 N=1024.41 TYPE="SECTION"></DIV8>`, "not well-formed XML"},
 		{"an unclosed element", decl + root + "<P></DIV8>", "not well-formed XML"},
@@ -381,6 +403,21 @@ func TestXMLIsOneDocumentWhoseRootIsTheSectionAsked(t *testing.T) {
 func TestRedirectsStayOnTheOriginAsked(t *testing.T) {
 	s, _ := lookup("1024.41")
 	ctx := context.Background()
+
+	t.Run("a same-origin loop stops after 10", func(t *testing.T) {
+		f, c := newFake(t)
+		f.set(xmlURI("2025-07-15", "1024.41"), reply{status: http.StatusFound, raw: true,
+			header: map[string]string{"Location": xmlURI("2025-07-15", "1024.41")}})
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		_, err := c.XML(ctx, s, "2025-07-15")
+		if err == nil || !strings.Contains(err.Error(), "stopped after 10 redirects") {
+			t.Errorf("err %v; want one naming the redirect limit", err)
+		}
+		if n := len(f.requests()); n != 10 {
+			t.Errorf("%d requests, want 10", n)
+		}
+	})
 
 	t.Run("same origin", func(t *testing.T) {
 		f, c := newFake(t)
@@ -520,6 +557,90 @@ func TestErrorBodyIsQuotedUpTo300Bytes(t *testing.T) {
 	}
 }
 
+// countingTransport counts the response body bytes its caller reads.
+type countingTransport struct {
+	base http.RoundTripper
+	n    *int64
+}
+
+func (t countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(r)
+	if err == nil {
+		resp.Body = countingBody{resp.Body, t.n}
+	}
+	return resp, err
+}
+
+type countingBody struct {
+	io.ReadCloser
+	n *int64
+}
+
+func (b countingBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	*b.n += int64(n)
+	return n, err
+}
+
+// TestAnErrorBodyIsReadOnlyForItsSnippet: an error response's body is read
+// only a few KB, enough to quote its start, however much is sent.
+func TestAnErrorBodyIsReadOnlyForItsSnippet(t *testing.T) {
+	f, c := newFake(t)
+	var n int64
+	c.HTTP.Transport = countingTransport{c.HTTP.Transport, &n}
+	f.set(xmlURI("2025-07-15", "1024.41"), reply{status: 500, body: "boom" + strings.Repeat(" ", 4<<20), raw: true})
+	s, _ := lookup("1024.41")
+	_, err := c.XML(context.Background(), s, "2025-07-15")
+	if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), `"boom`) {
+		t.Errorf("err %v; want the status and the body's start", err)
+	}
+	if n > 16<<10 {
+		t.Errorf("read %d bytes of the error body, want at most 16 KiB", n)
+	}
+}
+
+// TestAZeroClientHasADefaultHTTPClient: a Client with no HTTP client works,
+// with a default one, instead of panicking.
+func TestAZeroClientHasADefaultHTTPClient(t *testing.T) {
+	_, c := newFake(t)
+	zero := &Client{BaseURL: c.BaseURL}
+	s, _ := lookup("1024.41")
+	if _, err := zero.XML(context.Background(), s, "2025-07-15"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestTheCommittedRawXMLPasses: each source's committed raw XML, served as
+// eCFR served it, passes XML() for its section byte for byte, well within
+// maxBody. So the checks fit real eCFR documents, not only stand-ins.
+func TestTheCommittedRawXMLPasses(t *testing.T) {
+	for _, src := range sources {
+		t.Run(src.Name, func(t *testing.T) {
+			files, err := filepath.Glob(filepath.Join("..", "..", filepath.FromSlash(src.dir()), "raw", "*.xml"))
+			if err != nil || len(files) != 1 {
+				t.Fatalf("raw XML for %s: %v, %v; want one file", src.Name, files, err)
+			}
+			b, err := os.ReadFile(files[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(b) > maxBody/16 {
+				t.Errorf("%s is %d bytes; maxBody %d leaves too little room", files[0], len(b), maxBody)
+			}
+			date := strings.TrimSuffix(filepath.Base(files[0]), ".xml")
+			f, c := newFake(t)
+			f.set(xmlURI(date, src.Identifier), reply{body: string(b)})
+			got, err := c.XML(context.Background(), src, Date(date))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, b) {
+				t.Errorf("XML() changed the bytes of %s", files[0])
+			}
+		})
+	}
+}
+
 // TestFailuresNameTheURLAndTheCause: every failure is an error that names
 // the request and why, never a partial result.
 func TestFailuresNameTheURLAndTheCause(t *testing.T) {
@@ -575,14 +696,27 @@ func TestFailuresNameTheURLAndTheCause(t *testing.T) {
 			reply{body: `[]`}, asOf,
 			[]string{apiPath + "/titles.json", "JSON"}},
 		{"no title 12", apiPath + "/titles.json",
-			reply{body: `{"titles":[{"number":11,"up_to_date_as_of":"2026-11-02"}]}`}, asOf,
+			reply{body: `{"titles":[{"number":11,"up_to_date_as_of":"2026-11-02"}],"meta":{"import_in_progress":false}}`}, asOf,
 			[]string{apiPath + "/titles.json", "title 12"}},
 		{"title 12 without a date", apiPath + "/titles.json",
-			reply{body: `{"titles":[{"number":12}]}`}, asOf,
+			reply{body: `{"titles":[{"number":12}],"meta":{"import_in_progress":false}}`}, asOf,
 			[]string{apiPath + "/titles.json", "up_to_date_as_of"}},
 		{"an import in progress", apiPath + "/titles.json",
 			reply{body: strings.Replace(titlesJSON, `"import_in_progress":false`, `"import_in_progress":true`, 1)}, asOf,
 			[]string{apiPath + "/titles.json", "import in progress", "retry later"}},
+		// Whether eCFR is importing is read, never assumed: fail closed.
+		{"titles JSON without meta", apiPath + "/titles.json",
+			reply{body: `{"titles":[{"number":12,"up_to_date_as_of":"2026-11-19"}]}`}, asOf,
+			[]string{apiPath + "/titles.json", "import_in_progress"}},
+		{"meta without import_in_progress", apiPath + "/titles.json",
+			reply{body: `{"titles":[{"number":12,"up_to_date_as_of":"2026-11-19"}],"meta":{"importInProgress":false}}`}, asOf,
+			[]string{apiPath + "/titles.json", "import_in_progress"}},
+		{"import_in_progress null", apiPath + "/titles.json",
+			reply{body: `{"titles":[{"number":12,"up_to_date_as_of":"2026-11-19"}],"meta":{"import_in_progress":null}}`}, asOf,
+			[]string{apiPath + "/titles.json", "import_in_progress"}},
+		{"meta null", apiPath + "/titles.json",
+			reply{body: `{"titles":[{"number":12,"up_to_date_as_of":"2026-11-19"}],"meta":null}`}, asOf,
+			[]string{apiPath + "/titles.json", "import_in_progress"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)

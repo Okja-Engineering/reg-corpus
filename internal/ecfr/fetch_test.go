@@ -50,13 +50,19 @@ func readFile(t *testing.T, root, slash string) string {
 	return string(b)
 }
 
-// tree maps every regular file under root, by slash path, to its bytes and
-// modification time.
+// tree maps every file under root, by slash path, to its bytes and
+// modification time, and every symlink to its target.
 func tree(t *testing.T, root string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
+			return err
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			to, err := os.Readlink(p)
+			rel, _ := filepath.Rel(root, p)
+			out[filepath.ToSlash(rel)] = "symlink to " + to
 			return err
 		}
 		b, err := os.ReadFile(p)
@@ -274,8 +280,8 @@ func TestDateWritesOnlyUnderCache(t *testing.T) {
 		t.Errorf("cached %q", got)
 	}
 	for _, r := range f.requests() {
-		if !strings.Contains(r.URL.Path, "/full/2025-05-15/") {
-			t.Errorf("requested %s; --date needs only the point-in-time XML", r.URL)
+		if !strings.Contains(r.URL.Path, "/full/2025-05-15/") && r.URL.Path != apiPath+"/titles.json" {
+			t.Errorf("requested %s; --date needs only titles.json and the point-in-time XML", r.URL)
 		}
 	}
 	// Re-running is a no-op, the same as for sources/.
@@ -346,40 +352,103 @@ func TestUsageAndRootErrors(t *testing.T) {
 	}
 }
 
-// TestStoredStateKeepsOneRawPerSource: a source directory holds one raw file,
-// the one its meta.yaml describes. fetch reads what is stored once and stores
-// nothing, exiting 1, when that would leave two raw files, a meta.yaml beside
-// a raw file it doesn't describe, or a meta.yaml whose raw file is missing.
+// fetchMeta is a meta.yaml in fetch's own format for 1024.41's raw file at
+// date with sha256 sum.
+func fetchMeta(date, sum string) string {
+	return "cfr: \"12 CFR 1024.41\"\ntier: law\nrole: inventoried\nsource: ecfr\nofficial: false\n" +
+		"source_version_date: \"" + date + "\"\nretrieved_at: \"2026-11-01\"\n" +
+		"ecfr_up_to_date_as_of: \"2026-10-30\"\nsha256_raw: \"" + sum + "\"\n"
+}
+
+// TestStoredStateKeepsOneRawPerSource: fetch exits 0 only when, after it,
+// raw/ holds exactly one entry, a regular file named for eCFR's latest date
+// with eCFR's bytes, and meta.yaml (a regular file in fetch's own format)
+// names that file's date and sha256. fetch reads what is stored once; when
+// what is there contradicts that, it stores nothing and exits 1 naming it.
 func TestStoredStateKeepsOneRawPerSource(t *testing.T) {
 	const older = "sources/ecfr/title-12/1024.41/raw/2025-05-16.xml"
-	oldMeta := "cfr: \"12 CFR 1024.41\"\nsource_version_date: \"2025-05-16\"\n"
+	latestBody := xmlBody("1024.41", "2025-07-15")
+	goodMeta := fetchMeta("2025-07-15", sha(latestBody))
+	file := func(p, body string) func(*testing.T, string) {
+		return func(t *testing.T, root string) { writeFile(t, root, p, body) }
+	}
+	symlink := func(p, to string) func(*testing.T, string) {
+		return func(t *testing.T, root string) {
+			full := filepath.Join(root, filepath.FromSlash(p))
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(to, full); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	for _, tc := range []struct {
 		name  string
-		files map[string]string
+		setup []func(*testing.T, string)
 		want  []string // in stderr
 	}{
-		{"meta.yaml whose raw file is missing", map[string]string{metaPath("1024.41"): oldMeta},
+		// raw/ holds exactly one entry, the latest, as a regular file.
+		{"meta.yaml whose raw file is missing", []func(*testing.T, string){file(metaPath("1024.41"), goodMeta)},
 			[]string{metaPath("1024.41"), "sources/ecfr/title-12/1024.41/raw/ holds no raw XML", "git restore"}},
-		{"an older raw file, no meta.yaml", map[string]string{older: "<DIV8/>"},
+		{"an older raw file, no meta.yaml", []func(*testing.T, string){file(older, "<DIV8/>")},
 			[]string{older, "one raw file per source"}},
-		{"an older raw file and its meta.yaml", map[string]string{older: "<DIV8/>", metaPath("1024.41"): oldMeta},
+		{"an older raw file and its meta.yaml", []func(*testing.T, string){file(older, "<DIV8/>"),
+			file(metaPath("1024.41"), fetchMeta("2025-05-16", sha("<DIV8/>")))},
 			[]string{older, "one raw file per source"}},
-		{"the latest raw file and an older one", map[string]string{older: "<DIV8/>", rawPath("1024.41"): xmlBody("1024.41", "2025-07-15")},
+		{"the latest raw file and an older one", []func(*testing.T, string){file(older, "<DIV8/>"), file(rawPath("1024.41"), latestBody)},
 			[]string{older, "one raw file per source"}},
-		{"the latest raw file, an older one and meta.yaml", map[string]string{older: "<DIV8/>",
-			rawPath("1024.41"): xmlBody("1024.41", "2025-07-15"), metaPath("1024.41"): oldMeta},
+		{"the latest raw file, an older one and meta.yaml", []func(*testing.T, string){file(older, "<DIV8/>"),
+			file(rawPath("1024.41"), latestBody), file(metaPath("1024.41"), goodMeta)},
 			[]string{older, "one raw file per source"}},
+		{"an upper-case .XML beside the latest", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file("sources/ecfr/title-12/1024.41/raw/2025-05-16.XML", "<DIV8/>")},
+			[]string{"raw/2025-05-16.XML", "one raw file per source"}},
+		{"a backup beside the latest", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(rawPath("1024.41")+".bak", latestBody)},
+			[]string{rawPath("1024.41") + ".bak", "one raw file per source"}},
+		{"a leftover temporary file", []func(*testing.T, string){file("sources/ecfr/title-12/1024.41/raw/.fetch-123", "partial")},
+			[]string{"raw/.fetch-123", "one raw file per source"}},
+		{"a directory in raw/", []func(*testing.T, string){file("sources/ecfr/title-12/1024.41/raw/old/x", "x")},
+			[]string{"raw/old", "one raw file per source"}},
+		{"the latest raw file as a symlink", []func(*testing.T, string){file("elsewhere.xml", latestBody),
+			symlink(rawPath("1024.41"), "../../../../../elsewhere.xml")},
+			[]string{rawPath("1024.41"), "not a regular file"}},
+		// meta.yaml is fetch's own, and names the one raw file.
+		{"meta.yaml naming another date", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), fetchMeta("2025-05-16", sha(latestBody)))},
+			[]string{metaPath("1024.41"), `source_version_date "2025-05-16"`, "2025-07-15"}},
+		{"meta.yaml naming another hash", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), fetchMeta("2025-07-15", strings.Repeat("d", 64)))},
+			[]string{metaPath("1024.41"), "sha256_raw", strings.Repeat("d", 64), sha(latestBody)}},
+		{"an empty meta.yaml", []func(*testing.T, string){file(rawPath("1024.41"), latestBody), file(metaPath("1024.41"), "")},
+			[]string{metaPath("1024.41"), "no source_version_date"}},
+		{"meta.yaml without sha256_raw", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), "source_version_date: \"2025-07-15\"\n")},
+			[]string{metaPath("1024.41"), "no sha256_raw"}},
+		{"meta.yaml with an unquoted date", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, `"2025-07-15"`, "2025-07-15", 1))},
+			[]string{metaPath("1024.41"), "source_version_date"}},
+		{"meta.yaml with a short hash", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), fetchMeta("2025-07-15", "deadbeef"))},
+			[]string{metaPath("1024.41"), "sha256_raw", "deadbeef"}},
+		{"meta.yaml naming its date twice", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), goodMeta+"source_version_date: \"2025-05-16\"\n")},
+			[]string{metaPath("1024.41"), "source_version_date", "twice"}},
+		{"meta.yaml as a symlink to nothing", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			symlink(metaPath("1024.41"), "nowhere.yaml")},
+			[]string{metaPath("1024.41"), "not a regular file"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, c := newFake(t)
 			root := corpusRoot(t)
-			for p, b := range tc.files {
-				writeFile(t, root, p, b)
+			for _, s := range tc.setup {
+				s(t, root)
 			}
 			before := tree(t, root)
-			code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
-			if code != 1 || !strings.HasPrefix(stderr, "regcorpus fetch: 1024.41: ") {
-				t.Errorf("exit %d, stderr %q; want 1 for 1024.41", code, stderr)
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+			if code != 1 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus fetch: 1024.41: ") {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1 for 1024.41", code, stdout, stderr)
 			}
 			for _, w := range tc.want {
 				if !strings.Contains(stderr, w) {
@@ -391,14 +460,79 @@ func TestStoredStateKeepsOneRawPerSource(t *testing.T) {
 			}
 		})
 	}
-	t.Run("a leftover temporary file is not a raw file", func(t *testing.T) {
+	t.Run("raw XML and the meta.yaml naming it", func(t *testing.T) {
 		_, c := newFake(t)
 		root := corpusRoot(t)
-		writeFile(t, root, "sources/ecfr/title-12/1024.41/raw/.fetch-123", "partial")
-		if code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41"); code != 0 {
-			t.Errorf("exit %d, stderr %q; want 0", code, stderr)
+		writeFile(t, root, rawPath("1024.41"), latestBody)
+		writeFile(t, root, metaPath("1024.41"), goodMeta)
+		before := tree(t, root)
+		code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+		if want := "1024.41 2025-07-15: unchanged " + rawPath("1024.41") + "\n"; code != 0 || stdout != want || stderr != "" {
+			t.Errorf("exit %d, stdout %q, stderr %q; want 0, %q", code, stdout, stderr, want)
+		}
+		if !equalTrees(before, tree(t, root)) {
+			t.Errorf("files changed")
 		}
 	})
+}
+
+// TestUnreadableStoredStateExitsTwo: a source directory fetch can't read is
+// a local file error (exit 2), not a conflict, and nothing is stored.
+func TestUnreadableStoredStateExitsTwo(t *testing.T) {
+	unreadable := func(p string) func(*testing.T, string) {
+		return func(t *testing.T, root string) {
+			if os.Geteuid() == 0 {
+				t.Skip("running with privileges that read a mode-0 file")
+			}
+			full := filepath.Join(root, filepath.FromSlash(p))
+			if err := os.Chmod(full, 0); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(full, 0o755) })
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		then  func(*testing.T, string)
+	}{
+		{"raw is a file, not a directory", map[string]string{"sources/ecfr/title-12/1024.41/raw": "x"}, nil},
+		{"raw/ can't be listed", map[string]string{rawPath("1024.41"): xmlBody("1024.41", "2025-07-15")},
+			unreadable("sources/ecfr/title-12/1024.41/raw")},
+		{"meta.yaml can't be read", map[string]string{rawPath("1024.41"): xmlBody("1024.41", "2025-07-15"),
+			metaPath("1024.41"): fetchMeta("2025-07-15", sha(xmlBody("1024.41", "2025-07-15")))},
+			unreadable(metaPath("1024.41"))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c := newFake(t)
+			root := corpusRoot(t)
+			for p, b := range tc.files {
+				writeFile(t, root, p, b)
+			}
+			if tc.then != nil {
+				tc.then(t, root)
+			}
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus fetch: 1024.41: ") {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 2 for 1024.41", code, stdout, stderr)
+			}
+		})
+	}
+}
+
+// TestSectionsAreFetchedInTheOrderGiven: named sections are fetched and
+// reported in the order named, not the table's.
+func TestSectionsAreFetchedInTheOrderGiven(t *testing.T) {
+	_, c := newFake(t)
+	root := corpusRoot(t)
+	code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.31", "1024.41")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	i31, i41 := strings.Index(stdout, "1024.31 "), strings.Index(stdout, "1024.41 ")
+	if i31 < 0 || i41 < 0 || i31 > i41 {
+		t.Errorf("stdout %q; want 1024.31 reported before 1024.41", stdout)
+	}
 }
 
 func equalTrees(a, b map[string]string) bool {
@@ -419,26 +553,26 @@ func equalTrees(a, b map[string]string) bool {
 func TestStoreNeverReplacesWhatIsAtThePath(t *testing.T) {
 	_, c := newFake(t)
 	root := corpusRoot(t)
-	raw := filepath.Join(root, filepath.FromSlash(rawPath("1024.41")))
+	// The .cache/ path, where storeOnce alone guards the target: under
+	// sources/, the stored-state check refuses a symlink before storeOnce.
+	const cached = ".cache/ecfr/title-12/1024.41/2025-05-15.xml"
+	at := filepath.Join(root, filepath.FromSlash(cached))
 	target := filepath.Join(root, "elsewhere.xml")
-	if err := os.MkdirAll(filepath.Dir(raw), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, raw); err != nil {
+	if err := os.Symlink(target, at); err != nil {
 		t.Fatal(err)
 	}
-	code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
-	if code != 2 || !strings.Contains(stderr, rawPath("1024.41")) {
-		t.Errorf("exit %d, stderr %q; want 2 naming %s", code, stderr, rawPath("1024.41"))
+	code, _, stderr := fetchAt(t, root, c, "2026-11-22", "--date", "2025-05-15", "1024.41")
+	if code != 2 || !strings.Contains(stderr, cached) {
+		t.Errorf("exit %d, stderr %q; want 2 naming %s", code, stderr, cached)
 	}
-	if got, err := os.Readlink(raw); err != nil || got != target {
-		t.Errorf("%s: readlink %q, %v; want the symlink to %s left as it was", raw, got, err, target)
+	if got, err := os.Readlink(at); err != nil || got != target {
+		t.Errorf("%s: readlink %q, %v; want the symlink to %s left as it was", at, got, err, target)
 	}
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		t.Errorf("%s: lstat err %v; want not created", target, err)
-	}
-	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(metaPath("1024.41")))); !os.IsNotExist(err) {
-		t.Errorf("meta.yaml written beside a raw file that wasn't stored")
 	}
 }
 
@@ -530,29 +664,37 @@ func TestRetrievedAtIsTheUTCDate(t *testing.T) {
 func TestFailuresBeforeTheXMLExitTwoAndStoreNothing(t *testing.T) {
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()
+	importing := reply{body: strings.Replace(titlesJSON, `"import_in_progress":false`, `"import_in_progress":true`, 1)}
+	future := strings.Replace(versions41, `{"date":"2017-01-01"`, `{"date":"2026-11-20"`, 1)
 	for _, tc := range []struct {
 		name  string
 		uri   string
 		reply reply
+		args  []string
 		want  string
 	}{
-		{"titles.json fails", apiPath + "/titles.json", reply{status: 503, body: "down"}, "503"},
-		{"eCFR is importing", apiPath + "/titles.json",
-			reply{body: strings.Replace(titlesJSON, `"import_in_progress":false`, `"import_in_progress":true`, 1)}, "retry later"},
-		{"the version list fails", versionsURI("1024.41"), reply{status: 500, body: "boom"}, "500"},
-		{"the version list has no versions", versionsURI("1024.41"), reply{body: `{"content_versions":[]}`}, "no versions"},
-		{"the connection fails", "", reply{}, closed.URL},
+		{"titles.json fails", apiPath + "/titles.json", reply{status: 503, body: "down"}, nil, "503"},
+		{"eCFR is importing", apiPath + "/titles.json", importing, nil, "retry later"},
+		{"eCFR is importing, with --date", apiPath + "/titles.json", importing, []string{"--date", "2025-05-15"}, "retry later"},
+		{"--date after eCFR's up_to_date_as_of", "", reply{}, []string{"--date", "2026-11-20"}, "2026-11-19"},
+		{"a latest version after eCFR's up_to_date_as_of", versionsURI("1024.41"), reply{body: future}, nil, "2026-11-19"},
+		{"the version list fails", versionsURI("1024.41"), reply{status: 500, body: "boom"}, nil, "500"},
+		{"the version list has no versions", versionsURI("1024.41"), reply{body: `{"content_versions":[]}`}, nil, "no versions"},
+		{"the connection fails", "closed", reply{}, nil, closed.URL},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
-			if tc.uri == "" {
+			switch tc.uri {
+			case "closed":
 				c.BaseURL = closed.URL + apiPath
-			} else {
+			case "":
+			default:
 				f.set(tc.uri, tc.reply)
 			}
+			f.set(xmlURI("2026-11-20", "1024.41"), reply{body: xmlBody("1024.41", "2026-11-20")})
 			root := corpusRoot(t)
 			before := tree(t, root)
-			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", append(tc.args, "1024.41")...)
 			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus fetch: ") || !strings.Contains(stderr, tc.want) {
 				t.Errorf("exit %d, stdout %q, stderr %q; want 2 and an error naming %q", code, stdout, stderr, tc.want)
 			}
@@ -601,8 +743,8 @@ func TestDateGuards(t *testing.T) {
 
 // TestFetchTemporariesAndRawBytesAreSafeFromGit: git ignores the temporary
 // files fetch writes beside a source (so an interrupted run can't be
-// committed), and never converts line endings in raw XML (so a checkout can't
-// rewrite L0 bytes). Needs the repository's git.
+// committed), and never rewrites raw XML (so a checkout or commit can't change
+// L0 bytes). Needs the repository's git.
 func TestFetchTemporariesAndRawBytesAreSafeFromGit(t *testing.T) {
 	top := repoTop(t)
 	temp := strings.Replace(tempPattern, "*", "123", 1)
@@ -627,12 +769,20 @@ func TestFetchTemporariesAndRawBytesAreSafeFromGit(t *testing.T) {
 		rel, _ := filepath.Rel(top, r)
 		paths = append(paths, filepath.ToSlash(rel))
 	}
+	// Every attribute by which git can rewrite bytes on checkout or commit is
+	// unset: end-of-line conversion, clean/smudge filters, $Id$ expansion and
+	// re-encoding.
+	attrs := []string{"text", "filter", "ident", "working-tree-encoding"}
 	for _, p := range paths {
-		out, err := exec.Command("git", "-C", top, "check-attr", "text", "eol", "--", p).Output()
+		out, err := exec.Command("git", append([]string{"-C", top, "check-attr"}, append(attrs, "--", p)...)...).Output()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := p + ": text: unset\n" + p + ": eol: unspecified\n"; string(out) != want {
+		want := ""
+		for _, a := range attrs {
+			want += p + ": " + a + ": unset\n"
+		}
+		if string(out) != want {
 			t.Errorf("git check-attr: %q, want %q", out, want)
 		}
 	}
