@@ -37,9 +37,9 @@
 //     reads the source directory once; whatever contradicts that (another
 //     entry in raw/, or a meta.yaml that lacks its raw file or that the next
 //     item's checks refuse) exits 1 and stores nothing. A stored file is
-//     never overwritten (store.go, by hard link), and every directory on
+//     never overwritten (internal/l0: StoreOnce, by hard link), and every directory on
 //     the way to one, from sources/ down and under .cache/, must be a real
-//     directory, not a symlink or a file (realDirs, the one check of that;
+//     directory, not a symlink or a file (l0.RealDirs, the one check of that;
 //     exit 1 otherwise, before any request for sources/ecfr/title-12/). A
 //     root without sources/ecfr/title-12/ is not the corpus root (exit 2).
 //   - Beside it, when missing, fetch writes meta.yaml's fetch-owned fields in
@@ -61,7 +61,7 @@
 // citation note (<CITA>) of the raw XML meta.yaml describes,
 // raw/<source_version_date>.xml with sha256_raw's bytes, read through real
 // directories as a regular file (exit 1 otherwise). It replaces meta.yaml
-// whole (store.go: replace, a temporary file renamed over it); setting the
+// whole (internal/l0: Replace, a temporary file renamed over it); setting the
 // value a field has is a no-op. The values are read from the Federal Register
 // and eCFR outside the tool (plan step 3's diff record, in its PR); meta set
 // checks only what L0 itself can check.

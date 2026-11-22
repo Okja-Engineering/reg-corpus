@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/okja-engineering/reg-corpus/internal/l0"
 )
 
 // corpusRoot returns a root holding the three section directories, each with
@@ -697,54 +698,6 @@ func equalTrees(a, b map[string]string) bool {
 	return true
 }
 
-// TestALinkThatFindsAFileComparesIt: when the hard link finds a file already
-// at the path (one written after storeOnce read it), that file is compared,
-// never replaced: other bytes are a conflict and stay, the same bytes a
-// no-op; with nothing there the file is placed.
-func TestALinkThatFindsAFileComparesIt(t *testing.T) {
-	for _, tc := range []struct {
-		name, there string // "" is nothing at the path
-		stored      bool
-		conflict    bool
-	}{
-		{name: "other bytes", there: "theirs", conflict: true},
-		{name: "the same bytes", there: "ours"},
-		{name: "nothing", stored: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			tmp, full := filepath.Join(dir, ".fetch-1"), filepath.Join(dir, "f.xml")
-			if err := os.WriteFile(tmp, []byte("ours"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if tc.there != "" {
-				if err := os.WriteFile(full, []byte(tc.there), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			stored, err := link(tmp, full, "f.xml", []byte("ours"))
-			var conflict *conflictError
-			if stored != tc.stored || errors.As(err, &conflict) != tc.conflict || (!tc.conflict && err != nil) {
-				t.Errorf("stored %v, err %v; want stored %v, conflict %v", stored, err, tc.stored, tc.conflict)
-			}
-			want := tc.there
-			if want == "" {
-				want = "ours"
-			}
-			if b, err := os.ReadFile(full); err != nil || string(b) != want {
-				t.Errorf("f.xml holds %q, %v; want %q", b, err, want)
-			}
-		})
-	}
-	// A link that fails for another reason (here, no temporary file) is
-	// reported as the link failing, not as a file found at the path.
-	dir := t.TempDir()
-	stored, err := link(filepath.Join(dir, ".fetch-1"), filepath.Join(dir, "f.xml"), "f.xml", []byte("ours"))
-	if stored || err == nil || !strings.Contains(err.Error(), "hard link") {
-		t.Errorf("stored %v, err %v; want the hard link's failure", stored, err)
-	}
-}
-
 // TestStoreNeverReplacesWhatIsAtThePath: a file is placed by a hard link,
 // which fails when anything is at the path, even a symlink to nothing. That
 // is an error, and the symlink is left as it was, its target not created.
@@ -945,7 +898,7 @@ func TestDateGuards(t *testing.T) {
 // L0 bytes). Needs the repository's git.
 func TestFetchTemporariesAndRawBytesAreSafeFromGit(t *testing.T) {
 	top := repoTop(t)
-	temp := strings.Replace(tempPattern, "*", "123", 1)
+	temp := strings.Replace(l0.TempPattern, "*", "123", 1)
 	for _, p := range []string{
 		"sources/ecfr/title-12/1024.41/raw/" + temp,
 		"sources/ecfr/title-12/1024.41/" + temp,

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 )
 
@@ -156,7 +157,7 @@ func parseSetting(key string, vals []string) (setting, error) {
 // field, and returns the line to print: "wrote" or, when meta.yaml already
 // says it, "unchanged", with the field's line. Only a meta.yaml fetch wrote,
 // in the spec's schema, is changed (readMeta); anything else is a
-// *conflictError and nothing is written.
+// *l0.Conflict and nothing is written.
 func (st setting) apply(root string, s Source) (string, error) {
 	metaPath := path.Join(s.dir(), "meta.yaml")
 	have, m, err := readMeta(root, s)
@@ -164,7 +165,7 @@ func (st setting) apply(root string, s Source) (string, error) {
 		return "", err
 	}
 	if m == nil {
-		return "", &conflictError{fmt.Sprintf("%s does not exist: fetch the source first (regcorpus fetch %s); meta set changes only a meta.yaml fetch wrote (R1)", metaPath, s.Name)}
+		return "", l0.Conflictf("%s does not exist: fetch the source first (regcorpus fetch %s); meta set changes only a meta.yaml fetch wrote (R1)", metaPath, s.Name)
 	}
 	if err := st.set(root, s, m); err != nil {
 		return "", err
@@ -177,7 +178,7 @@ func (st setting) apply(root string, s Source) (string, error) {
 	if bytes.Equal(b, have) {
 		return "unchanged " + metaPath + ": " + line, nil
 	}
-	if err := replace(root, metaPath, b); err != nil {
+	if err := l0.Replace(root, metaPath, b); err != nil {
 		return "", err
 	}
 	return "wrote " + metaPath + ": " + line, nil
@@ -193,36 +194,36 @@ func fieldLine(b []byte, key string) string {
 	return key + " absent"
 }
 
-// cited returns a *conflictError unless each of cites is cited in the
+// cited returns a *l0.Conflict unless each of cites is cited in the
 // citation note (<CITA>) of the raw XML m describes: raw/<source_version_date>.xml
 // under s's directory, a regular file through real directories, with
 // sha256_raw's bytes. So version_fr_citations is checkable against L0
 // itself (issue #6). A file it can't read is an error as is (exit 2).
 func cited(root string, s Source, m meta.Meta, cites []meta.Citation) error {
 	raw := path.Join(s.dir(), "raw", string(m.SourceVersionDate)+".xml")
-	if err := realDirs(root, path.Dir(raw)); err != nil {
+	if err := l0.RealDirs(root, path.Dir(raw)); err != nil {
 		return err
 	}
 	full := filepath.Join(root, filepath.FromSlash(raw))
 	info, err := os.Lstat(full)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return &conflictError{fmt.Sprintf("%s, the raw file meta.yaml describes, does not exist: restore it from git (git restore %s) (R1)", raw, raw)}
+		return l0.Conflictf("%s, the raw file meta.yaml describes, does not exist: restore it from git (git restore %s) (R1)", raw, raw)
 	case err != nil:
 		return err
 	case !info.Mode().IsRegular():
-		return &conflictError{fmt.Sprintf("%s is not a regular file; raw XML is read only as one (R1)", raw)}
+		return l0.Conflictf("%s is not a regular file; raw XML is read only as one (R1)", raw)
 	}
 	body, err := os.ReadFile(full)
 	if err != nil {
 		return err
 	}
-	if sum := meta.SHA256(sha256Hex(body)); sum != m.SHA256Raw {
-		return &conflictError{fmt.Sprintf("%s has sha256 %s, but meta.yaml says sha256_raw %s: it is not the raw file meta.yaml describes (R1)", raw, sum, m.SHA256Raw)}
+	if sum := meta.SHA256(l0.SHA256Hex(body)); sum != m.SHA256Raw {
+		return l0.Conflictf("%s has sha256 %s, but meta.yaml says sha256_raw %s: it is not the raw file meta.yaml describes (R1)", raw, sum, m.SHA256Raw)
 	}
 	note, err := citationNote(body)
 	if err != nil {
-		return &conflictError{fmt.Sprintf("%s: %v", raw, err)}
+		return l0.Conflictf("%s: %v", raw, err)
 	}
 	var missing []string
 	for _, c := range cites {
@@ -241,8 +242,8 @@ func cited(root string, s Source, m meta.Meta, cites []meta.Citation) error {
 	if len(note) > 0 {
 		which = joinCitations(note)
 	}
-	return &conflictError{fmt.Sprintf("%s %s not cited in the citation note (<CITA>) of %s, the raw file meta.yaml describes, which cites %s; %s records only citations that note cites (R1, issue #6)",
-		strings.Join(missing, ", "), verb, raw, which, keyCitations)}
+	return l0.Conflictf("%s %s not cited in the citation note (<CITA>) of %s, the raw file meta.yaml describes, which cites %s; %s records only citations that note cites (R1, issue #6)",
+		strings.Join(missing, ", "), verb, raw, which, keyCitations)
 }
 
 // frCitation is a Federal Register citation in running text, "<vol> FR

@@ -1,4 +1,4 @@
-package ecfr
+package l0
 
 import (
 	"bytes"
@@ -13,30 +13,35 @@ import (
 	"strings"
 )
 
-// conflictError is a command that what is stored refuses: a fetch that would
-// change a stored file (fetch never overwrites one), or a meta set that the
-// stored meta.yaml or raw XML doesn't support. It is reported, nothing is
-// written, and the command exits 1.
-type conflictError struct{ msg string }
+// Conflict is a command that what is stored refuses: a write that would
+// change a stored file (raw XML is never overwritten), or a meta.yaml change
+// that the stored meta.yaml or raw XML doesn't support. It is reported,
+// nothing is written, and the command exits 1.
+type Conflict struct{ msg string }
 
-func (e *conflictError) Error() string { return e.msg }
+func (e *Conflict) Error() string { return e.msg }
 
-// tempPattern names the temporary file storeOnce and replace write beside
+// Conflictf returns a *Conflict with the formatted message.
+func Conflictf(format string, a ...any) error {
+	return &Conflict{fmt.Sprintf(format, a...)}
+}
+
+// TempPattern names the temporary file StoreOnce and Replace write beside
 // their target.
 // .gitignore ignores it under sources/, so an interrupted run leaves nothing
 // that can be committed.
-const tempPattern = ".fetch-*"
+const TempPattern = ".fetch-*"
 
-// storeOnce writes body to the file at slash path p under root unless a file
+// StoreOnce writes body to the file at slash path p under root unless a file
 // is already there. Identical bytes are a no-op (stored false); different
-// bytes are a *conflictError and the file is left as it was. The body is
+// bytes are a *Conflict and the file is left as it was. The body is
 // written to a temporary file, synced, and hard-linked into place, which
 // fails if anything is at p, so a file is never overwritten, never seen
 // half-written, and never left short by a crash. So the corpus needs a
 // filesystem with hard links (not FAT or exFAT); there is no fallback. Every
-// directory on the way to p must be a real one (realDirs).
-func storeOnce(root, p string, body []byte) (stored bool, err error) {
-	if err := realDirs(root, path.Dir(p)); err != nil {
+// directory on the way to p must be a real one (RealDirs).
+func StoreOnce(root, p string, body []byte) (stored bool, err error) {
+	if err := RealDirs(root, path.Dir(p)); err != nil {
 		return false, err
 	}
 	full := filepath.Join(root, filepath.FromSlash(p))
@@ -59,15 +64,15 @@ func storeOnce(root, p string, body []byte) (stored bool, err error) {
 	return link(tmp, full, p, body)
 }
 
-// replace writes body to the file at slash path p under root, which the
+// Replace writes body to the file at slash path p under root, which the
 // caller has read as a regular file, in one step: a temporary file beside it,
 // synced, then renamed over it, so the file is never seen half-written and
 // never left short by a crash. Only meta.yaml is replaced, and only by `meta
 // set`, which keeps every field it doesn't set (internal/meta); raw XML is
-// stored once (storeOnce). Every directory on the way to p must be a real
-// one (realDirs).
-func replace(root, p string, body []byte) error {
-	if err := realDirs(root, path.Dir(p)); err != nil {
+// stored once (StoreOnce). Every directory on the way to p must be a real
+// one (RealDirs).
+func Replace(root, p string, body []byte) error {
+	if err := RealDirs(root, path.Dir(p)); err != nil {
 		return err
 	}
 	full := filepath.Join(root, filepath.FromSlash(p))
@@ -80,9 +85,9 @@ func replace(root, p string, body []byte) error {
 }
 
 // writeTemp writes body, mode 0644 and synced, to a new temporary file in
-// dir (tempPattern) and returns its path. The caller removes it.
+// dir (TempPattern) and returns its path. The caller removes it.
 func writeTemp(dir string, body []byte) (string, error) {
-	tmp, err := os.CreateTemp(dir, tempPattern)
+	tmp, err := os.CreateTemp(dir, TempPattern)
 	if err != nil {
 		return "", err
 	}
@@ -104,9 +109,9 @@ func writeTemp(dir string, body []byte) (string, error) {
 }
 
 // link places tmp, holding body, at full (slash path p) by a hard link, which
-// fails if anything is there. Then (something written since storeOnce read
+// fails if anything is there. Then (something written since StoreOnce read
 // full, or a symlink to nothing) what is there is compared, never replaced:
-// the same bytes are a no-op (stored false), others a *conflictError.
+// the same bytes are a no-op (stored false), others a *Conflict.
 func link(tmp, full, p string, body []byte) (stored bool, err error) {
 	err = os.Link(tmp, full)
 	if err == nil {
@@ -122,13 +127,13 @@ func link(tmp, full, p string, body []byte) (stored bool, err error) {
 	return false, compare(p, have, body)
 }
 
-// realDirs returns a *conflictError when an entry on slash path dir under
+// RealDirs returns a *Conflict when an entry on slash path dir under
 // root, dir itself included, is anything but a real directory: a symlink
 // (even to a directory) or a file. fetch reads and writes only through real
 // directories, so nothing it stores lands outside the root or behind a link
 // git can't see through. A missing entry ends the walk: what fetch creates
 // there is real.
-func realDirs(root, dir string) error {
+func RealDirs(root, dir string) error {
 	p := ""
 	for _, name := range strings.Split(dir, "/") {
 		p = path.Join(p, name)
@@ -139,23 +144,24 @@ func realDirs(root, dir string) error {
 		case err != nil:
 			return err
 		case !info.IsDir():
-			return &conflictError{fmt.Sprintf("%s is not a real directory (it is a symlink or a file); fetch reads and writes only through real directories under the corpus root, and changes nothing (R1)", p)}
+			return Conflictf("%s is not a real directory (it is a symlink or a file); fetch reads and writes only through real directories under the corpus root, and changes nothing (R1)", p)
 		}
 	}
 	return nil
 }
 
 // compare returns nil when the stored bytes have (at slash path p) equal
-// body, and a *conflictError naming p and both hashes when they don't.
+// body, and a *Conflict naming p and both hashes when they don't.
 func compare(p string, have, body []byte) error {
 	if bytes.Equal(have, body) {
 		return nil
 	}
-	return &conflictError{fmt.Sprintf("%s exists with different bytes (stored sha256 %s, fetched sha256 %s); fetch never overwrites a stored file (R1)",
-		p, sha256Hex(have), sha256Hex(body))}
+	return Conflictf("%s exists with different bytes (stored sha256 %s, fetched sha256 %s); fetch never overwrites a stored file (R1)",
+		p, SHA256Hex(have), SHA256Hex(body))
 }
 
-func sha256Hex(b []byte) string {
+// SHA256Hex is b's sha256 as 64 lowercase hex digits.
+func SHA256Hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
