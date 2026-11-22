@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const (
@@ -379,6 +381,56 @@ func TestUnreadableRecordNamesRuleAndFile(t *testing.T) {
 	code, got := lines(t, "--corpus", "--root", root)
 	if code != 1 || len(got) != 1 || !strings.HasPrefix(got[0], p1+"cannot read: ") {
 		t.Fatalf("exit %d, stdout %q; want 1 and one %q line", code, got, p1+"cannot read: ...")
+	}
+}
+
+// printable fails t unless s is one line of printable characters: no line
+// break, no other control character, no invalid UTF-8.
+func printable(t *testing.T, s string) {
+	t.Helper()
+	for _, r := range s {
+		if r == utf8.RuneError || !strconv.IsPrint(r) {
+			t.Fatalf("%q holds the non-printable %q; a violation is one printable line", s, r)
+		}
+	}
+}
+
+// A message that repeats an unreadable path (an os.PathError) keeps the
+// violation on one line, as the path itself does.
+func TestUnreadableNameWithNewlineIsOneLine(t *testing.T) {
+	name := "RX-41-TEST-01\nC6 ok.yaml"
+	root := corpus(t, map[string]string{"registry/records/" + name: record, "registry/verify.log": ""})
+	f := filepath.Join(root, "registry", "records", name)
+	if err := os.Chmod(f, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(f, 0o644) })
+	if _, err := os.ReadFile(f); err == nil {
+		t.Skip("running with privileges that read a mode-0 file")
+	}
+	code, got := lines(t, "--corpus", "--root", root)
+	prefix := `C6 registry-state: "registry/records/RX-41-TEST-01\nC6 ok.yaml": `
+	if code != 1 || len(got) != 1 || !strings.HasPrefix(got[0], prefix) || !strings.Contains(got[0], "cannot read") {
+		t.Fatalf("exit %d, stdout %q; want 1 and one %q line", code, got, prefix+"...cannot read...")
+	}
+	printable(t, got[0])
+}
+
+// Every violation renders as one printable line, whatever its path and
+// message hold; an ordinary one is printed as is.
+func TestViolationIsOnePrintableLine(t *testing.T) {
+	plain := Violation{Rule: ruleRegistryState, Path: "registry/records/RX-41-TEST-01.yaml", Msg: "no matching verify.log line"}
+	if got := plain.String(); got != unlogged {
+		t.Fatalf("got %q, want %q", got, unlogged)
+	}
+	for _, odd := range []string{"a\nb", "a\rb", "a\r\nb", "a\x1b[2Kb", "a\vb\fc", "a\x00b", "a b", "a\x85b", "a\xffb"} {
+		for _, v := range []Violation{
+			{Rule: ruleRegistryState, Path: "registry/" + odd, Msg: "is a symlink"},
+			{Rule: ruleRegistryState, Path: "registry/x", Msg: "cannot read: open registry/" + odd + ": permission denied"},
+			{Rule: ruleRegistryState, Path: "registry/" + odd, Msg: "verify.log has " + odd},
+		} {
+			printable(t, v.String())
+		}
 	}
 }
 
