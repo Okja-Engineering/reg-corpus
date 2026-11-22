@@ -1,0 +1,13 @@
+[
+  {"name": "bug", "color": "d73a4a", "description": "Something isn't working"},
+  {"name": "enhancement", "color": "a2eeef", "description": "New feature or request"},
+  {"name": "documentation", "color": "0075ca", "description": "Improvements or additions to documentation"},
+  {"name": "decision", "color": "5319e7", "description": "An open technical call for the owner; recorded in docs/adr/ once made"},
+  {"name": "epic", "color": "3e4b9e", "description": "Work bigger than one PR; its stories merge into an integration branch"},
+  {"name": "story", "color": "c5def5", "description": "One PR's worth of an epic"},
+  {"name": "stage:01-fetch-parse", "color": "fbca04", "description": "Stage 01: fetch and parse L0 (stages/01-fetch-parse)"},
+  {"name": "stage:02-extract", "color": "fbca04", "description": "Stage 02: propose records into staging/ (stages/02-extract)"},
+  {"name": "stage:03-verify", "color": "fbca04", "description": "Stage 03: a person verifies records (stages/03-verify)"},
+  {"name": "stage:04-release", "color": "fbca04", "description": "Stage 04: a person tags a release (stages/04-release)"},
+  {"name": "stage:05-evaluate", "color": "fbca04", "description": "Stage 05: eval runs, grading, decision 5 (stages/05-evaluate)"}
+]
