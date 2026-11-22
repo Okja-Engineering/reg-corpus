@@ -89,8 +89,8 @@ else: the table above), read its Inputs and Check, and act within "Who may run i
   built today; a contract naming one not built yet names the plan step that builds it.
 - `make test`: Go tests, the R11 guard, pre-commit hook and CI gate tests (CI runs it too).
 - `make check`: the branch's checker on the working tree (`./regcorpus check --corpus`, C6).
-  The hook and CI both use main's checker on the commit, CI on a PR's test merge (`--tree`);
-  they can differ. make exits 2 on failure; `./regcorpus` exits 0 ok, 1 violations, 2 unreadable.
+  The hook and CI both use main's checker on the commit, CI on a PR's test merge (`--tree`); they can differ.
+  make exits 2 on failure; `./regcorpus` exits 0 ok, 1 violations or a fetch conflict, 2 unreadable or network.
 
 ## Reporting at the end of a stage
 1. Run the contract's "Check that ends it"; report the stage, exact command, full output, exit code.

@@ -57,5 +57,5 @@ commands:
 
 "regcorpus check -h" and "regcorpus fetch -h" show their flags. Exit codes:
 0 ok, 1 check violations or a conflict with a stored file, 2 usage errors,
-network errors, or a corpus or response that can't be read.
+network errors, or a corpus, response or file that can't be read or written.
 `
