@@ -23,7 +23,10 @@
 # blobs (ls-tree, cat-file, no replace refs), the way the check reads a commit,
 # so no filter or replace ref can change it. Go settings that could swap it
 # (GOFLAGS, a go env file, go.work, a toolchain the environment names) are
-# off for the build. Any failure exits 1 with the reason on stderr.
+# off for the build, and the target settings (GOOS, GOARCH, the GOARCH
+# variants such as GOAMD64 and GOARM, CGO_ENABLED) are unset, so the checker
+# is built for the machine that runs it. Any failure exits 1 with the reason
+# on stderr.
 set -euo pipefail
 export GIT_NO_REPLACE_OBJECTS=1
 
@@ -83,8 +86,9 @@ while IFS= read -r -d '' entry; do # "<mode> blob <oid>\t<path>"
   git cat-file blob "${meta##* }" >"$tmp/src/$path" || die "reading $path from $what"
 done <"$tmp/files"
 [ -f "$tmp/src/go.mod" ] || die "no go.mod in $what"
-if ! (cd "$tmp/src" && env GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN="$toolchain" \
-  go build -o "$out" ./cmd/regcorpus); then
+if ! (cd "$tmp/src" && env -u GOOS -u GOARCH -u GO386 -u GOAMD64 -u GOARM -u GOARM64 \
+  -u GOMIPS -u GOMIPS64 -u GOPPC64 -u GORISCV64 -u GOWASM -u CGO_ENABLED \
+  GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN="$toolchain" go build -o "$out" ./cmd/regcorpus); then
   [ "$trusted" = 1 ] || die "building the checker from $what failed (go output above)."
   die "building the checker from $what failed (go output above).
 Every commit is checked by main's checker, so it must build here. To recover:
