@@ -11,7 +11,7 @@
 #   OUT         where to write the binary
 #   UNDER-TEST  the tree-ish being checked (hook: the staged tree; CI: the commit)
 #   TRUSTED...  revisions to build from, preferred first (hook: the known mains;
-#               CI: the base, then origin/main, both resolved by c6.sh). One
+#               CI: origin/main, then the base, both resolved by c6.sh). One
 #               that doesn't resolve is skipped.
 # Builds from the first TRUSTED that holds cmd/regcorpus/main.go, and prints
 # its commit oid on stdout. Only when none does (bootstrap: a fresh repo, or

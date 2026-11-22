@@ -26,7 +26,7 @@
 # plan step 19) is checked by main's older checker until it merges, so it may
 # have to land in two steps: the checker first, then the data it reads.
 #
-# Residual, closed by CI (which builds the checker from the base on GitHub):
+# Residual, closed by CI (which builds the checker from main on GitHub):
 # - This script and build-checker.sh are read from the branch's working tree
 #   (core.hooksPath is relative), so the branch being committed controls them.
 #   An orphan branch or an old checkout without .githooks/ has no hook, and git
