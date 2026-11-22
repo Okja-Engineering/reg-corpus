@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-21
-- **Decided by:** the owner, 2026-11-21 (time not recorded), in chat: "Yes, hide key.yaml"
+- **Decided by:** the owner, 2026-11-21 20:55 CST, in chat: "Yes, hide key.yaml"
 
 ## Context
 The spec's "Evaluation (R7)" section puts `key.yaml`, the fixture's answer key,
@@ -24,6 +24,8 @@ from the spec's arm (a) line.
 R7; spec decision 5 (the pass rule the arms feed).
 
 ## Links
+- PR #1 review comment recording the call
+  (https://github.com/Okja-Engineering/reg-corpus/pull/1#discussion_r4656334228).
 - Commit ad68179 (stage 05 contract).
 - PR #1 (https://github.com/Okja-Engineering/reg-corpus/pull/1): Findings,
   "Arm (a) must not see the answer key".
