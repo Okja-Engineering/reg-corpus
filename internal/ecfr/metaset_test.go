@@ -667,6 +667,7 @@ func TestCitationsAreReadFromEachNoteAsWritten(t *testing.T) {
 		{"a citation inside an element in the note", "<CITA TYPE=\"N\">[<E T=\"03\">90 FR 20792</E>, May 16, 2025]</CITA>", "90 FR 20792", 0},
 		{"the first of a shorthand pair", "<CITA TYPE=\"N\">[78 FR 63004, 63005, Oct. 23, 2013]</CITA>", "78 FR 63004", 0},
 		{"the second of a shorthand pair", "<CITA TYPE=\"N\">[78 FR 63004, 63005, Oct. 23, 2013]</CITA>", "78 FR 63005", 0},
+		{"the third of a shorthand run", "<CITA TYPE=\"N\">[78 FR 63004, 63005, 63006, Oct. 23, 2013]</CITA>", "78 FR 63006", 0},
 		{"a year is no page", "<CITA TYPE=\"N\">[78 FR 60437, Oct. 1, 2013]</CITA>", "78 FR 2013", 1},
 		{"parts split by an element", "<CITA TYPE=\"N\">[90 FR <E T=\"03\">20792</E>, May 16, 2025]</CITA>", "90 FR 20792", 1},
 		{"parts split by an element's end", "<CITA TYPE=\"N\">[<E T=\"03\">90 FR</E> 20792, May 16, 2025]</CITA>", "90 FR 20792", 1},

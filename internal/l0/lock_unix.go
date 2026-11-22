@@ -13,10 +13,9 @@ import (
 // lock belongs to the open directory, so it is released when that is closed,
 // even by a crash: no lock file is left behind. It opens only a directory
 // itself: not what a symlink at dir points to (O_NOFOLLOW), and never
-// anything else, which fails at once (O_DIRECTORY; O_NONBLOCK, so a named
-// pipe can't block the open).
+// anything else, which fails at once, a named pipe too (O_DIRECTORY).
 func lock(dir string) (unlock func(), err error) {
-	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
