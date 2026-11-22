@@ -276,6 +276,19 @@ mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
 g add -A
 GOTOOLCHAIN=go1.999.0 GOPROXY=off commit_case 0 "GOTOOLCHAIN can't switch the checker's toolchain"
 reset
+# A target the committer exported (cross-compiling elsewhere) still builds a
+# checker this machine runs.
+foreign_os=windows foreign_arch=s390x
+[ "$(go env GOHOSTOS)" = windows ] && foreign_os=plan9
+[ "$(go env GOHOSTARCH)" = s390x ] && foreign_arch=riscv64
+mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
+g add -A
+GOOS=$foreign_os commit_case 0 "GOOS=$foreign_os: the checker is still built for this machine"
+reset
+mkdir -p "$R/staging" && printf 'notes\n' >"$R/staging/notes.txt"
+g add -A
+GOARCH=$foreign_arch commit_case 0 "GOARCH=$foreign_arch: the checker is still built for this machine"
+reset
 
 # --- Known mains: once refs/heads/main or refs/remotes/origin/main has a
 # checker, no commit is checked by its own. Each clone below has origin/main
