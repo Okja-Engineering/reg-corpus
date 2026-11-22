@@ -17,8 +17,8 @@ rule (spec decision 5) to reach accept, revise or kill.
   - (b): L0, the lookup-only binary (`make build LOOKUP_ONLY=1`), the skill and
     `eval/fixture/`;
   - (c): as (b), with the full binary and the `regcorpus check` output.
-  - No arm's run directory holds `key.yaml`; only grading reads it (owner's
-    decision, 2026-11-21; the spec's arm (a) line says `fixture-src` whole).
+  - No arm's run directory holds `key.yaml`; only grading reads it (spec
+    decision 8, ADR 0008).
 - `eval/render/`: maps `fixture-src` to `eval/fixture/` through the derived
   inventory (plan step 25). The skill is installed as a project skill in arms
   (b) and (c) (plan steps 23, 25 and 26).
