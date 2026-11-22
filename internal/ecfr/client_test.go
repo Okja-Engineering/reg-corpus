@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // apiPath is the path prefix of the versioner API, so the fake serves the
@@ -467,12 +468,11 @@ func TestOnlyA200IsABody(t *testing.T) {
 }
 
 // TestBodiesAreCapped: neither the bytes received nor the bytes they decode
-// to may exceed a generous cap (64 MiB; Supplement I whole is about 160 KB),
-// so a runaway or gzip-bomb response fails instead of exhausting memory.
+// to may exceed a generous cap (maxBody), so a runaway, endless or gzip-bomb
+// response fails at the cap instead of exhausting memory.
 func TestBodiesAreCapped(t *testing.T) {
-	const limit = 64 << 20
 	s, _ := lookup("1024.41")
-	big := xmlBody("1024.41", "2025-07-15") + "<!--" + strings.Repeat(" ", limit) + "-->"
+	big := xmlBody("1024.41", "2025-07-15") + "<!--" + strings.Repeat(" ", maxBody) + "-->"
 	for _, tc := range []struct {
 		name string
 		r    reply
@@ -489,6 +489,22 @@ func TestBodiesAreCapped(t *testing.T) {
 			}
 		})
 	}
+	t.Run("endless", func(t *testing.T) {
+		chunk := []byte(strings.Repeat(" ", 1<<16))
+		c := serve(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for r.Context().Err() == nil {
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+			}
+		})))
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_, err := c.Versions(ctx, s)
+		if err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Errorf("err %v; want one naming the cap", err)
+		}
+	})
 }
 
 // TestErrorBodyIsQuotedUpTo300Bytes: the start of an error body is where eCFR
@@ -529,7 +545,7 @@ func TestFailuresNameTheURLAndTheCause(t *testing.T) {
 			reply{body: "<?xml version=\"1.0\"?>\n<P>\xa7 1024.41</P>\n"}, xml,
 			[]string{xmlURI("2025-07-15", "1024.41"), "not valid UTF-8", "byte offset 25"}},
 		{"not well-formed XML", xmlURI("2025-07-15", "1024.41"),
-			reply{body: "<html><body>maintenance"}, xml,
+			reply{body: "<DIV8 N=\"1024.41\" TYPE=\"SECTION\"><P>maintenance"}, xml,
 			[]string{xmlURI("2025-07-15", "1024.41"), "not well-formed XML"}},
 		{"unknown content encoding", xmlURI("2025-07-15", "1024.41"),
 			reply{body: xmlBody("1024.41", "2025-07-15"), raw: true, encoding: "br"}, xml,

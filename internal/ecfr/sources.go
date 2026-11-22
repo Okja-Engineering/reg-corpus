@@ -32,6 +32,29 @@ type Kind string
 // appendices (spec "Granularity"); Supplement I (plan step 8) adds "appendix".
 const KindSection Kind = "section"
 
+// rootElement is the root element of eCFR's full XML for one source: the
+// element name and its TYPE and N attributes, e.g. <DIV8 TYPE="SECTION"
+// N="1024.41">.
+type rootElement struct{ Name, Type, N string }
+
+func (r rootElement) String() string {
+	s := "<" + r.Name
+	if r.Type != "" {
+		s += ` TYPE="` + r.Type + `"`
+	}
+	if r.N != "" {
+		s += ` N="` + r.N + `"`
+	}
+	return s + ">"
+}
+
+// kindRoots is the root element eCFR serves for each kind, its N being the
+// source's Identifier (as in the committed raw XML). Supplement I (plan step
+// 8) adds KindAppendix: {"DIV9", "APPENDIX"}, as eCFR served it on 2026-11-22.
+var kindRoots = map[Kind]rootElement{
+	KindSection: {Name: "DIV8", Type: "SECTION"},
+}
+
 const (
 	title = "12"
 	part  = "1024"
@@ -56,7 +79,8 @@ type Source struct {
 	Identifier string // eCFR's identifier for Kind, e.g. "1024.41"
 }
 
-// sources is the fixed source table, in fetch order (spec "Sources", R1).
+// sources is the fixed source table, in fetch order (R1; spec "Upstream" and
+// "Granularity").
 // Supplement I to Part 1024 (plan step 8) joins it as an "appendix" source
 // with Identifier "Supplement I to Part 1024", Dir "supplement-i/41" and tier
 // regulator_interpretation; eCFR versions it whole.
@@ -99,3 +123,11 @@ func (s Source) query() url.Values {
 
 // dir is s's source directory, by slash path from the corpus root.
 func (s Source) dir() string { return path.Join(sourcesDir, s.Dir) }
+
+// root is the root element of s's full XML. A kind with no entry in kindRoots
+// has an empty name, which no element matches, so its XML is refused.
+func (s Source) root() rootElement {
+	r := kindRoots[s.Kind]
+	r.N = s.Identifier
+	return r
+}

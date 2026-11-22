@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -112,8 +113,8 @@ func Latest(vs []Version) (Version, error) {
 }
 
 // XML returns s's point-in-time XML at date: the decoded response body exactly
-// as served, after checking it is valid UTF-8 and well-formed XML. Nothing in
-// it is changed (R1).
+// as served, after checking it is valid UTF-8 and one well-formed XML document
+// whose root element is s's (see document). Nothing in it is changed (R1).
 func (c *Client) XML(ctx context.Context, s Source, date Date) ([]byte, error) {
 	u := c.url("/full/"+string(date)+"/title-"+title+".xml", s.query())
 	body, err := c.get(ctx, u)
@@ -123,13 +124,15 @@ func (c *Client) XML(ctx context.Context, s Source, date Date) ([]byte, error) {
 	if !utf8.Valid(body) {
 		return nil, fmt.Errorf("GET %s: body is not valid UTF-8 (first bad byte offset %d)", u, firstInvalid(body))
 	}
-	if err := wellFormed(body); err != nil {
-		return nil, fmt.Errorf("GET %s: body is not well-formed XML: %w", u, err)
+	if err := document(body, s.root()); err != nil {
+		return nil, fmt.Errorf("GET %s: body is %w", u, err)
 	}
 	return body, nil
 }
 
-// UpToDateAsOf returns title 12's "up to date as of" date from titles.json.
+// UpToDateAsOf returns title 12's "up to date as of" date from titles.json. It
+// fails while eCFR reports an import in progress, when what it serves may be
+// mid-update.
 func (c *Client) UpToDateAsOf(ctx context.Context) (Date, error) {
 	u := c.url("/titles.json", nil)
 	body, err := c.get(ctx, u)
@@ -141,9 +144,15 @@ func (c *Client) UpToDateAsOf(ctx context.Context) (Date, error) {
 			Number       int    `json:"number"`
 			UpToDateAsOf string `json:"up_to_date_as_of"`
 		} `json:"titles"`
+		Meta struct {
+			ImportInProgress bool `json:"import_in_progress"`
+		} `json:"meta"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return "", fmt.Errorf("GET %s: titles JSON: %w", u, err)
+	}
+	if doc.Meta.ImportInProgress {
+		return "", fmt.Errorf("GET %s: eCFR reports an import in progress (meta.import_in_progress); retry later", u)
 	}
 	want, _ := strconv.Atoi(title)
 	for _, t := range doc.Titles {
@@ -168,10 +177,17 @@ func (c *Client) url(path string, q url.Values) string {
 	return u
 }
 
+// maxBody caps both the bytes a response sends and the bytes they decode to:
+// generous (Supplement I whole is about 160 KB), so only a runaway response or
+// a gzip bomb reaches it.
+const maxBody = 64 << 20
+
 // get fetches u and returns the decoded body. It asks for gzip (eCFR's full
 // XML endpoint refuses uncompressed requests) and decodes it itself, so the
-// bytes returned are exactly what was served. Any status but 200 is an error
-// quoting the start of the body, which is where eCFR puts its reason.
+// bytes returned are exactly what was served. It follows a redirect only to
+// u's own scheme and host, so every body comes from the origin asked. Any
+// status but 200 is an error, decided before the body is read, quoting the
+// start of the body, which is where eCFR puts its reason.
 func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -179,39 +195,78 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("User-Agent", userAgent)
-	resp, err := c.HTTP.Do(req)
+	hc := *c.HTTP
+	hc.CheckRedirect = sameOrigin
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err // already names the method and URL
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	enc := resp.Header.Get("Content-Encoding")
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET %s: %s: %s", u, resp.Status, errorSnippet(enc, resp.Body))
+	}
+	raw, err := readCapped(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: reading body: %w", u, err)
 	}
-	body, err := decode(resp.Header.Get("Content-Encoding"), raw)
-	if resp.StatusCode != http.StatusOK {
-		if err != nil { // the status is the cause; show the body as received
-			body = raw
-		}
-		return nil, fmt.Errorf("GET %s: %s: %s", u, resp.Status, snippet(body))
-	}
+	body, err := decode(enc, raw)
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", u, err)
 	}
 	return body, nil
 }
 
-// decode undoes a gzip Content-Encoding; an absent one is the body as is.
+// sameOrigin is the redirect policy of get: a redirect is followed only to the
+// scheme and host of the first request, so a body never comes from another
+// host or over plain http after https.
+func sameOrigin(req *http.Request, via []*http.Request) error {
+	from := via[0].URL
+	if req.URL.Scheme != from.Scheme || !strings.EqualFold(req.URL.Host, from.Host) {
+		return fmt.Errorf("refusing a redirect to %s: only %s://%s is trusted", req.URL, from.Scheme, from.Host)
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
+}
+
+// errorSnippet quotes the start of an error response's body, decoded when it
+// can be and as received when it can't: the status is the error, and nothing
+// about the body may hide it.
+func errorSnippet(encoding string, r io.Reader) string {
+	raw, _ := readCapped(r)
+	if body, err := decode(encoding, raw); err == nil {
+		return snippet(body)
+	}
+	return snippet(raw)
+}
+
+// readCapped reads r to the end, failing past maxBody bytes. On an error it
+// also returns what it read.
+func readCapped(r io.Reader) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, maxBody+1))
+	if err != nil {
+		return b, err
+	}
+	if len(b) > maxBody {
+		return b[:maxBody], fmt.Errorf("body exceeds %d bytes", maxBody)
+	}
+	return b, nil
+}
+
+// decode undoes a gzip Content-Encoding (named in any case; x-gzip is gzip);
+// an absent or identity one is the body as is.
 func decode(encoding string, raw []byte) ([]byte, error) {
-	switch encoding {
+	switch strings.ToLower(encoding) {
 	case "", "identity":
 		return raw, nil
-	case "gzip":
+	case "gzip", "x-gzip":
 		zr, err := gzip.NewReader(bytes.NewReader(raw))
 		if err != nil {
 			return nil, fmt.Errorf("gzip body: %w", err)
 		}
-		body, err := io.ReadAll(zr) // checks the gzip checksum and length
+		body, err := readCapped(zr) // checks the gzip checksum and length
 		if err != nil {
 			return nil, fmt.Errorf("gzip body: %w", err)
 		}
@@ -243,24 +298,80 @@ func firstInvalid(b []byte) int {
 	return -1
 }
 
-// wellFormed reads every token of b as XML.
-func wellFormed(b []byte) error {
-	d := xml.NewDecoder(bytes.NewReader(b))
+// bom is the UTF-8 byte order mark. It may open a document and is not part of
+// it (XML 1.0, 4.3.3).
+var bom = []byte("\xef\xbb\xbf")
+
+// document returns nil when b is exactly one well-formed XML document whose
+// root element is want; otherwise an error completing "body is ...". Strict
+// parsing refuses unknown entities and unquoted attributes. Outside the root
+// only whitespace, comments and processing instructions may appear, an XML
+// declaration only at the very start, and no <!DOCTYPE> or other declaration
+// anywhere: eCFR serves none, and a document that has one is not eCFR's.
+func document(b []byte, want rootElement) error {
+	malformed := func(d *xml.Decoder, format string, a ...any) error {
+		line, _ := d.InputPos()
+		return fmt.Errorf("not well-formed XML: line %d: %s", line, fmt.Sprintf(format, a...))
+	}
+	d := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(b, bom)))
 	d.Strict = true
-	sawElement := false
-	for {
+	depth, roots := 0, 0
+	for first := true; ; first = false {
 		tok, err := d.Token()
 		if err == io.EOF {
-			if !sawElement {
-				return errors.New("no root element")
-			}
-			return nil
+			break
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("not well-formed XML: %w", err)
 		}
-		if _, ok := tok.(xml.StartElement); ok {
-			sawElement = true
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if depth == 0 {
+				if roots++; roots > 1 {
+					return malformed(d, "a second root element <%s>", t.Name.Local)
+				}
+				if got := rootOf(t); got != want {
+					return fmt.Errorf("not %s's eCFR XML: root element %s, want %s", want.N, got, want)
+				}
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		case xml.CharData:
+			if depth == 0 && len(bytes.Trim(t, " \t\r\n")) > 0 {
+				return malformed(d, "text outside the root element: %s", snippet(t))
+			}
+		case xml.ProcInst:
+			if strings.EqualFold(t.Target, "xml") && !first {
+				return malformed(d, "an XML declaration not at the start")
+			}
+		case xml.Directive:
+			return malformed(d, "<!%s>", t)
 		}
 	}
+	if roots == 0 {
+		return errors.New("not well-formed XML: no root element")
+	}
+	return nil
+}
+
+// rootOf is start's name and TYPE and N attributes. A namespaced element or
+// attribute keeps its prefix in the name, so it never equals an eCFR root.
+func rootOf(start xml.StartElement) rootElement {
+	qualified := func(n xml.Name) string {
+		if n.Space != "" {
+			return n.Space + ":" + n.Local
+		}
+		return n.Local
+	}
+	r := rootElement{Name: qualified(start.Name)}
+	for _, a := range start.Attr {
+		switch qualified(a.Name) {
+		case "TYPE":
+			r.Type = a.Value
+		case "N":
+			r.N = a.Value
+		}
+	}
+	return r
 }
