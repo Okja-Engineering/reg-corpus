@@ -26,5 +26,5 @@ test: ## Run the Go tests, the R11 guard tests, the pre-commit hook tests and th
 
 # make exits 2 whenever a recipe fails, so `make check` exits 2 on violations too.
 # For the check's own codes (0 ok, 1 violations, 2 unreadable) run ./regcorpus directly.
-check: build ## Check the working tree with this branch's checker (C6; exits 2 on failure); hook and CI use main's or the base's
+check: build ## Check the working tree with this branch's checker (C6; exits 2 on failure); hook and CI use main's
 	./regcorpus check --corpus

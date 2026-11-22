@@ -5,14 +5,15 @@
 # Usage: bash .github/c6.sh BASE COMMIT
 # Builds the checker with .githooks/build-checker.sh, the same build the
 # pre-commit hook uses, and runs `regcorpus check --corpus --tree COMMIT`.
-# The checker comes from BASE when it has cmd/regcorpus/main.go, else from
-# origin/main (refs/remotes/origin/main): once origin/main has the checker, no
-# run uses any other. Only while neither has it (bootstrap: before the checker
-# first lands on main) is it built from COMMIT, and a warning annotation says
-# so. BASE, origin/main and COMMIT must each name a commit; a run that can't
-# resolve one fails. The checker is built with the Go its own go.mod names,
-# downloaded when the installed one (setup-go reads COMMIT's go.mod) is
-# older. Exits non-zero on any failure, with the check's violations on stdout.
+# The checker comes from origin/main (refs/remotes/origin/main) whenever it
+# has cmd/regcorpus/main.go, whatever BASE is; from BASE only while
+# origin/main has none. Only while neither has it (bootstrap: before the
+# checker first lands on main) is it built from COMMIT, and a warning
+# annotation says so. BASE, origin/main and COMMIT must each name a commit; a
+# run that can't resolve one fails. The checker is built with the Go its own
+# go.mod names, downloaded when the installed one (setup-go reads COMMIT's
+# go.mod) is older. Exits non-zero on any failure, with the check's
+# violations on stdout.
 set -euo pipefail
 [ $# = 2 ] || { echo "usage: bash .github/c6.sh BASE COMMIT" >&2; exit 2; }
 
@@ -26,10 +27,10 @@ commit=$(resolve "the commit under test" "$2")
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-ci.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
-src=$(bash .githooks/build-checker.sh --auto-toolchain "$tmp/regcorpus" "$commit" "$base" "$main")
+src=$(bash .githooks/build-checker.sh --auto-toolchain "$tmp/regcorpus" "$commit" "$main" "$base")
 case $src in
-  "$base") echo "C6 checker built from the base, $1 ($base)" ;;
-  "$main") echo "C6 checker built from origin/main ($main): the base, $1, has none" ;;
+  "$main") echo "C6 checker built from origin/main ($main)" ;;
+  "$base") echo "C6 checker built from the base, $1 ($base): origin/main has none" ;;
   *) echo "::warning title=C6 bootstrap::Neither the base ($1) nor origin/main has cmd/regcorpus/main.go, so $2 is checked by its own checker." ;;
 esac
 echo "C6 check of $2:"

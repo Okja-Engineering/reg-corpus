@@ -40,7 +40,7 @@ for a record into `registry/`. A person also signs off the inventory, by hand (R
   gate, runs it on each push and pull request, and the pre-commit hook on each
   commit: both with `--tree`, the hook on the commit with main's checker, and
   CI on the pushed commit or, for a pull request, GitHub's test merge commit,
-  with the base's checker (origin/main's when the base has none).
+  with origin/main's checker (the base's only while origin/main has none).
   `make check` runs the branch's own checker on the working tree, leaving out
   files git ignores. Exit 0 means every registry rule built so far passes.
   Today that is the registry-state rule: each file in `registry/records/` is

@@ -7,8 +7,9 @@
 # checker, then the checker. Each case runs c6.sh, as the workflow does, in a
 # clone of it (so refs/remotes/origin/main is origin's main) holding the
 # c6.sh and build-checker.sh under test, on a BASE and a COMMIT made there.
-# The invariant: once origin/main has a checker, no run uses another; a base
-# that is missing or doesn't resolve fails the run. Each case says whether the
+# The invariant: once origin/main has a checker, no run uses another, whatever
+# the base (the base's is used only while origin/main has none); a base that
+# is missing or doesn't resolve fails the run. Each case says whether the
 # run must pass (0) or fail (1), and a line its output must hold. Prints one
 # PASS/FAIL line per case; exits non-zero on any failure.
 # Run: bash .github/c6_test.sh   (also run by `make test`)
@@ -131,7 +132,7 @@ run 0 "origin/main without a checker: the base's checker passes a good change" "
 
 # --- origin/main has the checker.
 origin_main "$main"
-run 0 "a base with a checker passes a good change" "$main" "$good" "C6 checker built from the base"
+run 0 "a base with a checker passes a good change" "$main" "$good" "C6 checker built from origin/main"
 run 1 "a base with a checker rejects a weakened checker's commit" "$main" "$weak" "$C6"
 run 1 "on push: origin/main's checker rejects a weakened checker's commit" refs/remotes/origin/main "$weak" "$C6"
 run 1 "a non-main base with its own weakened checker: origin/main's checker rejects" \
@@ -161,7 +162,7 @@ EOF
 chmod +x "$tmp/fakego/go1.99.0"
 origin_main "$gomain"
 PATH=$tmp/fakego:$PATH run 0 "main's Go raised: a good change on an older main still passes" \
-  refs/remotes/origin/main "$good" "C6 checker built from the base"
+  refs/remotes/origin/main "$good" "C6 checker built from origin/main"
 if [ -s "$tmp/fakego/ran" ]; then
   echo "PASS  main's Go raised: the checker was built with the Go main's go.mod names"
   passed=$((passed + 1))
