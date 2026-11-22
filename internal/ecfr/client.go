@@ -39,10 +39,9 @@ func ParseDate(s string) (Date, error) {
 // Version is one entry of a source's eCFR version list: the date eCFR serves
 // it at (full/{date}), and whether that version removed the source.
 type Version struct {
-	Date        Date
-	Identifier  string
-	Substantive bool
-	Removed     bool
+	Date       Date
+	Identifier string
+	Removed    bool
 }
 
 // Client calls the eCFR versioner API at BaseURL.
@@ -66,10 +65,9 @@ func (c *Client) Versions(ctx context.Context, s Source) ([]Version, error) {
 	}
 	var doc struct {
 		ContentVersions *[]struct {
-			Date        string `json:"date"`
-			Identifier  string `json:"identifier"`
-			Substantive bool   `json:"substantive"`
-			Removed     bool   `json:"removed"`
+			Date       string `json:"date"`
+			Identifier string `json:"identifier"`
+			Removed    bool   `json:"removed"`
 		} `json:"content_versions"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
@@ -87,7 +85,7 @@ func (c *Client) Versions(ctx context.Context, s Source) ([]Version, error) {
 		if v.Identifier != s.Identifier {
 			return nil, fmt.Errorf("GET %s: content_versions[%d]: identifier %q, want %q", u, i, v.Identifier, s.Identifier)
 		}
-		out[i] = Version{Date: d, Identifier: v.Identifier, Substantive: v.Substantive, Removed: v.Removed}
+		out[i] = Version{Date: d, Identifier: v.Identifier, Removed: v.Removed}
 	}
 	return out, nil
 }
@@ -191,11 +189,14 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 		return nil, fmt.Errorf("GET %s: reading body: %w", u, err)
 	}
 	body, err := decode(resp.Header.Get("Content-Encoding"), raw)
+	if resp.StatusCode != http.StatusOK {
+		if err != nil { // the status is the cause; show the body as received
+			body = raw
+		}
+		return nil, fmt.Errorf("GET %s: %s: %s", u, resp.Status, snippet(body))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", u, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s: %s", u, resp.Status, snippet(body))
 	}
 	return body, nil
 }
