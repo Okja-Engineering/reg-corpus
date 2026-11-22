@@ -270,6 +270,17 @@ func TestMetaSetRefusesAMetaYAMLItCantTrust(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, []string{"sources/ecfr/title-12/1024.41", "not a real directory"}},
+		{"the source directory a symlink, the value already set", func(t *testing.T, root string) {
+			writeFile(t, root, metaPath("1024.41"), withLines(`"2025-07-15"`, ""))
+			dir := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
+			out := t.TempDir()
+			if err := os.Rename(dir, filepath.Join(out, "1024.41")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(out, "1024.41"), dir); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"sources/ecfr/title-12/1024.41", "not a real directory"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := citedCorpus(t)
