@@ -1,0 +1,36 @@
+name: Feature
+description: New or changed tool behavior that traces to a requirement or a plan step.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tool and process work only. No interpretation of the regulation, and no product or compliance guidance (AGENTS.md, hard rules). A change with no requirement or plan step behind it starts as a Decision instead.
+  - type: input
+    id: intent
+    attributes:
+      label: Intent
+      description: One line, the outcome and why.
+    validations:
+      required: true
+  - type: input
+    id: traces
+    attributes:
+      label: Traces to
+      description: The spec's requirement IDs (R, C) or the plan step.
+      placeholder: R8; plan step 15
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Approach
+      description: Only when there is a call to make. The options and the one you'd take.
+  - type: textarea
+    id: done
+    attributes:
+      label: Done means
+      description: The acceptance command and what it must print and exit with. A tool step ends when it is built, `make test` passes and this command behaves as the spec says (AGENTS.md).
+      placeholder: "`./regcorpus show RX-41-ACK-01` prints the record with its anchor text; exit 0."
+    validations:
+      required: true

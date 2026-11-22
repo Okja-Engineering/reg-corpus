@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Start here (AGENTS.md)
+    url: https://github.com/Okja-Engineering/reg-corpus/blob/main/AGENTS.md
+    about: Layout, stages, who may run what, and the hard rules.
+  - name: The spec (docs/03-spec.md)
+    url: https://github.com/Okja-Engineering/reg-corpus/blob/main/docs/03-spec.md
+    about: Requirement IDs (R, C) and the decisions an issue traces to.
