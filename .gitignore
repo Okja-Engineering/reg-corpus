@@ -40,8 +40,10 @@ go.work.sum
 *~
 
 # regcorpus (R5 build output; R1 local download cache; R11 local agent state).
-# sources/, registry/ and registry/verify.log stay tracked: nothing in them is
-# ignored but fetch's temporary files (below).
+# sources/, registry/ and registry/verify.log stay tracked: in them git ignores
+# only what the patterns above ignore anywhere (binaries, test and coverage
+# output, go.work, .env, OS and editor clutter) and fetch's temporary files
+# (below), none of them a corpus file.
 /regcorpus
 /dist/
 # Local raw-download cache: exploratory fetches and the govinfo edition.
