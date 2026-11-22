@@ -10,7 +10,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -125,30 +124,4 @@ func compare(p string, have, body []byte) error {
 func sha256Hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
-}
-
-// metaYAML renders the part of s's L0 meta.yaml that exists at fetch time
-// (spec "L0 meta.yaml"), for raw XML body at version date, retrieved on
-// retrieved when eCFR was up to date as of asOf. Later plan steps add the
-// rest: version_effective_date and version_fr_citations after
-// source_version_date (step 3), verified_on after ecfr_up_to_date_as_of (step
-// 6) and sha256_text last (step 5).
-//
-// Enum words (tier, role, source) and the bool are plain, as in the spec;
-// every other value is double-quoted, so no YAML reader types a date or a
-// hash as anything but a string. strconv.Quote's escapes are all YAML
-// double-quoted escapes. Rendered with the standard library: the checker
-// binary links this package, and the gate's test harnesses build it without
-// a go.sum (see PR #2).
-func metaYAML(s Source, date, retrieved, asOf Date, body []byte) []byte {
-	q := strconv.Quote
-	return []byte("cfr: " + q(s.CFR) + "\n" +
-		"tier: " + string(s.Tier) + "\n" +
-		"role: " + string(s.Role) + "\n" +
-		"source: ecfr\n" +
-		"official: false\n" +
-		"source_version_date: " + q(string(date)) + "\n" +
-		"retrieved_at: " + q(string(retrieved)) + "\n" +
-		"ecfr_up_to_date_as_of: " + q(string(asOf)) + "\n" +
-		"sha256_raw: " + q(sha256Hex(body)) + "\n")
 }

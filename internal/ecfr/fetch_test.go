@@ -370,7 +370,7 @@ func TestUsageAndRootErrors(t *testing.T) {
 	}
 }
 
-// fetchMeta is a meta.yaml in fetch's own format for 1024.41's raw file at
+// fetchMeta is the meta.yaml fetch writes for 1024.41's raw file at
 // date with sha256 sum.
 func fetchMeta(date, sum string) string {
 	return "cfr: \"12 CFR 1024.41\"\ntier: law\nrole: inventoried\nsource: ecfr\nofficial: false\n" +
@@ -380,7 +380,7 @@ func fetchMeta(date, sum string) string {
 
 // TestStoredStateKeepsOneRawPerSource: fetch exits 0 only when, after it,
 // raw/ holds exactly one entry, a regular file named for eCFR's latest date
-// with eCFR's bytes, and meta.yaml (a regular file in fetch's own format)
+// with eCFR's bytes, and meta.yaml (a regular file in the spec's schema)
 // names that file's date and sha256. fetch reads what is stored once; when
 // what is there contradicts that, it stores nothing and exits 1 naming it.
 func TestStoredStateKeepsOneRawPerSource(t *testing.T) {

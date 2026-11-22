@@ -143,7 +143,7 @@ func TestParseRefusesAnythingMarshalWouldNotWrite(t *testing.T) {
 		{"an unquoted date", line(`source_version_date: "2025-07-15"`, `source_version_date: 2025-07-15`), []string{"source_version_date"}},
 		{"a single-quoted date", line(`source_version_date: "2025-07-15"`, `source_version_date: '2025-07-15'`), []string{"source_version_date"}},
 		{"a date that isn't one", line(`source_version_date: "2025-07-15"`, `source_version_date: "2025-02-30"`), []string{"source_version_date", "2025-02-30"}},
-		{"a date with an escape", line(`retrieved_at: "2026-11-22"`, `retrieved_at: "2026-11-22"`), []string{"retrieved_at"}},
+		{"a date with an escape", line(`retrieved_at: "2026-11-22"`, `retrieved_at: "2026`+`\`+`u002d11-22"`), []string{"retrieved_at"}},
 		{"verified_on quoted null", line(`verified_on: "2026-11-23"`, `verified_on: "null"`), []string{"verified_on"}},
 		{"verified_on empty", line(`verified_on: "2026-11-23"`, `verified_on: `), []string{"verified_on"}},
 		{"a short hash", line(`sha256_raw: "`+rawSum+`"`, `sha256_raw: "deadbeef"`), []string{"sha256_raw", "deadbeef"}},
