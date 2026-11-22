@@ -49,13 +49,15 @@ commands:
   check --corpus [--root DIR] [--tree TREE-ISH]
         run the per-commit corpus check (C6)
   fetch [--date YYYY-MM-DD] [section ...]
-        store eCFR's latest raw XML for 1024.41, 1024.30, 1024.31 (R1),
+        store eCFR's latest raw XML for 1024.41, 1024.30, 1024.31 under
+        sources/ (R1), or with --date a point-in-time copy under .cache/,
         from the corpus root; --verify and --latest: plan step 6
   verify <ID>
         move a staged record into registry/ (a person, in a terminal; R2a);
         not implemented yet (plan step 19)
 
-"regcorpus check -h" and "regcorpus fetch -h" show their flags. Exit codes:
-0 ok, 1 check violations or a conflict with a stored file, 2 usage errors,
-network errors, or a corpus, response or file that can't be read or written.
+"regcorpus check -h" and "regcorpus fetch -h" show their flags and their exit
+codes, which are the authority. In short: 0 ok, 1 violations or a conflict
+with a stored file, 2 anything that stops the command (usage, network, eCFR,
+or a file it can't read or write). A missing or unknown command exits 2.
 `
