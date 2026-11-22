@@ -142,10 +142,7 @@ func (f fetcher) latest(ctx context.Context, s Source, asOf Date) ([]string, err
 	if metaExists {
 		return lines, nil
 	}
-	m, err := newMeta(s, v.Date, Date(f.now().UTC().Format(time.DateOnly)), asOf, body).yaml()
-	if err != nil {
-		return lines, err
-	}
+	m := metaYAML(s, v.Date, Date(f.now().UTC().Format(time.DateOnly)), asOf, body)
 	if _, err := storeOnce(f.root, metaPath, m); err != nil {
 		return lines, err
 	}
