@@ -16,8 +16,11 @@ every shell spelling.
 
 ## Decision
 A GitHub check, the `C6 gate` job in `.github/workflows/c6.yml`, is the gate.
-It runs C6 on the commit with a checker built from a trusted commit
-(`origin/main` whenever it has one), then `make test`. The pre-commit hook and
+It runs C6 (`check --corpus --tree`) on the commit under test, which for a
+pull request is GitHub's test merge commit, then `make test`. The checker is
+built from `origin/main` whenever it has one, else from the PR's base; only
+while neither has one (bootstrap) from the commit itself, with a warning.
+See `.github/c6.sh` and `.github/workflows/c6.yml`. The pre-commit hook and
 the R11 guard stay as seatbelts: they catch honest mistakes and an agent's
 shortcuts early and are documented as incomplete. This departs from spec
 decision 3's "CI closes that later": CI arrives in phase 1, with plan step 1.
