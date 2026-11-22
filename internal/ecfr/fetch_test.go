@@ -462,6 +462,32 @@ func TestStoredStateKeepsOneRawPerSource(t *testing.T) {
 		{"meta.yaml as a symlink to nothing", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
 			symlink(metaPath("1024.41"), "nowhere.yaml")},
 			[]string{metaPath("1024.41"), "not a regular file"}},
+		// meta.yaml is in the spec's schema (internal/meta), and every field
+		// fetch writes says what fetch's source table says (issue #5).
+		{"meta.yaml naming another section", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, "12 CFR 1024.41", "12 CFR 1024.30", 1))},
+			[]string{metaPath("1024.41"), "cfr", `"12 CFR 1024.30"`, `"12 CFR 1024.41"`}},
+		{"meta.yaml naming another tier", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, "tier: law", "tier: regulator_interpretation", 1))},
+			[]string{metaPath("1024.41"), "tier", "regulator_interpretation", "law"}},
+		{"meta.yaml naming another role", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, "role: inventoried", "role: cite_only", 1))},
+			[]string{metaPath("1024.41"), "role", "cite_only", "inventoried"}},
+		{"meta.yaml saying official: true", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, "official: false", "official: true", 1))},
+			[]string{metaPath("1024.41"), "official", "true", "false"}},
+		{"meta.yaml naming a source the spec doesn't", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, "source: ecfr", "source: govinfo", 1))},
+			[]string{metaPath("1024.41"), "source", "govinfo"}},
+		{"meta.yaml with an unknown field", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), goodMeta+"note: \"x\"\n")},
+			[]string{metaPath("1024.41"), `"note"`}},
+		{"meta.yaml out of the spec's order", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, "tier: law\nrole: inventoried\n", "role: inventoried\ntier: law\n", 1))},
+			[]string{metaPath("1024.41"), "tier", "role"}},
+		{"meta.yaml without retrieved_at", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
+			file(metaPath("1024.41"), strings.Replace(goodMeta, "retrieved_at: \"2026-11-01\"\n", "", 1))},
+			[]string{metaPath("1024.41"), "no retrieved_at"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, c := newFake(t)
@@ -498,6 +524,39 @@ func TestStoredStateKeepsOneRawPerSource(t *testing.T) {
 			t.Errorf("files changed")
 		}
 	})
+}
+
+// TestFetchKeepsTheFieldsLaterStepsSet: a meta.yaml that also holds the
+// fields other plan steps set (version_effective_date and
+// version_fr_citations: step 3; sha256_text: step 5; verified_on: step 6) is
+// still fetch's: a re-run checks fetch's own fields, leaves the rest as they
+// are, and is a no-op.
+func TestFetchKeepsTheFieldsLaterStepsSet(t *testing.T) {
+	latestBody := xmlBody("1024.41", "2025-07-15")
+	for _, tc := range []struct{ name, meta string }{
+		{"step 3's fields", strings.Replace(fetchMeta("2025-07-15", sha(latestBody)), "retrieved_at:",
+			"version_effective_date: \"2025-07-15\"\nversion_fr_citations: [\"90 FR 20792\"]\nretrieved_at:", 1)},
+		{"every field", strings.Replace(fetchMeta("2025-07-15", sha(latestBody)), "retrieved_at:",
+			"version_effective_date: \"2025-07-15\"\nversion_fr_citations: [\"90 FR 20792\", \"86 FR 34899\"]\nretrieved_at:", 1) +
+			"sha256_text: \"" + strings.Repeat("a", 64) + "\"\n"},
+		{"verified_on null", strings.Replace(fetchMeta("2025-07-15", sha(latestBody)), "sha256_raw:",
+			"verified_on: null\nsha256_raw:", 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c := newFake(t)
+			root := corpusRoot(t)
+			writeFile(t, root, rawPath("1024.41"), latestBody)
+			writeFile(t, root, metaPath("1024.41"), tc.meta)
+			before := tree(t, root)
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+			if want := "1024.41 2025-07-15: unchanged " + rawPath("1024.41") + "\n"; code != 0 || stdout != want || stderr != "" {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 0, %q", code, stdout, stderr, want)
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
 }
 
 // TestUnreadableStoredStateExitsTwo: a source directory fetch can't read is
