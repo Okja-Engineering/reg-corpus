@@ -28,8 +28,8 @@ entry in raw/, the latest version's file, and meta.yaml names its date and
 sha256; a stored file is never overwritten. Identical bytes are a no-op.
 Different bytes, any other entry in raw/, or a meta.yaml that isn't fetch's,
 lacks its raw file or names another date or sha256 exit 1 and store nothing.
-So does a symlink or a file where a directory on the way should be, under
-sources/ or .cache/: fetch goes only through real directories.
+So does a symlink or a file where a directory on the way should be, from
+sources/ down and under .cache/: fetch goes only through real directories.
 
 Every fetch, --date's too, refuses (exit 2) while eCFR reports an import in
 progress, and any date after the one eCFR is up to date as of.
@@ -37,9 +37,10 @@ progress, and any date after the one eCFR is up to date as of.
   --date YYYY-MM-DD   fetch that point in time into .cache/ecfr/title-12/
                       (git-ignored, exploratory); never into sources/
 
-Exit 0: ok. Exit 1: a conflict with a stored file. Exit 2: a usage error, a
-network or eCFR error, a response that isn't the section's XML, or a local
-file that can't be read or written. Each section is fetched whatever
+Exit 0: ok. Exit 1: a conflict with a stored file, or a symlink or a file in
+place of a directory. Exit 2: a usage error, no sources/ecfr/title-12/ (not
+the corpus root), a network or eCFR error, a response that isn't the
+section's XML, or a local file that can't be read or written. Each section is fetched whatever
 another's outcome; when they fail differently the larger code wins (2 over 1).
 `
 
@@ -91,7 +92,13 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "regcorpus fetch: %v\n", err)
 		return 2
 	}
-	if info, err := os.Stat(filepath.Join(f.root, filepath.FromSlash(sourcesDir))); err != nil || !info.IsDir() {
+	// realDirs alone judges what is on the way (a symlink or a file: exit 1),
+	// here as under every source; then a corpus root is one that has it.
+	if err := realDirs(f.root, sourcesDir); err != nil {
+		fmt.Fprintf(stderr, "regcorpus fetch: %v\n", err)
+		return exitCode(err)
+	}
+	if _, err := os.Lstat(filepath.Join(f.root, filepath.FromSlash(sourcesDir))); err != nil {
 		fmt.Fprintf(stderr, "regcorpus fetch: %s is not a corpus root (no %s/ directory); run fetch from the corpus root\n", f.root, sourcesDir)
 		return 2
 	}

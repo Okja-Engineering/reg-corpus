@@ -76,8 +76,8 @@ func TestAFailedWriteStoresNothing(t *testing.T) {
 }
 
 // fsizeChild fetches 1024.41 into root with RLIMIT_FSIZE at 64 bytes, less
-// than any section body, and prints the outcome on stdout (a pipe, which the
-// limit doesn't bind).
+// than any section body, restores the limit as soon as the fetch returns,
+// and prints the outcome on stdout.
 func fsizeChild(t *testing.T, root string) {
 	_, c := newFake(t)
 	var r fsizeResult
@@ -91,6 +91,9 @@ func fsizeChild(t *testing.T, root string) {
 		r.Skip = fmt.Sprintf("can't lower RLIMIT_FSIZE: %v", err)
 	} else {
 		r.Code, r.Stdout, r.Stderr = fetchAt(t, root, c, "2026-11-22", "1024.41")
+		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(t.TempDir(), "after"), make([]byte, 1<<10), 0o644); err != nil {
 			r.After = err.Error()
 		}
