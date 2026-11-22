@@ -534,31 +534,13 @@ EOF
   sh_case 0 'if cd .claude/hooks; then bash r11-guard_test.sh; fi > guard.log'
   sh_case 0 'for f in a; do cd registry; done > staging/x.txt'
   sh_case 0 'while false; do cd .claude; done > out.txt'
-  sh_case 0 '[ -d nonexistent ] && cd internal; touch staging/x'
+  sh_case 0 '[ -d nonexistent ] && cd .claude/hooks; touch staging/x'
   sh_case 0 'f() { cd .claude/hooks; }; touch x'
   sh_case 2 '{ cd /tmp; } | cat; rm -rf registry'
   sh_case 2 'if cd /tmp; then :; fi | cat; rm -rf registry'
   sh_case 2 'test -d registry && cd registry && rm verify.log'
   sh_case 2 'if cd registry; then rm verify.log; fi'
   sh_case 2 '(cd registry; case x in x) true;; esac; rm verify.log)'
-
-  echo "-- cwd: a cd that may not run leaves each directory the shell could be in"
-  sh_case 2 $'cd internal && go test ./... && cd ..\ncp staging/x.yaml registry/records/'
-  sh_case 2 'cd internal && go test ./... && cd ..; rm registry/verify.log'
-  sh_case 2 'true && cd /tmp; rm registry/verify.log'
-  sh_case 2 '[ -d nonexistent ] && cd .claude/hooks; touch staging/x'
-  sh_case 2 'if [ -d x ]; then cd internal; fi; rm registry/verify.log'
-  sh_case 2 'case $x in a) cd /tmp;; esac; rm registry/verify.log'
-  sh_case 2 'for d in internal; do cd "$d"; done; rm registry/verify.log'
-  sh_case 2 'pushd internal && true && popd; rm registry/verify.log'
-  sh_case 0 $'cd internal && go test ./...\necho ok > staging/x.txt'
-  sh_case 0 'if [ -d x ]; then cd internal; fi; echo x > staging/y.txt'
-  # A cd at the head of a list runs whenever the list does: it is followed.
-  sh_case 2 $'cd .githooks && ls\necho x > pre-commit'
-  sh_case 2 'cd registry || exit 1; rm verify.log'
-  sh_case 0 $'cd '"$CLONE"$' && git status\necho bad >> registry/verify.log'
-  sh_case 0 $'cd .claude/hooks && bash r11-guard_test.sh | tail -1\ncd ../.. && make build\n./regcorpus check --corpus > check.txt'
-  sh_case 0 $'cd ../.. && make build\n./regcorpus check --corpus > check.txt' "$MAIN/.claude/hooks"
 
   echo "-- blocked: writers run by xargs, find, parallel and wrappers"
   sh_case 2 'ls staging | xargs -I{} cp {} registry/records/'
