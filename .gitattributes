@@ -1,0 +1,3 @@
+# Raw XML is L0, stored byte for byte as eCFR served it (R1): no end-of-line
+# conversion on checkout or commit, whatever core.autocrlf says.
+sources/**/raw/*.xml -text

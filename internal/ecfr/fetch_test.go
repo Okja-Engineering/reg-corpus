@@ -605,10 +605,11 @@ func TestDateGuards(t *testing.T) {
 // rewrite L0 bytes). Needs the repository's git.
 func TestFetchTemporariesAndRawBytesAreSafeFromGit(t *testing.T) {
 	top := repoTop(t)
+	temp := strings.Replace(tempPattern, "*", "123", 1)
 	for _, p := range []string{
-		"sources/ecfr/title-12/1024.41/raw/.fetch-123",
-		"sources/ecfr/title-12/1024.41/.fetch-123",
-		"sources/ecfr/title-12/supplement-i/41/raw/.fetch-123",
+		"sources/ecfr/title-12/1024.41/raw/" + temp,
+		"sources/ecfr/title-12/1024.41/" + temp,
+		"sources/ecfr/title-12/supplement-i/41/raw/" + temp,
 	} {
 		if out, err := exec.Command("git", "-C", top, "check-ignore", "--no-index", "-q", p).CombinedOutput(); err != nil {
 			t.Errorf("git check-ignore %s: %v %s; want it ignored", p, err, out)
