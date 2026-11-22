@@ -13,41 +13,73 @@ later", the spec's arm (a) line ("L0 text files + `fixture-src`", which holds
 pre-commit hook plus the R11 agent guard") stayed as written, and a reader of
 the spec alone met text the project no longer followed.
 
+## Options considered
+1. Keep the docs as written; an ADR quotes the text it departs from (the
+   README's rule until now). A reader of the spec alone meets text the project
+   no longer follows.
+2. An accepted ADR is part of the spec, and the PR that adds one amends the
+   docs to match. Chosen: the owner's call above.
+
 ## Decision
-An accepted ADR is part of the spec. The intent, spec and plan never conflict
-with an accepted ADR. The PR that adds an ADR amends the doc text it changes,
-in the same PR, and adds the ADR's row to the spec's decisions table. The ADR
-keeps the why: the context, the options and the call.
+An accepted ADR is part of the spec. The intent, spec, plan, stage contracts
+and AGENTS.md never conflict with an accepted ADR. The PR that adds an ADR
+amends their text where it states what the ADR changes, in the same PR, and
+adds the ADR's row to the spec's decisions table. The ADR keeps the why: the
+context, the options and the call.
 
 ## Spec changes
-This PR brings the docs in line with 0007, 0008 and this ADR:
-- `docs/03-spec.md`: decision 3 (the corpus gate is CI from phase 1; consumers
-  keep the local hook, CI later); rows 7, 8 and 9 and a line saying rows 7 on
-  are accepted ADRs; "Enforcement" (the same split as decision 3); arm (a)
-  gets `fixture-src` without `key.yaml`, and no arm's run directory holds it.
-- `docs/04-plan.md`: the stack line (CI is the gate; hook and guard are
-  seatbelts); the files list adds `.github/workflows/c6.yml`; step 1 adds the
-  CI gate; the agent-bypass risk's "CI later" becomes "which CI gates".
-- `docs/01-intent.md`: "Enforced, not advised" (CI gate in the corpus from
-  phase 1; consumers' hooks, CI later).
-- `stages/05-evaluate/CONTRACT.md`: the `key.yaml` rule cites decision 8, not
-  a differing spec line. `AGENTS.md`: the spec includes the accepted ADRs.
-- Each changed doc's header gains "Amended: 2026-11-22 by ADRs 0007–0009"; the
-  spec's and plan's stale `intent.md` and `spec.md` references name
-  `docs/01-intent.md` and `docs/03-spec.md`.
+Row 9 of the spec's decisions table is this ADR. This PR also brings the docs
+in line with 0007 and 0008 (before → after):
+- `docs/03-spec.md`: decision 3 "Phase 1 is local only … CI closes that later"
+  → in the corpus the gate is CI from phase 1, once `main`'s branch protection
+  requires it (decision 7), hook and guard seatbelts; consumers stay local, CI
+  later. "Enforcement" "the pre-commit hook … and the R11 guard enforce; CI
+  takes over later" → the same split. Rows 7, 8 and 9 are added, with a line
+  saying what rows 1–6 and rows 7 on are. Arm (a) "L0 text files +
+  `fixture-src`" → "… without `key.yaml`", and no arm's run directory holds it
+  (decision 8).
+- `docs/04-plan.md`: stack "Local git only; the gate is a pre-commit hook plus
+  the R11 agent guard" → CI's `C6 gate` check, once `main`'s branch protection
+  requires it, with hook and guard as seatbelts. Files: the hook is "a
+  seatbelt", and `.github/workflows/c6.yml` is added. Step 1 adds the CI gate
+  and the owner's branch-protection setting. Risks "`verify.log` checked by
+  C6; CI later" → CI also runs C6, which binds once `main` is protected, and
+  C6 can't tell who wrote a record.
+- `docs/01-intent.md`: "Enforced, not advised" "run as hooks (CI later) … CI
+  closes that" → CI closes the bypass for the check, in the corpus from phase 1
+  once `main` is protected, in consumers later; the no-model-edits rule rests
+  on the R11 guard and on `verify` needing a terminal.
+- `stages/05-evaluate/CONTRACT.md`: "(owner's decision, 2026-11-21; the spec's
+  arm (a) line says `fixture-src` whole)" → "(spec decision 8, ADR 0008)".
+- `AGENTS.md`: "Spec (authoritative)" → "Spec (authoritative; the accepted
+  ADRs in `docs/adr/` are part of it)".
+- Headers: the spec gains "Amended: 2026-11-22 by ADRs 0007–0009", the intent
+  and plan "… by ADR 0007". The spec's `intent.md` and the plan's `spec.md`
+  references → `docs/01-intent.md` and `docs/03-spec.md`.
+- ADRs 0007 and 0008 gain an "Amended" line, and their Requirement IDs name
+  decisions 7 and 8. `.github/workflows/c6.yml`'s header comment "Spec
+  decision 3 left … for "CI later"; this is that CI" → spec decisions 3 and 7,
+  binding once `main`'s branch protection requires the check.
 
 ## Consequences
-- The intent, spec and plan are no longer frozen as accepted; each carries an
-  "Amended" header line naming the ADRs that changed it.
+- The docs are not frozen once written or accepted: an accepted ADR amends
+  them. The intent, spec and plan carry an "Amended" header line naming the
+  ADRs that changed each; AGENTS.md and the stage contracts have no header, so
+  the ADR's "Spec changes" section is the record of their amendments.
 - Doc text that conflicts with an accepted ADR is a review finding.
-- The Consequences lines of 0007 and 0008 saying the spec text is unchanged
-  describe the state when they were recorded; this PR amended that text.
-- `docs/adr/README.md`, `docs/adr/template.md` (a "Spec changes" section), the
-  Decision issue form and `AGENTS.md` state the new flow.
+- ADRs 0007 and 0008 carry an "Amended" line: their sentences saying the spec
+  departs from them or is unchanged describe it when they were recorded.
+- `docs/adr/README.md`, `docs/adr/template.md` (an "Options considered" and a
+  "Spec changes" section), the Decision issue form and `AGENTS.md` state the
+  new flow. A call the owner makes directly, as here, needs no Decision issue:
+  its quote goes on the ADR's PR.
 
 ## Requirement IDs
 R10 (AGENTS.md routes to the spec); spec decisions 3, 7, 8 and 9.
 
 ## Links
+- PR #4 (https://github.com/Okja-Engineering/reg-corpus/pull/4), which records
+  this ADR, and its comment quoting the call
+  (https://github.com/Okja-Engineering/reg-corpus/pull/4#issuecomment-7086089775).
 - ADRs 0007 and 0008, the departures this ends.
 - `docs/adr/README.md`, "Flow".

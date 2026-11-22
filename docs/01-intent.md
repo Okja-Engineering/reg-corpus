@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** accepted 2026-11-21; revised the same day after adversarial review
 - **Date:** 2026-11-20
-- **Amended:** 2026-11-22 by ADRs 0007–0009
+- **Amended:** 2026-11-22 by ADR 0007
 
 ## Problem
 When you build software under regulation, every design decision that touches a rule depends on getting the rule exactly right, including its conditions, exceptions and day counts. Today the verbatim text may exist somewhere, but people and agents work from restatements in specs, decision logs, code comments and config. Those restatements bend or drop conditions: the five-day acknowledgment duty applies only to an application received "45 days or more before a foreclosure sale," and a research note for this project restated that as "more than 45 days." They miss duties entirely. And they go stale without warning. 1024.41 has been amended by four rules since 2017, three of them COVID-era additions and their rescission, with quiet stretches of almost four years, so a copy that carries no source version can sit wrong for years. Nothing mechanically checks a restatement against the source as it is written, and an omission leaves nothing to check.

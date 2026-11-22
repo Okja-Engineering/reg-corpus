@@ -1,24 +1,29 @@
 # Architecture decision records
 
-One file per technical decision made after the spec was accepted: how the
-tools, the gate, the layout or the evaluation work. Never a product or
-compliance call, and never an interpretation of the regulation.
+One file per technical decision made after the spec was written: how the
+tools, the gate, the layout or the evaluation work, or how the docs and this
+process do. Never a product or compliance call, and never an interpretation of
+the regulation.
 
-An accepted ADR is part of the spec (0009). The intent, spec and plan never
-conflict with one: the PR that adds an ADR amends the text it changes, and the
-ADR keeps the why. The spec's decisions table holds decisions 1 to 6, then one
-row per ADR, so ADR numbers continue from 0007.
+An accepted ADR is part of the spec (0009). The intent, spec, plan, stage
+contracts and AGENTS.md never conflict with one: the PR that adds an ADR amends
+their text where it states what the ADR changes, and the ADR keeps the why. The
+spec's decisions table holds decisions 1 to 6, then one row per ADR, so ADR
+numbers continue from 0007.
 
 ## Flow
 1. Open a Decision issue (label `decision`): the call, context, options with a
-   recommended one, what it blocks.
-2. The owner decides. Quote the call on the issue, with its date, time and
-   timezone and where it was given.
+   recommended one, what it blocks. A call the owner makes directly, in chat
+   say, needs no issue.
+2. The owner decides. Quote the call on the issue, or for a direct call on the
+   ADR's PR, with its date, time and timezone and where it was given.
 3. A PR adds the next `NNNN-short-title.md`, from `template.md`, and a line in
-   the index below. The same PR amends the intent, spec or plan text the
-   decision changes, adds the ADR's row to the spec's decisions table, and adds
-   an "Amended" line to each changed doc's header.
-4. The issue is closed when that PR merges.
+   the index below. The same PR adds the ADR's row to the spec's decisions
+   table and amends the intent, spec, plan, stage contract or AGENTS.md text the
+   decision changes. The intent, spec and plan each gain an "Amended" header
+   line naming the ADRs that changed it; AGENTS.md and the contracts have no
+   header, so the ADR's "Spec changes" section is their record.
+4. The issue, if there is one, is closed when that PR merges.
 
 A later ADR that replaces one sets the old one's status to "Superseded by NNNN",
 and amends the spec's row for the old one. One that changes what an older ADR
