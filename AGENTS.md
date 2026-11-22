@@ -4,8 +4,8 @@ This repo holds verbatim rule text (L0) for 12 CFR 1024.41, its Supplement I 41(
 cite-only 1024.30 and 1024.31, plus a person-verified registry of records (L1) and the `regcorpus`
 CLI that checks them. This file only routes you. It holds no rule content and no product decisions.
 
-Spec (authoritative): `docs/03-spec.md`. Plan: `docs/04-plan.md`. Intent: `docs/01-intent.md`.
-Requirement IDs (R1..R11, C1..C6) come from the spec. ADRs: `docs/adr/`. Templates: `docs/templates/`.
+Spec (authoritative; the accepted ADRs in `docs/adr/` are part of it): `docs/03-spec.md`. Plan: `docs/04-plan.md`.
+Intent: `docs/01-intent.md`. Requirement IDs (R1..R11, C1..C6) come from the spec. Templates: `docs/templates/`.
 
 ## Where things live
 - `stages/0N-*/CONTRACT.md`: one contract per build stage (see below).
