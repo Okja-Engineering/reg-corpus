@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Edit(/registry/**)",
+      "Edit(/.githooks/**)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "Edit(/.claude/hooks/**)",
+      "Edit(/.claude/agents/**)",
+      "Edit(/.claude/skills/**)",
+      "Edit(/.claude/commands/**)",
+      "Bash(git commit -n *)",
+      "Bash(git commit --no-verify *)",
+      "Bash(regcorpus verify *)",
+      "Bash(./regcorpus verify *)",
+      "mcp__plugin_desktop-commander_desktop-commander__*"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'g=\"$CLAUDE_PROJECT_DIR/.claude/hooks/r11-guard.sh\"; if [ -x \"$g\" ]; then exec \"$g\"; fi; echo \"R11 guard: blocked — $g is missing or not executable, so the tool call cannot be checked (fail closed)\" >&2; exit 2'"
+          }
+        ]
+      }
+    ]
+  }
+}

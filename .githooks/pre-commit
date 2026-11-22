@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Per-commit corpus check (C6, R5). A seatbelt: CI (.github/workflows/c6.yml)
+# is the gate. Installed by `make setup` (core.hooksPath=.githooks).
+#
+# Checks the commit, not a copy of it: `git write-tree` turns the index being
+# committed into a tree, and `regcorpus check --corpus --tree` reads its raw
+# blobs. So skip-worktree and sparse entries are checked, filters and
+# end-of-line conversion don't change the hashed bytes, symlinks are never
+# followed, and intent-to-add entries (not in the tree) don't block.
+#
+# The checker comes from a known main, never from the branch being committed
+# (build-checker.sh builds it, the same way CI does). So a branch can't weaken
+# the code that checks it: not by committing a weaker checker first, --amend,
+# an orphan branch or a moved cmd/regcorpus/main.go; and a branch whose own
+# checker doesn't build can still commit. The known mains are
+# refs/remotes/origin/main and refs/heads/main. Rule: prefer origin/main,
+# unless local main contains it (a person merged locally and hasn't pushed);
+# if the preferred one has no checker, use the other. So a stale, missing or
+# diverged local main never picks the checker. A main has the checker when
+# cmd/regcorpus/ holds a package main Go source, whatever its file name. Only
+# while neither has one (bootstrap: a repo whose main has no checker yet) is
+# the commit checked by its own staged checker, with a warning on stderr. If
+# main's checker doesn't build, every commit is blocked and the error says how
+# to recover.
+#
+# Trade-off: a branch that changes what C6 reads (e.g. the verify.log format,
+# plan step 19) is checked by main's older checker until it merges, so it may
+# have to land in two steps: the checker first, then the data it reads.
+#
+# Residual, closed by CI (which builds the checker from main on GitHub):
+# - This script and build-checker.sh are read from the branch's working tree
+#   (core.hooksPath is relative), so the branch being committed controls them.
+#   An orphan branch or an old checkout without .githooks/ has no hook, and git
+#   then runs none (G3).
+# - The committer's Go environment and toolchain (GOCACHEPROG, GOCACHE,
+#   GOMODCACHE, GOROOT, PATH and the like) can change what gets built (G1).
+# - Whoever moves a main ref chooses the checker, and a commit on main after a
+#   commit that weakened main's checker is checked by the weakened one.
+# - The index can change between write-tree and the commit, and commits that
+#   skip pre-commit (merge, rebase, cherry-pick, am, commit-tree) aren't checked.
+set -euo pipefail
+export GIT_NO_REPLACE_OBJECTS=1
+
+fail() {
+  echo "pre-commit: C6 gate failed${1:+ ($1)}" >&2
+  exit 1
+}
+
+tree=$(git write-tree) || fail "git write-tree"
+mains=(refs/remotes/origin/main refs/heads/main)
+if git merge-base --is-ancestor refs/remotes/origin/main refs/heads/main 2>/dev/null; then
+  mains=(refs/heads/main refs/remotes/origin/main)
+fi
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-pre-commit.XXXXXX") || fail "mktemp"
+trap 'rm -rf "$tmp"' EXIT
+bash "$(dirname "$0")/build-checker.sh" "$tmp/regcorpus" "$tree" "${mains[@]}" >/dev/null || fail
+"$tmp/regcorpus" check --corpus --tree "$tree" || fail
