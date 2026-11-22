@@ -1,9 +1,8 @@
 # reg-corpus: start here (R10)
 
-This repo holds verbatim rule text (L0) for 12 CFR 1024.41, its Supplement I
-41() comments and the cite-only 1024.30 and 1024.31, plus a person-verified
-registry of records (L1) and the `regcorpus` CLI that checks them. This file
-only routes you. It holds no rule content and no product decisions.
+This repo holds verbatim rule text (L0) for 12 CFR 1024.41, its Supplement I 41() comments and the
+cite-only 1024.30 and 1024.31, plus a person-verified registry of records (L1) and the `regcorpus`
+CLI that checks them. This file only routes you. It holds no rule content and no product decisions.
 
 Spec (authoritative): `docs/03-spec.md`. Plan: `docs/04-plan.md`. Intent: `docs/01-intent.md`.
 Requirement IDs (R1..R11, C1..C6) come from the spec. ADRs: `docs/adr/`. Templates: `docs/templates/`.
@@ -20,7 +19,8 @@ Requirement IDs (R1..R11, C1..C6) come from the spec. ADRs: `docs/adr/`. Templat
 - `prompts/`: versioned extraction prompts. `skill/regcorpus/`: the agent skill (R9).
 - `cmd/regcorpus/`, `internal/*/`: the Go CLI. Each package's `doc.go` names its job.
 - `eval/`: seeds, fixtures, judge prompt, runs, results, walk and guard transcripts (R7).
-- `.github/`: CI, the C6 gate. `.githooks/`: the hook and the gate's build. `.claude/`: R11 guard.
+- `.github/`: CI (the C6 gate), issue forms, CODEOWNERS, Dependabot and labels (`make labels`
+  writes `labels.json` to GitHub). `.githooks/`: the hook and the gate's build. `.claude/`: R11 guard.
 
 ## Stages and their order
 | Stage | Contract | Who acts |
@@ -87,7 +87,7 @@ else: the table above), read its Inputs and Check, and act within "Who may run i
 - `make help` (default): list targets. `make setup`: point git at `.githooks/` (a person, once).
 - `make build`: build `./regcorpus` (not on PATH). `./regcorpus help` lists the commands
   built today; a contract naming one not built yet names the plan step that builds it.
-- `make test`: Go tests, the R11 guard, pre-commit hook and CI gate tests (CI runs it too).
+- `make test`: Go tests; R11 guard, pre-commit hook, CI gate and label tests (CI runs it too).
 - `make check`: the branch's checker on the working tree (`./regcorpus check --corpus`, C6).
   The hook and CI both use main's checker on the commit, CI on a PR's test merge (`--tree`);
   they can differ. make exits 2 on failure; `./regcorpus` exits 0 ok, 1 violations, 2 unreadable.
