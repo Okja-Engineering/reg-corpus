@@ -102,7 +102,7 @@ func sha256Hex(b []byte) string {
 // hash as anything but a string. strconv.Quote's escapes are all YAML
 // double-quoted escapes. Rendered with the standard library: the checker
 // binary links this package, and the gate's test harnesses build it without
-// a go.sum (see the plan step 2 report).
+// a go.sum (see PR #2).
 func metaYAML(s Source, date, retrieved, asOf Date, body []byte) []byte {
 	q := strconv.Quote
 	return []byte("cfr: " + q(s.CFR) + "\n" +

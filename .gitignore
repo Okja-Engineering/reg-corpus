@@ -40,7 +40,8 @@ go.work.sum
 *~
 
 # regcorpus (R5 build output; R1 local download cache; R11 local agent state).
-# sources/, registry/ and registry/verify.log stay tracked; never ignore them.
+# sources/, registry/ and registry/verify.log stay tracked: nothing in them is
+# ignored but fetch's temporary files (below).
 /regcorpus
 /dist/
 # Local raw-download cache: exploratory fetches and the govinfo edition.
