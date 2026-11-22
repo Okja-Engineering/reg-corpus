@@ -80,6 +80,9 @@ cp "$tmp/evil.go" "$R/internal/check/check.go"
 weakbase=$(commit "a branch that weakens its checker") || die "commit"
 rec
 onweak=$(commit "an unlogged record, into the weakened branch") || die "commit"
+g checkout -q -b renamed "$main" # main keeps its checker under another file name
+g mv cmd/regcorpus/main.go cmd/regcorpus/entry.go
+renamed=$(commit "main renames the checker's main.go") || die "commit"
 g checkout -q -b gomain "$main"
 gover=$(sed -n 's/^go //p' "$R/go.mod")
 sed "s/^go $gover\$/go 1.99.0/" "$R/go.mod" >"$tmp/go.mod" && cp "$tmp/go.mod" "$R/go.mod"
@@ -140,6 +143,12 @@ run 1 "a non-main base with its own weakened checker: origin/main's checker reje
 run 1 "a base without a checker: origin/main's checker rejects a weakened one" "$pre" "$oldweak" "$C6"
 run 0 "a base without a checker: origin/main's checker passes a good change" "$pre" "$good" \
   "C6 checker built from origin/main"
+origin_main "$renamed"
+run 1 "origin/main renames cmd/regcorpus/main.go: its checker rejects a weakened one" \
+  "$pre" "$oldweak" "$C6"
+run 1 "on push, main renamed cmd/regcorpus/main.go: its checker rejects a weakened one" \
+  refs/remotes/origin/main "$weak" "$C6"
+origin_main "$main"
 run 1 "an unresolvable base fails the run" 0123456789abcdef0123456789abcdef01234567 "$good" "cannot resolve"
 run 1 "a missing base fails the run" "" "$good" "cannot resolve"
 run 1 "a base that names no commit fails the run" refs/heads/no-such-branch "$good" "cannot resolve"

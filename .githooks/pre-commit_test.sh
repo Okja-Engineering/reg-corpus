@@ -324,6 +324,17 @@ weaken
 commit_case 1 "origin/main without a checker, local main with one: local main's checker checks the commit" \
   "$C6/RX-41-TEST-12.yaml: no matching verify.log line"
 
+clone renamed # main keeps its checker under another file name
+g checkout -q -b rename origin/main
+g mv cmd/regcorpus/main.go cmd/regcorpus/entry.go
+g commit -qm "main renames the checker's main.go" >"$out" 2>&1 || { sed 's/^/      /' "$out"; exit 1; }
+g update-ref refs/remotes/origin/main HEAD
+g branch -q -f main HEAD
+g checkout -q work
+weaken
+commit_case 1 "main renames cmd/regcorpus/main.go: main's checker still checks the commit" \
+  "$C6/RX-41-TEST-12.yaml: no matching verify.log line"
+
 clone unbuildable
 g checkout -q -b break
 printf 'this line does not compile\n' >>"$R/internal/check/check.go"
