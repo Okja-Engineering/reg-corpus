@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/okja-engineering/reg-corpus/internal/meta"
@@ -70,8 +71,8 @@ func TestMetaSetWritesOnlyTheFieldAsked(t *testing.T) {
 			withLines(`"2025-07-15"`, `["90 FR 20792"]`)},
 		{[]string{"version_fr_citations", "78 FR 10876", "90 FR 20792"}, `version_fr_citations: ["78 FR 10876", "90 FR 20792"]`,
 			withLines(`"2025-07-15"`, `["78 FR 10876", "90 FR 20792"]`)},
-		{[]string{"version_effective_date", "2025-07-16"}, `version_effective_date: "2025-07-16"`,
-			withLines(`"2025-07-16"`, `["78 FR 10876", "90 FR 20792"]`)},
+		{[]string{"version_effective_date", "2025-07-14"}, `version_effective_date: "2025-07-14"`,
+			withLines(`"2025-07-14"`, `["78 FR 10876", "90 FR 20792"]`)},
 	} {
 		code, stdout, stderr := metaAt(t, root, append([]string{"set", "1024.41"}, step.args...)...)
 		if want := "1024.41: wrote " + mp + ": " + step.line + "\n"; code != 0 || stdout != want || stderr != "" {
@@ -323,7 +324,10 @@ func TestMetaSetUsageErrorsExitTwo(t *testing.T) {
 		{"a citation with its date", []string{"set", "1024.41", "version_fr_citations", "90 FR 20792, May 16, 2025"}, []string{"90 FR 20792, May 16, 2025"}},
 		{"an unknown section", []string{"set", "1024.99", "version_effective_date", "2025-07-15"}, []string{`unknown section "1024.99"`}},
 		{"an unknown field", []string{"set", "1024.41", "version_date", "2025-07-15"}, []string{`"version_date"`}},
-		{"a flag", []string{"set", "--root", "x", "1024.41", "version_effective_date", "2025-07-15"}, []string{`"--root"`}},
+		{"a flag", []string{"set", "--root", "x", "1024.41", "version_effective_date", "2025-07-15"}, []string{`"--root"`, "takes no flags"}},
+		{"a flag after the field", []string{"set", "1024.41", "version_effective_date", "--force", "2025-07-15"}, []string{`"--force"`, "takes no flags"}},
+		{"a citation twice", []string{"set", "1024.41", "version_fr_citations", "90 FR 20792", "78 FR 10876", "90 FR 20792"},
+			[]string{"version_fr_citations", `"90 FR 20792"`, "twice"}},
 	}
 	for _, f := range meta.Fields() {
 		if f == "version_effective_date" || f == "version_fr_citations" {
@@ -333,7 +337,8 @@ func TestMetaSetUsageErrorsExitTwo(t *testing.T) {
 			name string
 			args []string
 			want []string
-		}{"the field " + f, []string{"set", "1024.41", f, "x"}, []string{f, "version_effective_date", "version_fr_citations"}})
+		}{"the field " + f, []string{"set", "1024.41", f, "x"},
+			[]string{f, "version_effective_date", "version_fr_citations", "written by the command that computes it"}})
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -469,6 +474,236 @@ func TestCommittedSourcesCarryStep3Fields(t *testing.T) {
 				code, stdout, stderr := metaAt(t, root, append([]string{"set", s.Name}, args...)...)
 				if code != 0 || !strings.HasPrefix(stdout, s.Name+": unchanged ") {
 					t.Errorf("%q: exit %d, stdout %q, stderr %q; want 0, unchanged", args, code, stdout, stderr)
+				}
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+}
+
+// TestEveryMetaWriterChecksTheStoredState: before writing anything, every
+// command that writes a meta.yaml (fetch on a re-run, meta set for either
+// field) checks one thing: meta.yaml is in the spec's schema; its cfr, tier,
+// role, source and official are the source table's; and raw/ holds exactly
+// raw/<source_version_date>.xml, a regular file through real directories,
+// with sha256_raw's bytes. Anything else exits 1 and changes nothing.
+func TestEveryMetaWriterChecksTheStoredState(t *testing.T) {
+	const older = "sources/ecfr/title-12/1024.41/raw/2025-05-16.xml"
+	good := fetchMeta("2025-07-15", sha(citedBody))
+	edit := func(old, new string) func(*testing.T, string) {
+		return func(t *testing.T, root string) {
+			if !strings.Contains(good, old) {
+				t.Fatalf("fixture lacks %q", old)
+			}
+			writeFile(t, root, metaPath("1024.41"), strings.Replace(good, old, new, 1))
+		}
+	}
+	rawFull := func(root string) string { return filepath.Join(root, filepath.FromSlash(rawPath("1024.41"))) }
+	writers := []struct {
+		name string
+		run  func(t *testing.T, root string) (code int, stdout, stderr string)
+	}{
+		{"fetch", func(t *testing.T, root string) (int, string, string) {
+			f, c := newFake(t)
+			f.set(xmlURI("2025-07-15", "1024.41"), reply{body: citedBody})
+			return fetchAt(t, root, c, "2026-11-22", "1024.41")
+		}},
+		{"meta set version_effective_date", func(t *testing.T, root string) (int, string, string) {
+			return metaAt(t, root, "set", "1024.41", "version_effective_date", "2025-07-15")
+		}},
+		{"meta set version_fr_citations", func(t *testing.T, root string) (int, string, string) {
+			return metaAt(t, root, "set", "1024.41", "version_fr_citations", "90 FR 20792")
+		}},
+	}
+	for _, d := range []struct {
+		name  string
+		setup func(*testing.T, string)
+		want  []string // in stderr
+	}{
+		{"cfr names another section", edit("12 CFR 1024.41", "12 CFR 1024.30"), []string{metaPath("1024.41"), "12 CFR 1024.30"}},
+		{"another tier", edit("tier: law", "tier: regulator_interpretation"), []string{metaPath("1024.41"), "regulator_interpretation"}},
+		{"another role", edit("role: inventoried", "role: cite_only"), []string{metaPath("1024.41"), "cite_only"}},
+		{"official: true", edit("official: false", "official: true"), []string{metaPath("1024.41"), "official"}},
+		{"a field the schema doesn't have", func(t *testing.T, root string) {
+			writeFile(t, root, metaPath("1024.41"), good+"note: \"x\"\n")
+		}, []string{metaPath("1024.41"), `"note"`}},
+		{"another source_version_date", edit(`source_version_date: "2025-07-15"`, `source_version_date: "2025-05-16"`),
+			[]string{metaPath("1024.41"), "2025-05-16"}},
+		{"another sha256_raw", edit(sha(citedBody), strings.Repeat("d", 64)), []string{strings.Repeat("d", 64)}},
+		{"the raw file missing", func(t *testing.T, root string) {
+			if err := os.Remove(rawFull(root)); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"git restore"}},
+		{"the raw file changed", func(t *testing.T, root string) {
+			writeFile(t, root, rawPath("1024.41"), strings.Replace(citedBody, "Stand-in text", "Other text", 1))
+		}, []string{rawPath("1024.41"), "sha256"}},
+		{"a second raw file", func(t *testing.T, root string) {
+			writeFile(t, root, older, citedBody)
+		}, []string{older}},
+		{"the raw file a symlink", func(t *testing.T, root string) {
+			writeFile(t, root, "elsewhere.xml", citedBody)
+			if err := os.Remove(rawFull(root)); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("../../../../../elsewhere.xml", rawFull(root)); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{rawPath("1024.41"), "not a regular file"}},
+		{"raw/ a symlink", func(t *testing.T, root string) {
+			dir := filepath.Dir(rawFull(root))
+			out := t.TempDir()
+			writeFile(t, out, "2025-07-15.xml", citedBody)
+			if err := os.RemoveAll(dir); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(out, dir); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"sources/ecfr/title-12/1024.41/raw", "not a real directory"}},
+	} {
+		for _, w := range writers {
+			t.Run(d.name+", "+w.name, func(t *testing.T) {
+				root := citedCorpus(t)
+				d.setup(t, root)
+				before := tree(t, root)
+				code, stdout, stderr := w.run(t, root)
+				if code != 1 || stdout != "" {
+					t.Errorf("exit %d, stdout %q, stderr %q; want 1 and nothing on stdout", code, stdout, stderr)
+				}
+				for _, s := range d.want {
+					if !strings.Contains(stderr, s) {
+						t.Errorf("stderr %q lacks %q", stderr, s)
+					}
+				}
+				if !equalTrees(before, tree(t, root)) {
+					t.Errorf("files changed")
+				}
+			})
+		}
+	}
+	// The same stored state, untouched, is accepted by each.
+	for _, w := range writers {
+		t.Run("as fetch stored it, "+w.name, func(t *testing.T) {
+			root := citedCorpus(t)
+			if code, _, stderr := w.run(t, root); code != 0 {
+				t.Errorf("exit %d, stderr %q; want 0", code, stderr)
+			}
+		})
+	}
+}
+
+// TestConcurrentMetaSetsKeepEachOthersField: two meta set runs on one
+// source at once, each setting a different field, both exit 0 and both
+// fields are in meta.yaml after them: neither replaces meta.yaml with a copy
+// read before the other wrote (no lost update).
+func TestConcurrentMetaSetsKeepEachOthersField(t *testing.T) {
+	want := withLines(`"2025-07-15"`, `["90 FR 20792"]`)
+	for i := range 20 {
+		root := citedCorpus(t)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		codes := make([]int, 2)
+		stderrs := make([]string, 2)
+		for j, args := range [][]string{
+			{"set", "1024.41", "version_effective_date", "2025-07-15"},
+			{"set", "1024.41", "version_fr_citations", "90 FR 20792"},
+		} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				var out, errb bytes.Buffer
+				codes[j] = metaMain(root, args, &out, &errb)
+				stderrs[j] = errb.String()
+			}()
+		}
+		close(start)
+		wg.Wait()
+		if codes[0] != 0 || codes[1] != 0 {
+			t.Fatalf("run %d: exits %v, stderr %q; want 0 and 0", i, codes, stderrs)
+		}
+		if got := readFile(t, root, metaPath("1024.41")); got != want {
+			t.Fatalf("run %d: meta.yaml:\n%s\nwant both fields:\n%s", i, got, want)
+		}
+	}
+}
+
+// notedCorpus returns a corpus root where 1024.41's raw XML holds notes, the
+// markup of its citation notes (<CITA> elements and what is between them),
+// and the meta.yaml fetch writes for it.
+func notedCorpus(t *testing.T, notes string) string {
+	t.Helper()
+	body := "<?xml version=\"1.0\" encoding=\"UTF-8\"?> \n<DIV8 N=\"1024.41\" TYPE=\"SECTION\">\n" +
+		"<HEAD>§ 1024.41 Stand-in.</HEAD>\n<P>(a) Stand-in text.</P>\n" + notes + "\n</DIV8>\n"
+	root := corpusRoot(t)
+	writeFile(t, root, rawPath("1024.41"), body)
+	writeFile(t, root, metaPath("1024.41"), fetchMeta("2025-07-15", sha(body)))
+	return root
+}
+
+// TestCitationsAreReadFromEachNoteAsWritten: a citation is "<vol> FR
+// <page>" within one run of a citation note's text, its parts separated by
+// any whitespace (a line break or a no-break space too); a shorthand page
+// after a citation ("78 FR 63004, 63005") is cited too. Text in two notes,
+// or on either side of an element inside a note, never joins into one.
+func TestCitationsAreReadFromEachNoteAsWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name, notes string
+		cite        string
+		code        int
+	}{
+		{"parts across a line break", "<CITA TYPE=\"N\">[78 FR 10876, Feb. 14, 2013; 90\nFR\n20792, May 16, 2025]\n</CITA>", "90 FR 20792", 0},
+		{"parts across no-break spaces", "<CITA TYPE=\"N\">[90&#xA0;FR 20792, May 16, 2025]</CITA>", "90 FR 20792", 0},
+		{"a citation after an element in the note", "<CITA TYPE=\"N\">[<E T=\"03\">See</E> 90 FR 20792, May 16, 2025]</CITA>", "90 FR 20792", 0},
+		{"a citation inside an element in the note", "<CITA TYPE=\"N\">[<E T=\"03\">90 FR 20792</E>, May 16, 2025]</CITA>", "90 FR 20792", 0},
+		{"the first of a shorthand pair", "<CITA TYPE=\"N\">[78 FR 63004, 63005, Oct. 23, 2013]</CITA>", "78 FR 63004", 0},
+		{"the second of a shorthand pair", "<CITA TYPE=\"N\">[78 FR 63004, 63005, Oct. 23, 2013]</CITA>", "78 FR 63005", 0},
+		{"a year is no page", "<CITA TYPE=\"N\">[78 FR 60437, Oct. 1, 2013]</CITA>", "78 FR 2013", 1},
+		{"parts split by an element", "<CITA TYPE=\"N\">[90 FR <E T=\"03\">20792</E>, May 16, 2025]</CITA>", "90 FR 20792", 1},
+		{"parts split across two notes", "<CITA TYPE=\"N\">[90 FR</CITA>\n<CITA TYPE=\"N\">20792, May 16, 2025]</CITA>", "90 FR 20792", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := notedCorpus(t, tc.notes)
+			code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_fr_citations", tc.cite)
+			if code != tc.code {
+				t.Errorf("exit %d, stdout %q, stderr %q; want %d", code, stdout, stderr, tc.code)
+			}
+		})
+	}
+	// A refusal lists exactly the citations the note cites, each once.
+	root := notedCorpus(t, "<CITA TYPE=\"N\">[78 FR 10876, Feb. 14, 2013, as amended at 78 FR 63004, 63005, Oct. 23, 2013; "+
+		"78 FR 10876, Feb. 14, 2013; 90 FR 20792, May 16, 2025]</CITA>")
+	code, _, stderr := metaAt(t, root, "set", "1024.41", "version_fr_citations", "90 FR 1")
+	if want := "which cites 78 FR 10876, 78 FR 63004, 78 FR 63005, 90 FR 20792;"; code != 1 || !strings.Contains(stderr, want) {
+		t.Errorf("exit %d, stderr %q; want 1 and %q", code, stderr, want)
+	}
+}
+
+// TestEffectiveDateIsNotAfterTheVersionDate: version_effective_date, the
+// effective date of the change that produced the stored version, is on or
+// before source_version_date; a later one is refused (exit 1) and nothing
+// is written.
+func TestEffectiveDateIsNotAfterTheVersionDate(t *testing.T) {
+	for _, tc := range []struct {
+		date string
+		code int
+	}{{"2025-07-15", 0}, {"2013-02-14", 0}, {"2025-07-16", 1}, {"2026-01-01", 1}} {
+		t.Run(tc.date, func(t *testing.T) {
+			root := citedCorpus(t)
+			before := tree(t, root)
+			code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", tc.date)
+			if code != tc.code {
+				t.Fatalf("exit %d, stdout %q, stderr %q; want %d", code, stdout, stderr, tc.code)
+			}
+			if tc.code == 0 {
+				return
+			}
+			for _, w := range []string{tc.date, "source_version_date", "2025-07-15"} {
+				if !strings.Contains(stderr, w) {
+					t.Errorf("stderr %q lacks %q", stderr, w)
 				}
 			}
 			if !equalTrees(before, tree(t, root)) {

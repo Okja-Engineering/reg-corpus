@@ -57,3 +57,27 @@ func TestALinkThatFindsAFileComparesIt(t *testing.T) {
 		t.Errorf("stored %v, err %v; want the hard link's failure", stored, err)
 	}
 }
+
+// TestAFailedReplaceLeavesNoTemporary: when the rename over the target fails
+// (here the target is a directory), Replace returns the error and leaves no
+// temporary file beside it.
+func TestAFailedReplaceLeavesNoTemporary(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "meta.yaml", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Replace(root, "src/meta.yaml", []byte("cfr: \"x\"\n")); err == nil {
+		t.Fatal("Replace over a directory succeeded; want an error")
+	}
+	ents, err := os.ReadDir(filepath.Join(root, "src"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) != 1 || ents[0].Name() != "meta.yaml" {
+		var names []string
+		for _, e := range ents {
+			names = append(names, e.Name())
+		}
+		t.Errorf("src/ holds %q, want meta.yaml only", names)
+	}
+}
