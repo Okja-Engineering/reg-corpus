@@ -1,3 +1,5 @@
-# Raw XML is L0, stored byte for byte as eCFR served it (R1): no end-of-line
-# conversion on checkout or commit, whatever core.autocrlf says.
-sources/**/raw/*.xml -text
+# Raw XML is L0, stored byte for byte as eCFR served it (R1): git never
+# rewrites it on checkout or commit, whatever its config says. No end-of-line
+# conversion (text), clean/smudge filter, $Id$ expansion (ident) or
+# re-encoding (working-tree-encoding).
+sources/**/raw/*.xml -text -filter -ident -working-tree-encoding
