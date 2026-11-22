@@ -45,15 +45,20 @@ type Version struct {
 	Removed    bool
 }
 
-// Client calls the eCFR versioner API at BaseURL.
+// Client calls the eCFR versioner API at BaseURL. A nil HTTP is an
+// http.Client with defaultTimeout. Whichever is used, the redirect policy is
+// get's own (sameOrigin).
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
 }
 
+// defaultTimeout bounds each request of a Client with no HTTP client.
+const defaultTimeout = 2 * time.Minute
+
 // NewClient returns a client for DefaultBaseURL.
 func NewClient() *Client {
-	return &Client{BaseURL: DefaultBaseURL, HTTP: &http.Client{Timeout: 2 * time.Minute}}
+	return &Client{BaseURL: DefaultBaseURL}
 }
 
 // Versions returns s's version list, every entry checked: a YYYY-MM-DD date
@@ -132,7 +137,8 @@ func (c *Client) XML(ctx context.Context, s Source, date Date) ([]byte, error) {
 
 // UpToDateAsOf returns title 12's "up to date as of" date from titles.json. It
 // fails while eCFR reports an import in progress, when what it serves may be
-// mid-update.
+// mid-update, and when titles.json doesn't say (no meta.import_in_progress
+// boolean): that is read, never assumed.
 func (c *Client) UpToDateAsOf(ctx context.Context) (Date, error) {
 	u := c.url("/titles.json", nil)
 	body, err := c.get(ctx, u)
@@ -144,14 +150,17 @@ func (c *Client) UpToDateAsOf(ctx context.Context) (Date, error) {
 			Number       int    `json:"number"`
 			UpToDateAsOf string `json:"up_to_date_as_of"`
 		} `json:"titles"`
-		Meta struct {
-			ImportInProgress bool `json:"import_in_progress"`
+		Meta *struct {
+			ImportInProgress *bool `json:"import_in_progress"`
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return "", fmt.Errorf("GET %s: titles JSON: %w", u, err)
 	}
-	if doc.Meta.ImportInProgress {
+	switch {
+	case doc.Meta == nil || doc.Meta.ImportInProgress == nil:
+		return "", fmt.Errorf("GET %s: titles JSON has no meta.import_in_progress, so whether eCFR is mid-import is unknown", u)
+	case *doc.Meta.ImportInProgress:
 		return "", fmt.Errorf("GET %s: eCFR reports an import in progress (meta.import_in_progress); retry later", u)
 	}
 	want, _ := strconv.Atoi(title)
@@ -195,7 +204,10 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("User-Agent", userAgent)
-	hc := *c.HTTP
+	hc := http.Client{Timeout: defaultTimeout}
+	if c.HTTP != nil {
+		hc = *c.HTTP
+	}
 	hc.CheckRedirect = sameOrigin
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -231,26 +243,29 @@ func sameOrigin(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
+// maxErrorBody is how much of an error response's body errorSnippet reads:
+// eCFR's reasons are short JSON, and the status is the error.
+const maxErrorBody = 8 << 10
+
 // errorSnippet quotes the start of an error response's body, decoded when it
 // can be and as received when it can't: the status is the error, and nothing
 // about the body may hide it.
 func errorSnippet(encoding string, r io.Reader) string {
-	raw, _ := readCapped(r)
+	raw, _ := io.ReadAll(io.LimitReader(r, maxErrorBody))
 	if body, err := decode(encoding, raw); err == nil {
 		return snippet(body)
 	}
 	return snippet(raw)
 }
 
-// readCapped reads r to the end, failing past maxBody bytes. On an error it
-// also returns what it read.
+// readCapped reads r to the end, failing past maxBody bytes.
 func readCapped(r io.Reader) ([]byte, error) {
 	b, err := io.ReadAll(io.LimitReader(r, maxBody+1))
 	if err != nil {
-		return b, err
+		return nil, err
 	}
 	if len(b) > maxBody {
-		return b[:maxBody], fmt.Errorf("body exceeds %d bytes", maxBody)
+		return nil, fmt.Errorf("body exceeds %d bytes", maxBody)
 	}
 	return b, nil
 }
@@ -302,21 +317,30 @@ func firstInvalid(b []byte) int {
 // it (XML 1.0, 4.3.3).
 var bom = []byte("\xef\xbb\xbf")
 
-// document returns nil when b is exactly one well-formed XML document whose
-// root element is want; otherwise an error completing "body is ...". Strict
-// parsing refuses unknown entities and unquoted attributes. Outside the root
-// only whitespace, comments and processing instructions may appear, an XML
-// declaration only at the very start, and no <!DOCTYPE> or other declaration
-// anywhere: eCFR serves none, and a document that has one is not eCFR's.
+// document returns nil when b is one XML document whose root element is want;
+// otherwise an error completing "body is ...". It is not an XML 1.0 validator:
+// it checks what encoding/xml's strict parse checks (syntax, nesting, unknown
+// entities, unquoted attributes, characters XML forbids) and, on top:
+//   - exactly one root element, and it is want;
+//   - no element has the same attribute twice;
+//   - outside the root, only comments, processing instructions and XML
+//     whitespace (space, tab, CR, LF) as written: no other text, and no CDATA
+//     or character reference even if it stands for whitespace;
+//   - a PI target of "xml" in any case only as the XML declaration, written
+//     <?xml version=...?> at the very start (after an optional UTF-8 BOM);
+//   - no <!DOCTYPE> or other declaration anywhere: eCFR serves none, and a
+//     document that has one is not eCFR's.
 func document(b []byte, want rootElement) error {
 	malformed := func(d *xml.Decoder, format string, a ...any) error {
 		line, _ := d.InputPos()
 		return fmt.Errorf("not well-formed XML: line %d: %s", line, fmt.Sprintf(format, a...))
 	}
-	d := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(b, bom)))
+	in := bytes.TrimPrefix(b, bom)
+	d := xml.NewDecoder(bytes.NewReader(in))
 	d.Strict = true
 	depth, roots := 0, 0
 	for first := true; ; first = false {
+		start := d.InputOffset()
 		tok, err := d.Token()
 		if err == io.EOF {
 			break
@@ -326,6 +350,13 @@ func document(b []byte, want rootElement) error {
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
+			for i, a := range t.Attr {
+				for _, prev := range t.Attr[:i] {
+					if a.Name == prev.Name {
+						return malformed(d, "duplicate attribute %s on <%s>", qualified(a.Name), qualified(t.Name))
+					}
+				}
+			}
 			if depth == 0 {
 				if roots++; roots > 1 {
 					return malformed(d, "a second root element <%s>", t.Name.Local)
@@ -338,12 +369,15 @@ func document(b []byte, want rootElement) error {
 		case xml.EndElement:
 			depth--
 		case xml.CharData:
-			if depth == 0 && len(bytes.Trim(t, " \t\r\n")) > 0 {
-				return malformed(d, "text outside the root element: %s", snippet(t))
+			// Judged as written, not as decoded: CDATA and character
+			// references decode to text indistinguishable from whitespace.
+			if written := in[start:d.InputOffset()]; depth == 0 && len(bytes.Trim(written, " \t\r\n")) > 0 {
+				return malformed(d, "text outside the root element: %s", snippet(written))
 			}
 		case xml.ProcInst:
-			if strings.EqualFold(t.Target, "xml") && !first {
-				return malformed(d, "an XML declaration not at the start")
+			declaration := first && t.Target == "xml" && bytes.HasPrefix(bytes.TrimLeft(t.Inst, " \t\r\n"), []byte("version"))
+			if strings.EqualFold(t.Target, "xml") && !declaration {
+				return malformed(d, "<?%s %s?> is not an XML declaration, <?xml version=...?> at the very start", t.Target, t.Inst)
 			}
 		case xml.Directive:
 			return malformed(d, "<!%s>", t)
@@ -355,15 +389,18 @@ func document(b []byte, want rootElement) error {
 	return nil
 }
 
-// rootOf is start's name and TYPE and N attributes. A namespaced element or
-// attribute keeps its prefix in the name, so it never equals an eCFR root.
-func rootOf(start xml.StartElement) rootElement {
-	qualified := func(n xml.Name) string {
-		if n.Space != "" {
-			return n.Space + ":" + n.Local
-		}
-		return n.Local
+// qualified is n with its namespace, if any, before a colon.
+func qualified(n xml.Name) string {
+	if n.Space != "" {
+		return n.Space + ":" + n.Local
 	}
+	return n.Local
+}
+
+// rootOf is start's name and TYPE and N attributes. A namespaced element or
+// attribute keeps its namespace in the name, so it never equals an eCFR root.
+// document has refused duplicate attributes, so each is read once.
+func rootOf(start xml.StartElement) rootElement {
 	r := rootElement{Name: qualified(start.Name)}
 	for _, a := range start.Attr {
 		switch qualified(a.Name) {
