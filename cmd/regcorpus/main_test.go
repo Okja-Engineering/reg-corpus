@@ -80,6 +80,7 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 	u := read(t, out)
 	for _, want := range []string{
 		"check --corpus [--root DIR] [--tree TREE-ISH]",
+		"fetch [--date YYYY-MM-DD] [section ...]",
 		"verify <ID>",
 		"not implemented yet (plan step 19)",
 	} {
@@ -96,7 +97,7 @@ func TestUsageErrorsExitTwoOnStderr(t *testing.T) {
 	}{
 		{nil, ""},
 		{[]string{"bogus"}, `regcorpus: unknown command "bogus"`},
-		{[]string{"fetch"}, `regcorpus: unknown command "fetch"`},
+		{[]string{"inventory"}, `regcorpus: unknown command "inventory"`},
 	} {
 		in, out, errf := files(t)
 		code := run(tc.args, in, out, errf)
@@ -119,6 +120,8 @@ func TestDispatch(t *testing.T) {
 			"C6 registry-state: registry/records/RX-41-TEST-01.yaml: no matching verify.log line", ""},
 		{"check not a corpus", []string{"check", "--corpus", "--root", t.TempDir()}, 2, "", "regcorpus check: "},
 		{"check help", []string{"check", "-h"}, 0, "usage: regcorpus check", ""},
+		{"fetch help", []string{"fetch", "-h"}, 0, "usage: regcorpus fetch", ""},
+		{"fetch unknown section", []string{"fetch", "1024.99"}, 2, "", `regcorpus fetch: unknown section "1024.99"`},
 		{"verify without a terminal", []string{"verify", "RX-41-TEST-01"}, 2, "",
 			"regcorpus verify requires an interactive terminal (R2a); a person runs it\n"},
 	} {
@@ -169,6 +172,7 @@ func TestBuiltBinaryExitCodes(t *testing.T) {
 		{"bad check flag: one message, ours", []string{"check", "--bogus"}, 2, "",
 			"regcorpus check: flag provided but not defined: -bogus\nusage: regcorpus check"},
 		{"help", []string{"--help"}, 0, usageLine, ""},
+		{"fetch unknown section", []string{"fetch", "1024.99"}, 2, "", `regcorpus fetch: unknown section "1024.99"`},
 		{"verify < /dev/null", []string{"verify", "RX-41-TEST-01"}, 2, "", "regcorpus verify requires an interactive terminal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
