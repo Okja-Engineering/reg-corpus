@@ -1,0 +1,468 @@
+// Tests for `regcorpus meta set` (R1, plan step 3; issues #5 and #6): it
+// sets version_effective_date or version_fr_citations in a stored source's
+// meta.yaml through internal/meta and changes nothing else; it sets no other
+// field; each citation must be in the citation note (<CITA>) of the raw XML
+// meta.yaml describes; the exit codes are 0 ok, 1 refused by what is stored,
+// 2 usage or a file it can't read or write. Offline.
+package ecfr
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/okja-engineering/reg-corpus/internal/meta"
+)
+
+// citedBody is a stand-in for 1024.41's raw XML with a citation note, and
+// Federal Register citations outside it: in an XREF and in running text.
+const citedBody = "<?xml version=\"1.0\" encoding=\"UTF-8\"?> \n<DIV8 N=\"1024.41\" TYPE=\"SECTION\">\n" +
+	"<HEAD>§ 1024.41 Stand-in.</HEAD>\n" +
+	"<XREF ID=\"20250516\" REFID=\"35\" AMDINSN=\"4\">Link to an amendment published at 90 FR 20799, May 16, 2025.</XREF>\n" +
+	"<P>(a) Stand-in text that mentions 89 FR 11111 in running text.</P>\n" +
+	"<CITA TYPE=\"N\">[78 FR 10876, Feb. 14, 2013, as amended at 81 FR 72373, Oct. 19, 2016; 90 FR 20792, May 16, 2025]\n</CITA>\n" +
+	"</DIV8>\n"
+
+// citedCorpus returns a corpus root where 1024.41 holds citedBody and the
+// meta.yaml fetch writes for it.
+func citedCorpus(t *testing.T) string {
+	t.Helper()
+	root := corpusRoot(t)
+	writeFile(t, root, rawPath("1024.41"), citedBody)
+	writeFile(t, root, metaPath("1024.41"), fetchMeta("2025-07-15", sha(citedBody)))
+	return root
+}
+
+func metaAt(t *testing.T, root string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	code = metaMain(root, args, &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+// withLines is fetchMeta for citedBody with step 3's lines in place.
+func withLines(effective, citations string) string {
+	m := fetchMeta("2025-07-15", sha(citedBody))
+	add := ""
+	if effective != "" {
+		add += "version_effective_date: " + effective + "\n"
+	}
+	if citations != "" {
+		add += "version_fr_citations: " + citations + "\n"
+	}
+	return strings.Replace(m, "retrieved_at:", add+"retrieved_at:", 1)
+}
+
+// TestMetaSetWritesOnlyTheFieldAsked: each run sets the one field named, in
+// the spec's place and form, and keeps every other line as it was.
+func TestMetaSetWritesOnlyTheFieldAsked(t *testing.T) {
+	root := citedCorpus(t)
+	mp := metaPath("1024.41")
+	for _, step := range []struct {
+		args       []string
+		line, want string
+	}{
+		{[]string{"version_effective_date", "2025-07-15"}, `version_effective_date: "2025-07-15"`,
+			withLines(`"2025-07-15"`, "")},
+		{[]string{"version_fr_citations", "90 FR 20792"}, `version_fr_citations: ["90 FR 20792"]`,
+			withLines(`"2025-07-15"`, `["90 FR 20792"]`)},
+		{[]string{"version_fr_citations", "78 FR 10876", "90 FR 20792"}, `version_fr_citations: ["78 FR 10876", "90 FR 20792"]`,
+			withLines(`"2025-07-15"`, `["78 FR 10876", "90 FR 20792"]`)},
+		{[]string{"version_effective_date", "2025-07-16"}, `version_effective_date: "2025-07-16"`,
+			withLines(`"2025-07-16"`, `["78 FR 10876", "90 FR 20792"]`)},
+	} {
+		code, stdout, stderr := metaAt(t, root, append([]string{"set", "1024.41"}, step.args...)...)
+		if want := "1024.41: wrote " + mp + ": " + step.line + "\n"; code != 0 || stdout != want || stderr != "" {
+			t.Fatalf("%q: exit %d, stdout %q, stderr %q; want 0, %q", step.args, code, stdout, stderr, want)
+		}
+		if got := readFile(t, root, mp); got != step.want {
+			t.Fatalf("%q: %s:\n%s\nwant:\n%s", step.args, mp, got, step.want)
+		}
+	}
+}
+
+// TestMetaSetKeepsTheFieldsOtherStepsSet: a meta.yaml holding every field
+// keeps each of them byte for byte when one step 3 field is set.
+func TestMetaSetKeepsTheFieldsOtherStepsSet(t *testing.T) {
+	root := citedCorpus(t)
+	all := strings.Replace(withLines(`"2025-07-15"`, `["90 FR 20792"]`), "sha256_raw:", "verified_on: null\nsha256_raw:", 1) +
+		"sha256_text: \"" + strings.Repeat("a", 64) + "\"\n"
+	writeFile(t, root, metaPath("1024.41"), all)
+	if code, _, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", "2025-07-14"); code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	want := strings.Replace(all, `version_effective_date: "2025-07-15"`, `version_effective_date: "2025-07-14"`, 1)
+	if got := readFile(t, root, metaPath("1024.41")); got != want {
+		t.Errorf("meta.yaml:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestMetaSetIsANoOpWhenTheValueIsSet: setting the value a field already has
+// touches nothing and says so.
+func TestMetaSetIsANoOpWhenTheValueIsSet(t *testing.T) {
+	root := citedCorpus(t)
+	writeFile(t, root, metaPath("1024.41"), withLines(`"2025-07-15"`, `["90 FR 20792"]`))
+	before := tree(t, root)
+	for _, args := range [][]string{
+		{"version_effective_date", "2025-07-15"},
+		{"version_fr_citations", "90 FR 20792"},
+	} {
+		code, stdout, stderr := metaAt(t, root, append([]string{"set", "1024.41"}, args...)...)
+		want := "1024.41: unchanged " + metaPath("1024.41") + ": " + args[0] + ": "
+		if code != 0 || !strings.HasPrefix(stdout, want) || stderr != "" {
+			t.Errorf("%q: exit %d, stdout %q, stderr %q; want 0, %q...", args, code, stdout, stderr, want)
+		}
+	}
+	if !equalTrees(before, tree(t, root)) {
+		t.Errorf("files changed")
+	}
+}
+
+// TestMetaSetTakesOnlyCitationsTheStoredXMLCites: each citation must be one
+// the citation note (<CITA>) of the raw XML cites, whole: not one cited only
+// elsewhere in the XML, and not a prefix of one it cites (issue #6). One
+// refused citation refuses the run, and nothing is written.
+func TestMetaSetTakesOnlyCitationsTheStoredXMLCites(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cites []string
+		code  int
+		want  []string // in stderr when refused
+	}{
+		{"the last citation in the note", []string{"90 FR 20792"}, 0, nil},
+		{"an earlier citation in the note", []string{"81 FR 72373"}, 0, nil},
+		{"two in the note", []string{"78 FR 10876", "90 FR 20792"}, 0, nil},
+		{"one cited only in an XREF", []string{"90 FR 20799"}, 1, []string{`"90 FR 20799"`, rawPath("1024.41"), "<CITA>"}},
+		{"one cited only in running text", []string{"89 FR 11111"}, 1, []string{`"89 FR 11111"`}},
+		{"a prefix of a cited page", []string{"90 FR 2079"}, 1, []string{`"90 FR 2079"`}},
+		{"a cited page in another volume", []string{"91 FR 20792"}, 1, []string{`"91 FR 20792"`}},
+		{"one cited and one not", []string{"90 FR 20792", "90 FR 20799"}, 1, []string{`"90 FR 20799"`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := citedCorpus(t)
+			before := tree(t, root)
+			code, stdout, stderr := metaAt(t, root, append([]string{"set", "1024.41", "version_fr_citations"}, tc.cites...)...)
+			if code != tc.code {
+				t.Fatalf("exit %d, stdout %q, stderr %q; want %d", code, stdout, stderr, tc.code)
+			}
+			if tc.code == 0 {
+				return
+			}
+			if stdout != "" || !strings.HasPrefix(stderr, "regcorpus meta: 1024.41: ") {
+				t.Errorf("stdout %q, stderr %q; want nothing on stdout, an error for 1024.41", stdout, stderr)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(stderr, w) {
+					t.Errorf("stderr %q lacks %q", stderr, w)
+				}
+			}
+			if strings.Contains(stderr, `"90 FR 20792" is`) {
+				t.Errorf("stderr %q refuses a cited citation", stderr)
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+}
+
+// TestMetaSetChecksCitationsAgainstTheRawFileMetaYAMLDescribes: the raw XML
+// read is raw/<source_version_date>.xml with sha256_raw's bytes, a regular
+// file through real directories; anything else is refused (exit 1) and
+// nothing is written.
+func TestMetaSetChecksCitationsAgainstTheRawFileMetaYAMLDescribes(t *testing.T) {
+	older := "sources/ecfr/title-12/1024.41/raw/2025-05-16.xml"
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		cite  string
+		want  []string
+	}{
+		{"the raw file is missing", func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(rawPath("1024.41")))); err != nil {
+				t.Fatal(err)
+			}
+		}, "90 FR 20792", []string{rawPath("1024.41")}},
+		{"the raw file's bytes aren't sha256_raw's", func(t *testing.T, root string) {
+			writeFile(t, root, rawPath("1024.41"), strings.Replace(citedBody, "Stand-in text", "Other text", 1))
+		}, "90 FR 20792", []string{rawPath("1024.41"), "sha256_raw"}},
+		{"the raw file is a symlink", func(t *testing.T, root string) {
+			p := filepath.Join(root, filepath.FromSlash(rawPath("1024.41")))
+			writeFile(t, root, "elsewhere.xml", citedBody)
+			if err := os.Remove(p); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("../../../../../elsewhere.xml", p); err != nil {
+				t.Fatal(err)
+			}
+		}, "90 FR 20792", []string{rawPath("1024.41"), "not a regular file"}},
+		{"raw/ is a symlink", func(t *testing.T, root string) {
+			dir := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41/raw"))
+			out := t.TempDir()
+			writeFile(t, out, "2025-07-15.xml", citedBody)
+			if err := os.RemoveAll(dir); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(out, dir); err != nil {
+				t.Fatal(err)
+			}
+		}, "90 FR 20792", []string{"sources/ecfr/title-12/1024.41/raw", "not a real directory"}},
+		{"another raw file cites it", func(t *testing.T, root string) {
+			writeFile(t, root, older, strings.Replace(citedBody, "90 FR 20792, May 16, 2025]", "90 FR 20792, May 16, 2025; 91 FR 1, Jan. 2, 2026]", 1))
+		}, "91 FR 1", []string{`"91 FR 1"`, rawPath("1024.41")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := citedCorpus(t)
+			tc.setup(t, root)
+			before := tree(t, root)
+			code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_fr_citations", tc.cite)
+			if code != 1 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus meta: 1024.41: ") {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1 for 1024.41", code, stdout, stderr)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(stderr, w) {
+					t.Errorf("stderr %q lacks %q", stderr, w)
+				}
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+}
+
+// TestMetaSetRefusesAMetaYAMLItCantTrust: meta set changes only a meta.yaml
+// fetch made, in the spec's schema, a regular file through real directories
+// (exit 1 otherwise, nothing written).
+func TestMetaSetRefusesAMetaYAMLItCantTrust(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		want  []string
+	}{
+		{"no meta.yaml", func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(metaPath("1024.41")))); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{metaPath("1024.41"), "regcorpus fetch"}},
+		{"a meta.yaml not in the schema", func(t *testing.T, root string) {
+			writeFile(t, root, metaPath("1024.41"), fetchMeta("2025-07-15", sha(citedBody))+"note: \"x\"\n")
+		}, []string{metaPath("1024.41"), `"note"`}},
+		{"meta.yaml a symlink", func(t *testing.T, root string) {
+			p := filepath.Join(root, filepath.FromSlash(metaPath("1024.41")))
+			writeFile(t, root, "elsewhere.yaml", fetchMeta("2025-07-15", sha(citedBody)))
+			if err := os.Remove(p); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("../../../../elsewhere.yaml", p); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{metaPath("1024.41"), "not a regular file"}},
+		{"the source directory a symlink", func(t *testing.T, root string) {
+			dir := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
+			out := t.TempDir()
+			if err := os.Rename(dir, filepath.Join(out, "1024.41")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(out, "1024.41"), dir); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"sources/ecfr/title-12/1024.41", "not a real directory"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := citedCorpus(t)
+			tc.setup(t, root)
+			before := tree(t, root)
+			code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", "2025-07-15")
+			if code != 1 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus meta: 1024.41: ") {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1 for 1024.41", code, stdout, stderr)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(stderr, w) {
+					t.Errorf("stderr %q lacks %q", stderr, w)
+				}
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+}
+
+// TestMetaSetUsageErrorsExitTwo: meta set takes a known section and one of
+// step 3's two fields with values of its type. Every other field belongs to
+// the command that computes it. A usage error writes nothing.
+func TestMetaSetUsageErrorsExitTwo(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want []string // in stderr
+	}{
+		{"no subcommand", nil, []string{"usage: regcorpus meta"}},
+		{"an unknown subcommand", []string{"get", "1024.41", "version_effective_date"}, []string{`"get"`, "usage: regcorpus meta"}},
+		{"set alone", []string{"set"}, []string{"usage: regcorpus meta"}},
+		{"no field", []string{"set", "1024.41"}, []string{"usage: regcorpus meta"}},
+		{"no value", []string{"set", "1024.41", "version_effective_date"}, []string{"version_effective_date", "usage: regcorpus meta"}},
+		{"no citation", []string{"set", "1024.41", "version_fr_citations"}, []string{"version_fr_citations", "usage: regcorpus meta"}},
+		{"two dates", []string{"set", "1024.41", "version_effective_date", "2025-07-15", "2025-07-16"}, []string{"version_effective_date", "one"}},
+		{"a date that isn't one", []string{"set", "1024.41", "version_effective_date", "2025-02-30"}, []string{`"2025-02-30"`}},
+		{"a citation that isn't one", []string{"set", "1024.41", "version_fr_citations", "90 FR"}, []string{`"90 FR"`}},
+		{"a citation with its date", []string{"set", "1024.41", "version_fr_citations", "90 FR 20792, May 16, 2025"}, []string{"90 FR 20792, May 16, 2025"}},
+		{"an unknown section", []string{"set", "1024.99", "version_effective_date", "2025-07-15"}, []string{`unknown section "1024.99"`}},
+		{"an unknown field", []string{"set", "1024.41", "version_date", "2025-07-15"}, []string{`"version_date"`}},
+		{"a flag", []string{"set", "--root", "x", "1024.41", "version_effective_date", "2025-07-15"}, []string{`"--root"`}},
+	}
+	for _, f := range meta.Fields() {
+		if f == "version_effective_date" || f == "version_fr_citations" {
+			continue
+		}
+		cases = append(cases, struct {
+			name string
+			args []string
+			want []string
+		}{"the field " + f, []string{"set", "1024.41", f, "x"}, []string{f, "version_effective_date", "version_fr_citations"}})
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := citedCorpus(t)
+			before := tree(t, root)
+			code, stdout, stderr := metaAt(t, root, tc.args...)
+			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus meta: ") {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 2 and an error", code, stdout, stderr)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(stderr, w) {
+					t.Errorf("stderr %q lacks %q", stderr, w)
+				}
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+	t.Run("not the corpus root", func(t *testing.T) {
+		root := t.TempDir()
+		code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", "2025-07-15")
+		if code != 2 || stdout != "" || !strings.Contains(stderr, "not a corpus root") {
+			t.Errorf("exit %d, stdout %q, stderr %q; want 2, not a corpus root", code, stdout, stderr)
+		}
+		if after := tree(t, root); len(after) != 0 {
+			t.Errorf("wrote %v", keysOf(after))
+		}
+	})
+}
+
+// TestMetaHelpGivesTheExitCodes: -h prints the usage, with the exit codes,
+// on stdout and exits 0.
+func TestMetaHelpGivesTheExitCodes(t *testing.T) {
+	for _, args := range [][]string{{"-h"}, {"--help"}, {"-help"}, {"set", "-h"}} {
+		code, stdout, stderr := metaAt(t, t.TempDir(), args...)
+		if code != 0 || !strings.HasPrefix(stdout, "usage: regcorpus meta set") || stderr != "" {
+			t.Errorf("%q: exit %d, stdout %q, stderr %q; want 0 and usage", args, code, stdout, stderr)
+		}
+		for _, w := range []string{"Exit 0", "Exit 1", "Exit 2", "<CITA>"} {
+			if !strings.Contains(stdout, w) {
+				t.Errorf("%q: usage lacks %q", args, w)
+			}
+		}
+	}
+}
+
+// TestMetaSetReplacesMetaYAMLWhole: the new meta.yaml is world-readable like
+// every stored file, and no temporary file is left beside it.
+func TestMetaSetReplacesMetaYAMLWhole(t *testing.T) {
+	root := citedCorpus(t)
+	if code, _, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", "2025-07-15"); code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(metaPath("1024.41"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("meta.yaml mode %v, want 0644", info.Mode().Perm())
+	}
+	ents, err := os.ReadDir(filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	if got := strings.Join(names, " "); got != ".gitkeep meta.yaml raw" {
+		t.Errorf("source directory holds %q, want .gitkeep, meta.yaml and raw/ only", got)
+	}
+}
+
+// TestMetaSetWriteFailureExitsTwo: a meta.yaml that can't be replaced is a
+// local file error (exit 2), and it is left as it was.
+func TestMetaSetWriteFailureExitsTwo(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running with privileges that write into a mode-0555 directory")
+	}
+	root := citedCorpus(t)
+	dir := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	before := tree(t, root)
+	code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", "2025-07-15")
+	if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus meta: 1024.41: ") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 2 for 1024.41", code, stdout, stderr)
+	}
+	if !equalTrees(before, tree(t, root)) {
+		t.Errorf("files changed")
+	}
+}
+
+// TestCommittedSourcesCarryStep3Fields: each committed source's meta.yaml
+// has version_effective_date and version_fr_citations (R1, plan step 3), and
+// setting them again on a copy is a no-op: each citation is in the citation
+// note of the committed raw XML meta.yaml describes. Needs the repository.
+func TestCommittedSourcesCarryStep3Fields(t *testing.T) {
+	top := repoTop(t)
+	for _, s := range sources {
+		t.Run(s.Name, func(t *testing.T) {
+			root := corpusRoot(t)
+			b, err := os.ReadFile(filepath.Join(top, filepath.FromSlash(s.dir()), "meta.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := meta.Parse(b)
+			if err != nil {
+				t.Fatalf("%s/meta.yaml: %v", s.dir(), err)
+			}
+			if m.VersionEffectiveDate == "" || m.VersionFRCitations == nil {
+				t.Fatalf("%s/meta.yaml lacks version_effective_date or version_fr_citations", s.dir())
+			}
+			raw := "raw/" + string(m.SourceVersionDate) + ".xml"
+			body, err := os.ReadFile(filepath.Join(top, filepath.FromSlash(s.dir()), filepath.FromSlash(raw)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, root, s.dir()+"/meta.yaml", string(b))
+			writeFile(t, root, s.dir()+"/"+raw, string(body))
+			before := tree(t, root)
+			cites := make([]string, len(m.VersionFRCitations))
+			for i, c := range m.VersionFRCitations {
+				cites[i] = string(c)
+			}
+			for _, args := range [][]string{
+				{"version_effective_date", string(m.VersionEffectiveDate)},
+				append([]string{"version_fr_citations"}, cites...),
+			} {
+				code, stdout, stderr := metaAt(t, root, append([]string{"set", s.Name}, args...)...)
+				if code != 0 || !strings.HasPrefix(stdout, s.Name+": unchanged ") {
+					t.Errorf("%q: exit %d, stdout %q, stderr %q; want 0, unchanged", args, code, stdout, stderr)
+				}
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+}
