@@ -2,6 +2,7 @@
 # rewrites it on checkout or commit, whatever its config says. No end-of-line
 # conversion (text), clean/smudge filter, $Id$ expansion (ident) or
 # re-encoding (working-tree-encoding). Raw XML must keep eCFR's bytes, and
-# meta.yaml fetch's: checked out with CRLF, fetch can't read one and every
-# source would exit 1. tree.json, text.md and overrides.yaml are L0 too.
+# meta.yaml the bytes internal/meta writes: checked out with CRLF, no command
+# can read one and every source would exit 1. tree.json, text.md and
+# overrides.yaml are L0 too.
 sources/** -text -filter -ident -working-tree-encoding

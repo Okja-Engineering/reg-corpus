@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +63,26 @@ func ParseCitation(s string) (Citation, error) {
 		return "", fmt.Errorf(`%q is not "<vol> FR <page>"`, s)
 	}
 	return Citation(s), nil
+}
+
+// ParseCitations returns vals as a version_fr_citations list, or an error
+// unless it names at least one citation, each a Citation, each once.
+func ParseCitations(vals []string) ([]Citation, error) {
+	if len(vals) == 0 {
+		return nil, errors.New("an empty list; it names at least one citation when set")
+	}
+	cs := make([]Citation, len(vals))
+	for i, v := range vals {
+		c, err := ParseCitation(v)
+		if err != nil {
+			return nil, err
+		}
+		if slices.Contains(cs[:i], c) {
+			return nil, fmt.Errorf("%q twice; the list names each citation once", v)
+		}
+		cs[i] = c
+	}
+	return cs, nil
 }
 
 // SHA256 is a sha256 written as 64 lowercase hex digits.
@@ -152,10 +173,9 @@ func Fields() []string {
 	return out
 }
 
-// text is a field whose value is a double-quoted string: strconv.Quote's
-// form, every escape of which is a YAML double-quoted escape, so no YAML
-// reader types a date or a hash as anything but a string. parse checks the
-// unquoted value; "" is absent.
+// text is a field whose value is a double-quoted string (quote), so no
+// YAML reader types a date or a hash as anything but a string. parse checks
+// the unquoted value; "" is absent.
 func text[T ~string](key string, required bool, p func(*Meta) *T, parse func(string) (T, error)) field {
 	return field{key: key, required: required,
 		render: func(m *Meta) (string, bool, error) {
@@ -166,7 +186,8 @@ func text[T ~string](key string, required bool, p func(*Meta) *T, parse func(str
 			if _, err := parse(string(v)); err != nil {
 				return "", true, err
 			}
-			return strconv.Quote(string(v)), true, nil
+			q, err := quote(string(v))
+			return q, true, err
 		},
 		parse: func(m *Meta, v string) error {
 			u, err := unquote(v)
@@ -218,12 +239,33 @@ func parseCFR(s string) (string, error) {
 	return s, nil
 }
 
-// unquote returns the string v writes, when v is written as strconv.Quote
-// writes it; anything else is an error.
+// quote writes s as meta.yaml's double-quoted string: strconv.Quote's form,
+// whose escapes YAML reads as Go does, but for \x: Go reads \xe9 as the byte
+// 0xe9, YAML as U+00E9. So a string Quote writes with a \x escape (one that
+// isn't UTF-8, or holds a control character Quote writes that way) is
+// refused.
+func quote(s string) (string, error) {
+	q := strconv.Quote(s)
+	for i := 0; i < len(q); i++ {
+		if q[i] != '\\' {
+			continue
+		}
+		if i++; q[i] == 'x' { // Quote ends every escape before the closing quote
+			return "", fmt.Errorf(`%s has a \x escape, which YAML reads as another character than Go does`, q)
+		}
+	}
+	return q, nil
+}
+
+// unquote returns the string v writes, when v is written as quote writes
+// it; anything else is an error.
 func unquote(v string) (string, error) {
 	u, err := strconv.Unquote(v)
 	if err != nil || strconv.Quote(u) != v {
 		return "", fmt.Errorf("%s is not a double-quoted string as meta.yaml writes one", v)
+	}
+	if _, err := quote(u); err != nil {
+		return "", err
 	}
 	return u, nil
 }
@@ -234,38 +276,40 @@ func renderCitations(m *Meta) (string, bool, error) {
 	if m.VersionFRCitations == nil {
 		return "", false, nil
 	}
-	if len(m.VersionFRCitations) == 0 {
-		return "", true, errors.New("an empty list; it names at least one citation when set")
-	}
-	q := make([]string, len(m.VersionFRCitations))
+	vals := make([]string, len(m.VersionFRCitations))
 	for i, c := range m.VersionFRCitations {
-		if _, err := ParseCitation(string(c)); err != nil {
-			return "", true, err
-		}
-		q[i] = strconv.Quote(string(c))
+		vals[i] = string(c)
 	}
-	return "[" + strings.Join(q, ", ") + "]", true, nil
+	if _, err := ParseCitations(vals); err != nil {
+		return "", true, err
+	}
+	for i, v := range vals {
+		vals[i] = strconv.Quote(v) // a citation has no escape
+	}
+	return "[" + strings.Join(vals, ", ") + "]", true, nil
 }
 
 func parseCitations(m *Meta, v string) error {
-	if len(v) < 2 || v[0] != '[' || v[len(v)-1] != ']' {
+	inner, ok := strings.CutPrefix(v, "[")
+	if ok {
+		inner, ok = strings.CutSuffix(inner, "]")
+	}
+	if !ok {
 		return fmt.Errorf(`%s is not a list written ["<vol> FR <page>", ...]`, v)
 	}
-	inner := v[1 : len(v)-1]
-	if inner == "" {
-		return errors.New("an empty list; it names at least one citation when set")
+	var vals []string
+	if inner != "" {
+		for _, q := range strings.Split(inner, ", ") {
+			u, err := unquote(q)
+			if err != nil {
+				return err
+			}
+			vals = append(vals, u)
+		}
 	}
-	var cs []Citation
-	for _, q := range strings.Split(inner, ", ") {
-		u, err := unquote(q)
-		if err != nil {
-			return err
-		}
-		c, err := ParseCitation(u)
-		if err != nil {
-			return err
-		}
-		cs = append(cs, c)
+	cs, err := ParseCitations(vals)
+	if err != nil {
+		return err
 	}
 	m.VersionFRCitations = cs
 	return nil
@@ -304,6 +348,17 @@ func parseVerifiedOn(m *Meta, v string) error {
 	return nil
 }
 
+// consistent returns an error unless m's fields agree with one another:
+// version_effective_date, the effective date of the change that produced
+// the version eCFR dates source_version_date, is not after that date.
+func consistent(m Meta) error {
+	if m.VersionEffectiveDate > m.SourceVersionDate { // YYYY-MM-DD orders as text; absent is ""
+		return fmt.Errorf("version_effective_date %q is after source_version_date %q; the change that produced a version takes effect by its date",
+			m.VersionEffectiveDate, m.SourceVersionDate)
+	}
+	return nil
+}
+
 // Marshal writes m as meta.yaml: one "key: value" line per field present, in
 // the spec's order. It refuses (an error naming the fields) a Meta lacking a
 // field every meta.yaml has, or holding a value Parse would refuse, so what it
@@ -324,6 +379,9 @@ func Marshal(m Meta) ([]byte, error) {
 	}
 	if problems := append(missing, bad...); len(problems) > 0 {
 		return nil, errors.New(strings.Join(problems, "; "))
+	}
+	if err := consistent(m); err != nil {
+		return nil, err
 	}
 	return []byte(b.String()), nil
 }
@@ -371,7 +429,7 @@ func Parse(b []byte) (Meta, error) {
 	if len(missing) > 0 {
 		return m, errors.New(strings.Join(missing, ", "))
 	}
-	return m, nil
+	return m, consistent(m)
 }
 
 func index(key string) int {

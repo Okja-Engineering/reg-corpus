@@ -6,13 +6,15 @@
 // Requirements: R1 (verbatim storage and source metadata), R1b (newer-version
 // check). Built in plan steps 2, 3, 6 and 8 (see the TODOs below).
 //
-// Who writes meta.yaml (ADR 0010): internal/meta owns its schema and is its
-// one writer; every command here reads it through meta.Parse and writes what
-// meta.Marshal returns. fetch creates it with the fetch-time fields; meta set
-// sets version_effective_date and version_fr_citations (plan step 3); plan
-// step 5 (internal/anchors) adds sha256_text and plan step 6 (fetch --verify)
-// verified_on, each through internal/meta, each keeping the fields it
-// doesn't set.
+// Who writes meta.yaml (ADR 0010): internal/meta owns its schema and
+// internal/l0 the file; every command here reads it through l0.Read
+// (meta.Parse) and writes what meta.Marshal returns, through l0. fetch
+// creates it with the fetch-time fields (l0.StoreOnce); meta set sets
+// version_effective_date and version_fr_citations (plan step 3, l0.Update);
+// plan step 5 (internal/anchors) adds sha256_text and plan step 6 (fetch
+// --verify) verified_on, each through l0.Update, each keeping the fields it
+// doesn't set. Before writing anything, each checks the same stored state
+// (l0's Stored).
 //
 // Built (plan step 2): `regcorpus fetch [--date YYYY-MM-DD] [section ...]`
 // for 1024.41, 1024.30 and 1024.31 (sources.go holds the fixed source table).
@@ -37,7 +39,7 @@
 //     reads the source directory once; whatever contradicts that (another
 //     entry in raw/, or a meta.yaml that lacks its raw file or that the next
 //     item's checks refuse) exits 1 and stores nothing. A stored file is
-//     never overwritten (internal/l0: StoreOnce, by hard link), and every directory on
+//     never overwritten (l0.StoreOnce, by hard link), and every directory on
 //     the way to one, from sources/ down and under .cache/, must be a real
 //     directory, not a symlink or a file (l0.RealDirs, the one check of that;
 //     exit 1 otherwise, before any request for sources/ecfr/title-12/). A
@@ -45,24 +47,27 @@
 //   - Beside it, when missing, fetch writes meta.yaml's fetch-owned fields in
 //     the spec's order: cfr, tier, role, source, official, source_version_date,
 //     retrieved_at (UTC), ecfr_up_to_date_as_of, sha256_raw. When meta.yaml
-//     exists it must be in the spec's schema, and fetch checks every field it
-//     writes but the two facts of the run that wrote it (retrieved_at,
-//     ecfr_up_to_date_as_of): cfr, tier, role, source and official against
-//     the source table, source_version_date and sha256_raw against the raw
-//     file (exit 1 otherwise). It never rewrites meta.yaml, and keeps the
-//     fields other steps set.
+//     exists, fetch makes the check every writer of one makes (l0's Stored):
+//     it is in the spec's schema, names the source as the source table does
+//     (cfr, tier, role, source, official), and describes raw/'s one file,
+//     raw/<source_version_date>.xml with sha256_raw's bytes; and that file
+//     must be eCFR's latest, with eCFR's bytes (exit 1 otherwise). It never
+//     rewrites meta.yaml, and keeps the fields other steps set.
 //   - --date fetches that point in time into .cache/ecfr/title-12/ (git
 //     ignores it), never into sources/, and writes no meta.yaml.
 //
 // Built (plan step 3; issues #5 and #6, ADRs 0010 and 0011): `regcorpus meta
 // set <section> <field> <value ...>` (metaset.go) sets version_effective_date
 // or version_fr_citations in a stored source's meta.yaml and nothing else;
-// every other field is refused (exit 2). Each citation must be cited in the
-// citation note (<CITA>) of the raw XML meta.yaml describes,
-// raw/<source_version_date>.xml with sha256_raw's bytes, read through real
-// directories as a regular file (exit 1 otherwise). It replaces meta.yaml
-// whole (internal/l0: Replace, a temporary file renamed over it); setting the
-// value a field has is a no-op. The values are read from the Federal Register
+// every other field is refused (exit 2). Through l0.Update, under the
+// source's lock, it first makes the stored-state check fetch makes (exit 1
+// otherwise), then sets the field and replaces meta.yaml whole; setting the
+// value a field has is a no-op. version_effective_date must not be after
+// source_version_date (internal/meta). Each citation, each given once, must
+// be cited in a citation note (<CITA>) of the raw XML meta.yaml describes
+// (citationNote reads each run of a note's text on its own, shorthand pages
+// too); that checks membership only, not that the page is the amendment
+// that produced the version. The values are read from the Federal Register
 // and eCFR outside the tool (plan step 3's diff record, in its PR); meta set
 // checks only what L0 itself can check.
 //

@@ -704,8 +704,8 @@ func equalTrees(a, b map[string]string) bool {
 func TestStoreNeverReplacesWhatIsAtThePath(t *testing.T) {
 	_, c := newFake(t)
 	root := corpusRoot(t)
-	// The .cache/ path, where storeOnce alone guards the target: under
-	// sources/, the stored-state check refuses a symlink before storeOnce.
+	// The .cache/ path, where l0.StoreOnce alone guards the target: under
+	// sources/, the stored-state check refuses a symlink before l0.StoreOnce.
 	const cached = ".cache/ecfr/title-12/1024.41/2025-05-15.xml"
 	at := filepath.Join(root, filepath.FromSlash(cached))
 	target := filepath.Join(root, "elsewhere.xml")

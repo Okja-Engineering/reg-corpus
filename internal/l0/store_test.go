@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/okja-engineering/reg-corpus/internal/meta"
 )
 
 // TestALinkThatFindsAFileComparesIt: when the hard link finds a file already
-// at the path (one written after storeOnce read it), that file is compared,
+// at the path (one written after StoreOnce read it), that file is compared,
 // never replaced: other bytes are a conflict and stay, the same bytes a
 // no-op; with nothing there the file is placed.
 func TestALinkThatFindsAFileComparesIt(t *testing.T) {
@@ -55,6 +57,34 @@ func TestALinkThatFindsAFileComparesIt(t *testing.T) {
 	stored, err := link(filepath.Join(dir, ".fetch-1"), filepath.Join(dir, "f.xml"), "f.xml", []byte("ours"))
 	if stored || err == nil || !strings.Contains(err.Error(), "hard link") {
 		t.Errorf("stored %v, err %v; want the hard link's failure", stored, err)
+	}
+}
+
+// TestStoredRefusesAMetaYAMLNamingAnotherSource: Stored refuses a meta.yaml
+// whose identity differs from the source's in any field, source and official
+// too, whatever read it (meta.Parse knows one source today, so this is
+// checked on a State built here).
+func TestStoredRefusesAMetaYAMLNamingAnotherSource(t *testing.T) {
+	s := Source{Dir: "sources/ecfr/title-12/1024.41", CFR: "12 CFR 1024.41", Tier: meta.TierLaw, Role: meta.RoleInventoried}
+	for _, tc := range []struct {
+		name string
+		set  func(*meta.Meta)
+	}{
+		{"cfr", func(m *meta.Meta) { m.CFR = "12 CFR 1024.30" }},
+		{"tier", func(m *meta.Meta) { m.Tier = meta.TierStandard }},
+		{"role", func(m *meta.Meta) { m.Role = meta.RoleCiteOnly }},
+		{"source", func(m *meta.Meta) { m.Source = "govinfo" }},
+		{"official", func(m *meta.Meta) { m.Official = true }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := s.Identity()
+			tc.set(&m)
+			_, err := State{Meta: &m}.Stored(t.TempDir(), s)
+			var conflict *Conflict
+			if !errors.As(err, &conflict) || !strings.Contains(err.Error(), "another source") {
+				t.Errorf("Stored: %v; want a conflict naming another source", err)
+			}
+		})
 	}
 }
 

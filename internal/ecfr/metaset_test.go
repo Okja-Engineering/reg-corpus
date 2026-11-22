@@ -212,7 +212,7 @@ func TestMetaSetChecksCitationsAgainstTheRawFileMetaYAMLDescribes(t *testing.T) 
 		}, "90 FR 20792", []string{"sources/ecfr/title-12/1024.41/raw", "not a real directory"}},
 		{"another raw file cites it", func(t *testing.T, root string) {
 			writeFile(t, root, older, strings.Replace(citedBody, "90 FR 20792, May 16, 2025]", "90 FR 20792, May 16, 2025; 91 FR 1, Jan. 2, 2026]", 1))
-		}, "91 FR 1", []string{`"91 FR 1"`, rawPath("1024.41")}},
+		}, "91 FR 1", []string{older, rawPath("1024.41"), "one raw file"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := citedCorpus(t)
@@ -245,6 +245,11 @@ func TestMetaSetRefusesAMetaYAMLItCantTrust(t *testing.T) {
 	}{
 		{"no meta.yaml", func(t *testing.T, root string) {
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(metaPath("1024.41")))); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{metaPath("1024.41"), "regcorpus fetch"}},
+		{"no source directory", func(t *testing.T, root string) {
+			if err := os.RemoveAll(filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))); err != nil {
 				t.Fatal(err)
 			}
 		}, []string{metaPath("1024.41"), "regcorpus fetch"}},

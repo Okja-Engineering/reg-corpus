@@ -6,10 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -25,26 +22,34 @@ const metaUsage = `usage: regcorpus meta set <section> version_effective_date YY
 Sets one of plan step 3's two fields in a stored source's meta.yaml,
 sources/ecfr/title-12/<section>/meta.yaml, run from the corpus root (R1).
 <section> is 1024.41, 1024.30 or 1024.31. meta.yaml is rewritten through
-internal/meta, its one writer: the field named is set and every other field
-is kept as it is. Setting the value a field already has is a no-op. Every
-other field is written by the command that computes it (fetch, and the
-commands of later plan steps), never by meta set.
+internal/meta and internal/l0, under the source's lock: the field named is
+set and every other field is kept as it is. Setting the value a field
+already has is a no-op. Every other field is written by the command that
+computes it (fetch, and the commands of later plan steps), never by meta set.
+
+Before setting either field, meta set checks what is stored, as fetch does:
+meta.yaml is in the spec's schema and names the section as the source table
+does (cfr, tier, role, source, official), and raw/ holds exactly
+raw/<source_version_date>.xml, a regular file with sha256_raw's bytes.
 
   version_effective_date YYYY-MM-DD
-        the effective date of the change that produced this version
+        the effective date of the change that produced this version; not
+        after source_version_date
   version_fr_citations "<vol> FR <page>" ...
-        replaces the list with the citations given, in that order. Each must
-        be cited in the citation note (<CITA>) of the raw XML meta.yaml
-        describes: raw/<source_version_date>.xml, with sha256_raw's bytes.
+        replaces the list with the citations given, in that order, each once.
+        Each must be cited in a citation note (<CITA>) of that raw XML. This
+        checks only that the note cites it, not which amendment it is.
 
-Exit 0: set, or already that value. Exit 1: refused by what is stored: a
-citation the note doesn't cite; no meta.yaml (run regcorpus fetch first), or
-one not in the spec's schema; the raw file missing, or not sha256_raw's
-bytes; a symlink or a file in place of meta.yaml, the raw file or a
-directory on the way. Nothing is written. Exit 2: a usage error (no such
-section, any other field, a value not of its field's type), no
-sources/ecfr/title-12/ (not the corpus root), or a file that can't be read
-or written.
+Exit 0: set, or already that value. Exit 1: refused by what is stored: no
+meta.yaml (run regcorpus fetch first), or one not in the spec's schema or
+naming another source; raw/ not holding exactly the raw file meta.yaml
+describes, with its bytes; a symlink or a file in place of meta.yaml, the
+raw file or a directory on the way; an effective date after
+source_version_date; a citation the note doesn't cite. Nothing is written.
+Exit 2: a usage error (no such section, any other field, a flag, a value not
+of its field's type, a citation given twice), no sources/ecfr/title-12/ (not
+the corpus root), a file that can't be read or written, or a platform
+without the lock (darwin and linux have it).
 `
 
 // The fields meta set writes (plan step 3; issue #5).
@@ -105,10 +110,11 @@ func metaMain(root string, args []string, stdout, stderr io.Writer) int {
 }
 
 // setting is one meta set: the field, and set, which puts its value in m
-// after checking it against what is stored for s under root.
+// after checking it against raw, the raw XML m describes, at slash path
+// rawPath.
 type setting struct {
 	key string
-	set func(root string, s Source, m *meta.Meta) error
+	set func(m *meta.Meta, raw []byte, rawPath string) error
 }
 
 // parseSetting reads the field and the values given for it. Only step 3's
@@ -123,24 +129,17 @@ func parseSetting(key string, vals []string) (setting, error) {
 		if err != nil {
 			return setting{}, fmt.Errorf("%s: %w", key, err)
 		}
-		return setting{key, func(_ string, _ Source, m *meta.Meta) error {
+		return setting{key, func(m *meta.Meta, _ []byte, _ string) error {
 			m.VersionEffectiveDate = d
 			return nil
 		}}, nil
 	case keyCitations:
-		if len(vals) == 0 {
-			return setting{}, fmt.Errorf(`%s takes one or more citations, "<vol> FR <page>"`, key)
+		cites, err := meta.ParseCitations(vals)
+		if err != nil {
+			return setting{}, fmt.Errorf(`%s takes one or more citations, "<vol> FR <page>", each once: %w`, key, err)
 		}
-		cites := make([]meta.Citation, len(vals))
-		for i, v := range vals {
-			c, err := meta.ParseCitation(v)
-			if err != nil {
-				return setting{}, fmt.Errorf("%s: %w", key, err)
-			}
-			cites[i] = c
-		}
-		return setting{key, func(root string, s Source, m *meta.Meta) error {
-			if err := cited(root, s, *m, cites); err != nil {
+		return setting{key, func(m *meta.Meta, raw []byte, rawPath string) error {
+			if err := cited(raw, rawPath, cites); err != nil {
 				return err
 			}
 			m.VersionFRCitations = cites
@@ -153,35 +152,22 @@ func parseSetting(key string, vals []string) (setting, error) {
 	return setting{}, fmt.Errorf("unknown field %q; meta set sets %s or %s", key, keyEffective, keyCitations)
 }
 
-// apply sets st's field in s's meta.yaml under root, keeping every other
-// field, and returns the line to print: "wrote" or, when meta.yaml already
-// says it, "unchanged", with the field's line. Only a meta.yaml fetch wrote,
-// in the spec's schema, is changed (readMeta); anything else is a
-// *l0.Conflict and nothing is written.
+// apply sets st's field in s's meta.yaml under root through l0.Update, which
+// checks what is stored first and keeps every other field, and returns the
+// line to print: "wrote" or, when meta.yaml already says it, "unchanged",
+// with the field's line.
 func (st setting) apply(root string, s Source) (string, error) {
-	metaPath := path.Join(s.dir(), "meta.yaml")
-	have, m, err := readMeta(root, s)
+	b, changed, err := l0.Update(root, s.stored(), func(m *meta.Meta, raw []byte) error {
+		return st.set(m, raw, path.Join(s.dir(), "raw", string(m.SourceVersionDate)+".xml"))
+	})
 	if err != nil {
 		return "", err
 	}
-	if m == nil {
-		return "", l0.Conflictf("%s does not exist: fetch the source first (regcorpus fetch %s); meta set changes only a meta.yaml fetch wrote (R1)", metaPath, s.Name)
+	verb := "unchanged "
+	if changed {
+		verb = "wrote "
 	}
-	if err := st.set(root, s, m); err != nil {
-		return "", err
-	}
-	b, err := meta.Marshal(*m)
-	if err != nil {
-		return "", err
-	}
-	line := fieldLine(b, st.key)
-	if bytes.Equal(b, have) {
-		return "unchanged " + metaPath + ": " + line, nil
-	}
-	if err := l0.Replace(root, metaPath, b); err != nil {
-		return "", err
-	}
-	return "wrote " + metaPath + ": " + line, nil
+	return verb + s.stored().MetaPath() + ": " + fieldLine(b, st.key), nil
 }
 
 // fieldLine is key's line in b, a meta.yaml Marshal wrote.
@@ -194,36 +180,15 @@ func fieldLine(b []byte, key string) string {
 	return key + " absent"
 }
 
-// cited returns a *l0.Conflict unless each of cites is cited in the
-// citation note (<CITA>) of the raw XML m describes: raw/<source_version_date>.xml
-// under s's directory, a regular file through real directories, with
-// sha256_raw's bytes. So version_fr_citations is checkable against L0
-// itself (issue #6). A file it can't read is an error as is (exit 2).
-func cited(root string, s Source, m meta.Meta, cites []meta.Citation) error {
-	raw := path.Join(s.dir(), "raw", string(m.SourceVersionDate)+".xml")
-	if err := l0.RealDirs(root, path.Dir(raw)); err != nil {
-		return err
-	}
-	full := filepath.Join(root, filepath.FromSlash(raw))
-	info, err := os.Lstat(full)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return l0.Conflictf("%s, the raw file meta.yaml describes, does not exist: restore it from git (git restore %s) (R1)", raw, raw)
-	case err != nil:
-		return err
-	case !info.Mode().IsRegular():
-		return l0.Conflictf("%s is not a regular file; raw XML is read only as one (R1)", raw)
-	}
-	body, err := os.ReadFile(full)
+// cited returns a *l0.Conflict unless each of cites is cited in a citation
+// note (<CITA>) of raw, the raw XML at rawPath that meta.yaml describes
+// (l0 has checked it is). So version_fr_citations is checkable against L0
+// itself (issue #6, ADR 0011). It checks membership only: that the note
+// cites the page, not that it is the amendment that produced the version.
+func cited(raw []byte, rawPath string, cites []meta.Citation) error {
+	note, err := citationNote(raw)
 	if err != nil {
-		return err
-	}
-	if sum := meta.SHA256(l0.SHA256Hex(body)); sum != m.SHA256Raw {
-		return l0.Conflictf("%s has sha256 %s, but meta.yaml says sha256_raw %s: it is not the raw file meta.yaml describes (R1)", raw, sum, m.SHA256Raw)
-	}
-	note, err := citationNote(body)
-	if err != nil {
-		return l0.Conflictf("%s: %v", raw, err)
+		return l0.Conflictf("%s: %v", rawPath, err)
 	}
 	var missing []string
 	for _, c := range cites {
@@ -243,20 +208,31 @@ func cited(root string, s Source, m meta.Meta, cites []meta.Citation) error {
 		which = joinCitations(note)
 	}
 	return l0.Conflictf("%s %s not cited in the citation note (<CITA>) of %s, the raw file meta.yaml describes, which cites %s; %s records only citations that note cites (R1, issue #6)",
-		strings.Join(missing, ", "), verb, raw, which, keyCitations)
+		strings.Join(missing, ", "), verb, rawPath, which, keyCitations)
 }
 
-// frCitation is a Federal Register citation in running text, "<vol> FR
-// <page>", whatever whitespace separates its parts.
-var frCitation = regexp.MustCompile(`\b([0-9]+)\s+FR\s+([0-9]+)\b`)
+// space is the whitespace between a citation's parts: Go's \s, which holds
+// the line breaks, and the no-break space.
+const space = `[\s\x{A0}]`
 
-// citationNote returns the "<vol> FR <page>" citations in the text of the
-// citation notes (<CITA> elements) of body, eCFR XML, in order, each once.
-// Text elsewhere (an XREF's amendment link, the rule text) is not read.
+// frCitation is a Federal Register citation in a note's text: "<vol> FR
+// <page>", then any shorthand pages eCFR writes after it (", <page>", as in
+// "78 FR 63004, 63005"), its parts separated by any space.
+var frCitation = regexp.MustCompile(`\b([0-9]+)` + space + `+FR` + space + `+([0-9]+)((?:,` + space + `*[0-9]+)*)`)
+
+// number is one page in frCitation's shorthand pages.
+var number = regexp.MustCompile(`[0-9]+`)
+
+// citationNote returns the "<vol> FR <page>" citations of body's citation
+// notes (<CITA> elements, eCFR XML), in order, each once. A citation lies
+// within one run of a note's text: text in two notes, or on either side of
+// an element inside a note, never joins into one. Text outside the notes
+// (an XREF's amendment link, the rule text) is not read.
 func citationNote(body []byte) ([]meta.Citation, error) {
 	d := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(body, bom)))
 	d.Strict = true
-	var note strings.Builder
+	var runs []string
+	var run strings.Builder
 	depth := 0 // > 0 inside a CITA element
 	for {
 		tok, err := d.Token()
@@ -266,6 +242,16 @@ func citationNote(body []byte) ([]meta.Citation, error) {
 		if err != nil {
 			return nil, fmt.Errorf("not well-formed XML: %w", err)
 		}
+		if t, ok := tok.(xml.CharData); ok {
+			if depth > 0 {
+				run.Write(t)
+			}
+			continue
+		}
+		if run.Len() > 0 { // any other token ends a run of text
+			runs = append(runs, run.String())
+			run.Reset()
+		}
 		switch t := tok.(type) {
 		case xml.StartElement:
 			if depth > 0 || t.Name.Local == "CITA" {
@@ -273,20 +259,18 @@ func citationNote(body []byte) ([]meta.Citation, error) {
 			}
 		case xml.EndElement:
 			if depth > 0 {
-				if depth--; depth == 0 {
-					note.WriteString("\n")
-				}
-			}
-		case xml.CharData:
-			if depth > 0 {
-				note.Write(t)
+				depth--
 			}
 		}
 	}
 	var out []meta.Citation
-	for _, m := range frCitation.FindAllStringSubmatch(note.String(), -1) {
-		if c := meta.Citation(m[1] + " FR " + m[2]); !slices.Contains(out, c) {
-			out = append(out, c)
+	for _, r := range runs {
+		for _, m := range frCitation.FindAllStringSubmatch(r, -1) {
+			for _, page := range append([]string{m[2]}, number.FindAllString(m[3], -1)...) {
+				if c := meta.Citation(m[1] + " FR " + page); !slices.Contains(out, c) {
+					out = append(out, c)
+				}
+			}
 		}
 	}
 	return out, nil

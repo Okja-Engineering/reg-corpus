@@ -1,7 +1,7 @@
 // Command regcorpus is the corpus CLI (decision 6: CLI only; R5: the gate
 // needs a binary). Plan step 1 builds two subcommands: check (C6, R5) and
 // verify (R2a, terminal requirement only); plan step 2 adds fetch (R1); plan
-// step 3 adds meta set, which is not in the plan's command list (ADR 0010).
+// step 3 adds meta set (ADR 0010).
 // The rest of the plan's command list (inventory, upgrade, release, show,
 // text, topics, version) and fetch --verify and --latest (plan step 6) arrive
 // in later plan steps.

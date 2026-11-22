@@ -67,10 +67,9 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 // Replace writes body to the file at slash path p under root, which the
 // caller has read as a regular file, in one step: a temporary file beside it,
 // synced, then renamed over it, so the file is never seen half-written and
-// never left short by a crash. Only meta.yaml is replaced, and only by `meta
-// set`, which keeps every field it doesn't set (internal/meta); raw XML is
-// stored once (StoreOnce). Every directory on the way to p must be a real
-// one (RealDirs).
+// never left short by a crash. Only meta.yaml is replaced, and only by
+// Update, under its source's lock; raw XML is stored once (StoreOnce). Every
+// directory on the way to p must be a real one (RealDirs).
 func Replace(root, p string, body []byte) error {
 	if err := RealDirs(root, path.Dir(p)); err != nil {
 		return err
@@ -129,9 +128,9 @@ func link(tmp, full, p string, body []byte) (stored bool, err error) {
 
 // RealDirs returns a *Conflict when an entry on slash path dir under
 // root, dir itself included, is anything but a real directory: a symlink
-// (even to a directory) or a file. fetch reads and writes only through real
-// directories, so nothing it stores lands outside the root or behind a link
-// git can't see through. A missing entry ends the walk: what fetch creates
+// (even to a directory) or a file. L0 is read and written only through real
+// directories, so nothing stored lands outside the root or behind a link git
+// can't see through. A missing entry ends the walk: what StoreOnce creates
 // there is real.
 func RealDirs(root, dir string) error {
 	p := ""
@@ -144,7 +143,7 @@ func RealDirs(root, dir string) error {
 		case err != nil:
 			return err
 		case !info.IsDir():
-			return Conflictf("%s is not a real directory (it is a symlink or a file); fetch reads and writes only through real directories under the corpus root, and changes nothing (R1)", p)
+			return Conflictf("%s is not a real directory (it is a symlink or a file); regcorpus reads and writes L0 only through real directories under the corpus root, and changes nothing (R1)", p)
 		}
 	}
 	return nil

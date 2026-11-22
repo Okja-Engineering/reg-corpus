@@ -10,7 +10,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -134,7 +133,7 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 }
 
 // checkRoot returns nil when root is a corpus root: one with a real
-// sources/ecfr/title-12/ directory. realDirs alone judges what is on the way
+// sources/ecfr/title-12/ directory. l0.RealDirs alone judges what is on the way
 // (a symlink or a file: a *l0.Conflict, exit 1), here as under every
 // source; then a root without it is not the corpus root (exit 2), and the
 // error says to run cmd from there.
@@ -152,9 +151,9 @@ func checkRoot(root, cmd string) error {
 // when that is missing, and returns the lines to print. It succeeds only when,
 // after it, raw/ holds exactly one entry, a regular file named for the latest
 // date with eCFR's bytes, and meta.yaml names that file's date and sha256. It
-// reads s's directory once (readState) and refuses what contradicts that
-// before storing anything (admits), then checks an existing meta.yaml against
-// the source table and the raw file (describes).
+// reads s's directory once (l0.Read) and, before storing anything, refuses
+// what contradicts that: another entry in raw/ (admits), and an existing
+// meta.yaml that fails the check every writer of one makes (l0's Stored).
 func (f fetcher) latest(ctx context.Context, s Source, asOf Date) ([]string, error) {
 	vs, err := f.client.Versions(ctx, s)
 	if err != nil {
@@ -174,32 +173,34 @@ func (f fetcher) latest(ctx context.Context, s Source, asOf Date) ([]string, err
 	}
 	name := string(v.Date) + ".xml"
 	raw := path.Join(s.dir(), "raw", name)
-	metaPath := path.Join(s.dir(), "meta.yaml")
-	st, err := f.readState(s)
+	st, err := l0.Read(f.root, s.stored())
 	if err != nil {
 		return nil, err
 	}
-	if err := st.admits(s, name); err != nil {
+	if err := admits(s, st.Raw, name); err != nil {
 		return nil, err
 	}
-	// With a meta.yaml, admits has seen raw/<name> stored: this compares it.
+	if st.Meta != nil {
+		// Then raw/ holds raw/<source_version_date>.xml alone, and admits
+		// leaves that raw/<name>: StoreOnce compares it with eCFR's bytes.
+		if _, err := st.Stored(f.root, s.stored()); err != nil {
+			return nil, err
+		}
+	}
 	stored, err := l0.StoreOnce(f.root, raw, body)
 	if err != nil {
 		return nil, err
 	}
 	prefix := s.Name + " " + string(v.Date) + ": "
 	lines := []string{prefix + storedLine(stored, raw, body)}
-	want := fetchedMeta(s, v.Date, Date(f.now().UTC().Format(time.DateOnly)), asOf, body)
-	if st.meta != nil {
-		if err := describes(metaPath, *st.meta, want); err != nil {
-			return nil, err
-		}
+	if st.Meta != nil {
 		return lines, nil
 	}
-	m, err := meta.Marshal(want)
+	m, err := meta.Marshal(fetchedMeta(s, v.Date, Date(f.now().UTC().Format(time.DateOnly)), asOf, body))
 	if err != nil {
 		return lines, err
 	}
+	metaPath := s.stored().MetaPath()
 	if _, err := l0.StoreOnce(f.root, metaPath, m); err != nil {
 		return lines, err
 	}
@@ -208,15 +209,14 @@ func (f fetcher) latest(ctx context.Context, s Source, asOf Date) ([]string, err
 
 // fetchedMeta is the meta.yaml fetch writes for s's raw file body, eCFR's
 // version at date, retrieved on retrieved when eCFR was up to date as of
-// asOf: the fields that exist at fetch time (spec "L0 meta.yaml"). The rest
-// stay absent until the plan steps that own them set them (internal/meta).
-// eCFR is not an official edition: official is false (R1).
+// asOf: s's identity (l0's Source.Identity) and the fields that exist at
+// fetch time (spec "L0 meta.yaml"). The rest stay absent until the plan
+// steps that own them set them (internal/meta).
 func fetchedMeta(s Source, date, retrieved, asOf Date, body []byte) meta.Meta {
-	return meta.Meta{
-		CFR: s.CFR, Tier: s.Tier, Role: s.Role, Source: meta.SourceECFR, Official: false,
-		SourceVersionDate: date, RetrievedAt: retrieved, ECFRUpToDateAsOf: asOf,
-		SHA256Raw: meta.SHA256(l0.SHA256Hex(body)),
-	}
+	m := s.stored().Identity()
+	m.SourceVersionDate, m.RetrievedAt, m.ECFRUpToDateAsOf = date, retrieved, asOf
+	m.SHA256Raw = meta.SHA256(l0.SHA256Hex(body))
+	return m
 }
 
 // pointInTime stores s's XML at date under .cache/, never under sources/.
@@ -240,72 +240,13 @@ func storedLine(stored bool, p string, body []byte) string {
 	return "unchanged " + p
 }
 
-// sourceState is what a source directory holds before fetch writes to it:
-// every entry in raw/, whatever its name or type, and what its meta.yaml says.
-type sourceState struct {
-	raw  []fs.DirEntry
-	meta *meta.Meta // nil when there is no meta.yaml
-}
-
-// readState reads s's directory under the root, once. A meta.yaml that isn't
-// a regular file in the spec's schema is a *l0.Conflict: fetch never
-// replaces one, and won't guess what it describes; so is a symlink or file on
-// the way to raw/ (realDirs). A directory or file it can't read is an error
-// as is (exit 2).
-func (f fetcher) readState(s Source) (sourceState, error) {
-	var st sourceState
-	if err := l0.RealDirs(f.root, path.Join(s.dir(), "raw")); err != nil {
-		return st, err
-	}
-	dir := filepath.Join(f.root, filepath.FromSlash(s.dir()))
-	ents, err := os.ReadDir(filepath.Join(dir, "raw"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return st, err
-	}
-	st.raw = ents
-	_, st.meta, err = readMeta(f.root, s)
-	return st, err
-}
-
-// readMeta reads s's meta.yaml under root: its bytes and what it says, or
-// nil when there is none. A meta.yaml that isn't a regular file, or isn't in
-// the spec's schema (internal/meta), is a *l0.Conflict: no command
-// replaces one it can't read; so is a symlink or file on the way to it
-// (realDirs). A file it can't read is an error as is (exit 2).
-func readMeta(root string, s Source) ([]byte, *meta.Meta, error) {
-	metaPath := path.Join(s.dir(), "meta.yaml")
-	if err := l0.RealDirs(root, s.dir()); err != nil {
-		return nil, nil, err
-	}
-	full := filepath.Join(root, filepath.FromSlash(metaPath))
-	info, err := os.Lstat(full)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return nil, nil, nil
-	case err != nil:
-		return nil, nil, err
-	case !info.Mode().IsRegular():
-		return nil, nil, l0.Conflictf("%s is not a regular file; meta.yaml is read and written only as one (R1)", metaPath)
-	}
-	b, err := os.ReadFile(full)
-	if err != nil {
-		return nil, nil, err
-	}
-	m, err := meta.Parse(b)
-	if err != nil {
-		return nil, nil, l0.Conflictf("%s: %v. It is not a meta.yaml in the spec's schema as internal/meta writes it, and no command replaces one (R1)", metaPath, err)
-	}
-	return b, &m, nil
-}
-
 // admits returns a *l0.Conflict unless storing raw/<name> can leave s with
-// exactly one raw entry, the regular file raw/<name> (R1). Every entry in
-// raw/ counts, whatever its name or type. And a meta.yaml needs its raw file:
-// one beside an empty raw/ is refused rather than refilled.
-func (st sourceState) admits(s Source, name string) error {
+// exactly one raw entry, the regular file raw/<name> (R1): every entry in
+// raw/, whatever its name or type, counts.
+func admits(s Source, raw []fs.DirEntry, name string) error {
 	rawDir := path.Join(s.dir(), "raw") + "/"
 	var others []string
-	for _, e := range st.raw {
+	for _, e := range raw {
 		switch {
 		case e.Name() != name:
 			others = append(others, rawDir+e.Name())
@@ -316,41 +257,6 @@ func (st sourceState) admits(s Source, name string) error {
 	if len(others) > 0 {
 		return l0.Conflictf("%s holds %s, and eCFR's latest version is %s: fetch keeps one raw file per source, so it stores nothing (R1)",
 			rawDir, strings.Join(others, ", "), name)
-	}
-	if st.meta != nil && len(st.raw) == 0 {
-		return l0.Conflictf("%s exists but %s holds no raw XML: the raw file it describes is missing. Restore it from git (git restore %s); fetch never stores a raw file beside an existing meta.yaml (R1)",
-			path.Join(s.dir(), "meta.yaml"), rawDir, rawDir)
-	}
-	return nil
-}
-
-// describes returns a *l0.Conflict unless have, the meta.yaml at
-// metaPath, says what fetch would write in every field fetch writes (want)
-// but the two it can't check: retrieved_at and ecfr_up_to_date_as_of, facts of
-// the run that wrote it. So it names this source (cfr, tier, role, source,
-// official, as fetch's source table gives them) and the raw file stored for
-// eCFR's latest version (its date and sha256). The fields other plan steps
-// set are theirs, and fetch keeps them as they are.
-func describes(metaPath string, have, want meta.Meta) error {
-	for _, f := range []struct{ key, have, want string }{
-		{"cfr", strconv.Quote(have.CFR), strconv.Quote(want.CFR)},
-		{"tier", string(have.Tier), string(want.Tier)},
-		{"role", string(have.Role), string(want.Role)},
-		{"source", string(have.Source), string(want.Source)},
-		{"official", strconv.FormatBool(have.Official), strconv.FormatBool(want.Official)},
-	} {
-		if f.have != f.want {
-			return l0.Conflictf("%s says %s %s, but fetch's source table gives %s: it describes another source, and fetch never replaces it (R1)",
-				metaPath, f.key, f.have, f.want)
-		}
-	}
-	if have.SourceVersionDate != want.SourceVersionDate {
-		return l0.Conflictf("%s says source_version_date %q, but the raw file stored is eCFR's latest, %s: it describes another version, and fetch never replaces it (R1)",
-			metaPath, have.SourceVersionDate, want.SourceVersionDate)
-	}
-	if have.SHA256Raw != want.SHA256Raw {
-		return l0.Conflictf("%s says sha256_raw %s, but the raw file stored for %s has sha256 %s: it describes other bytes, and fetch never replaces it (R1)",
-			metaPath, have.SHA256Raw, want.SourceVersionDate, want.SHA256Raw)
 	}
 	return nil
 }

@@ -174,6 +174,8 @@ func TestParseRefusesAnythingMarshalWouldNotWrite(t *testing.T) {
 		{"a citation with a date", line(`["90 FR 20792", "86 FR 34899"]`, `["90 FR 20792, May 16, 2025"]`), []string{"version_fr_citations"}},
 		{"citations in braces", line(`["90 FR 20792", "86 FR 34899"]`, `{"90 FR 20792", "86 FR 34899"}`), []string{"version_fr_citations"}},
 		{"citations in parentheses", line(`["90 FR 20792", "86 FR 34899"]`, `("90 FR 20792", "86 FR 34899")`), []string{"version_fr_citations"}},
+		{"a list without its opening bracket", line(`["90 FR 20792", "86 FR 34899"]`, `"90 FR 20792", "86 FR 34899"]`), []string{"version_fr_citations"}},
+		{"a list without its closing bracket", line(`["90 FR 20792", "86 FR 34899"]`, `["90 FR 20792", "86 FR 34899"`), []string{"version_fr_citations"}},
 		{"a citation twice", line(`["90 FR 20792", "86 FR 34899"]`, `["90 FR 20792", "86 FR 34899", "90 FR 20792"]`),
 			[]string{"version_fr_citations", `"90 FR 20792"`, "twice"}},
 		// version_effective_date: the change that produced the version took

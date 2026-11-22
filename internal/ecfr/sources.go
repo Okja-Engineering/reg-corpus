@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"path"
 
+	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 )
 
@@ -106,6 +107,12 @@ func (s Source) query() url.Values {
 
 // dir is s's source directory, by slash path from the corpus root.
 func (s Source) dir() string { return path.Join(sourcesDir, s.Dir) }
+
+// stored is s as internal/l0 reads and writes it: its directory, and the
+// cfr, tier and role its meta.yaml must name.
+func (s Source) stored() l0.Source {
+	return l0.Source{Dir: s.dir(), CFR: s.CFR, Tier: s.Tier, Role: s.Role}
+}
 
 // root is the root element of s's full XML. A kind with no entry in kindRoots
 // has an empty name, which no element matches, so its XML is refused.
