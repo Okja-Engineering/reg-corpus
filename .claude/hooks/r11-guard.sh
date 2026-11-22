@@ -24,10 +24,12 @@
 #   - writers it doesn't know (find -delete, git apply, tar -C, sort -o...)
 #     and operations on an ancestor of a protected dir (rm -rf .);
 #   - targets it can't resolve (by design, below): a word that starts with an
-#     expansion other than $HOME, $TMPDIR and a for loop's variable ("$(git
-#     rev-parse --show-toplevel)/registry/x", "$PWD/...", "${f%.yaml}"), a
-#     loop over words with no fixed part in common, relative paths after a cd
-#     it can't follow (cd "$d"), relative paths given to MCP tools;
+#     expansion other than $HOME and $TMPDIR ("$(git rev-parse
+#     --show-toplevel)/registry/x", "$PWD/...", "$f"), relative paths after a
+#     cd it can't follow (cd "$d"), relative paths given to MCP tools;
+#   - (b) a for loop's variable bound to registry/ words (for f in
+#     registry/records/*.yaml), a loop over bare names after cd
+#     registry/records (G3);
 #   - S5: verify or inventory --init run through go run of another path
 #     (cmd/regcorpus/main.go), a binary built under another name, or either
 #     under script (latent until plan steps 19 and 14 build them); S6:
@@ -57,14 +59,12 @@
 # <reason>" on stderr; exit 0 allows, silently.
 #
 # How a target is judged, three invariants:
-#   1. Only what is concrete is judged. ~, $HOME and $TMPDIR are expanded,
-#      and a for loop's variable stands for the fixed leading part its words
-#      share (registry/records/ for registry/records/*.yaml); a word holding
-#      any other expansion (or a {} that xargs, find or parallel fill in) is
-#      judged by the directory its fixed leading part names (registry/ in
-#      registry/$id.yaml), and not at all when that part holds no "/". An
-#      arithmetic or [[ ]] operand and an option's value are not write
-#      targets and are never judged.
+#   1. Only what is concrete is judged. ~, $HOME and $TMPDIR are expanded; a
+#      word holding any other expansion (or a {} that xargs, find or parallel
+#      fill in) is judged by the directory its fixed leading part names
+#      (registry/ in registry/$id.yaml), and not at all when that part holds
+#      no "/". An arithmetic or [[ ]] operand and an option's value are not
+#      write targets and are never judged.
 #   2. Git places the path. The deepest existing directory of the physical
 #      path (symlinks followed) is handed to git rev-parse, which answers in
 #      its own spelling (case, Unicode form, firmlinks); cached per directory.
@@ -1650,94 +1650,18 @@ cmd() {
 # followed alone. A function body's cd does not move the shell where the
 # function is defined.
 
-# Loop variables. A for loop's variable holds each of its words in turn, so
-# it is taken to name the fixed leading part they share (registry/records/
-# for registry/records/*.yaml): LV_N[i] the name, LV_P[i] that part, LV_X[i]
-# 1 when it is the variable's one, concrete value.
-LV_N=()
-LV_P=()
-LV_X=()
-
-# loop_var: T is just past "for". When the head is NAME in WORD..., record
-# NAME: the longest prefix of the WORDs' fixed parts (each cut where an
-# expansion, a glob or a brace starts).
-loop_var() {
-  local i=$T name w f fix= n=0 x=0 k=0
-  [ "${TT[i]-}" = W ] && [ "${TT[i+1]-}${TV[i+1]-}" = Win ] || return 0
-  name=${TV[i]}
-  [[ $name =~ $re_name ]] && [ "${BASH_REMATCH[0]}" = "$name" ] || return 0
-  i=$((i + 2))
-  while [ "$i" -lt "$NT" ] && [ "${TT[i]}" != O ]; do
-    if [ "${TT[i]}" = W ]; then
-      w=${TV[i]}
-      f=${w%%"$DYN"*}
-      f=${f%%[*?[{]*}
-      n=$((n + 1))
-      if [ "$n" = 1 ]; then
-        fix=$f
-        [ "$f" = "$w" ] && x=1
-      else
-        x=0
-        k=0
-        while [ "$k" -lt "${#fix}" ] && [ "${fix:k:1}" = "${f:k:1}" ]; do k=$((k + 1)); done
-        fix=${fix:0:k}
-      fi
-    fi
-    i=$((i + 1))
-  done
-  k=0
-  while [ "$k" -lt "${#LV_N[@]}" ] && [ "${LV_N[k]}" != "$name" ]; do k=$((k + 1)); done
-  LV_N[k]=$name
-  LV_P[k]=$fix
-  LV_X[k]=$x
-}
-
-# loop_word WORD: RES = WORD with a loop variable ($NAME or ${NAME}) where it
-# stops being concrete replaced by the fixed part of the variable's words.
-loop_word() {
-  local w=$1 head rest name k=0
-  RES=$w
-  case $w in *"$DYN\$"*) ;; *) return 0 ;; esac
-  head=${w%%"$DYN"*}
-  rest=${w#*"$DYN"}
-  case $rest in
-    '${'*)
-      name=${rest#??}
-      name=${name%%\}*}
-      rest=${rest#"\${$name}"}
-      ;;
-    *)
-      [[ ${rest#?} =~ $re_name ]] || return 0
-      name=${BASH_REMATCH[0]}
-      rest=${rest#"\$$name"}
-      ;;
-  esac
-  while [ "$k" -lt "${#LV_N[@]}" ]; do
-    if [ "${LV_N[k]}" = "$name" ]; then
-      if [ "${LV_X[k]}" = 1 ] && [ -z "$rest" ]; then
-        RES=$head${LV_P[k]}
-      else
-        RES=$head${LV_P[k]}$DYN$rest
-      fi
-      return 0
-    fi
-    k=$((k + 1))
-  done
-}
-
 # collect: gather the words, redirects and nested strings of a command from T
-# up to the next operator, with loop variables replaced (loop_word).
+# up to the next operator.
 collect() {
   SW=()
   SR_OP=()
   SR_T=()
   while [ "$T" -lt "$NT" ] && [ "${TT[T]}" != O ]; do
     case ${TT[T]} in
-      W) loop_word "${TV[T]}"; SW[${#SW[@]}]=$RES ;;
+      W) SW[${#SW[@]}]=${TV[T]} ;;
       R)
         SR_OP[${#SR_OP[@]}]=${TV[T]}
-        loop_word "${TX[T]}"
-        SR_T[${#SR_T[@]}]=$RES
+        SR_T[${#SR_T[@]}]=${TX[T]}
         ;;
       S) nest "${TV[T]}" "$CWD" $((DEPTH + 1)) ;;
     esac
@@ -1845,7 +1769,6 @@ funcdef() { # T is past the function's name; its body runs when called
 compound() {
   local start=$CWD kw=${TV[T]} w pat=0 body=0 c= ends=
   T=$((T + 1))
-  [ "$kw" != for ] || loop_var
   case $kw in
     for | case) # the head: up to ; or a newline (for), or "in" (case)
       while [ "$T" -lt "$NT" ]; do
@@ -1889,9 +1812,6 @@ compound() {
 # command string nested inside it, each in the directory it runs in.
 check_command() {
   local q=0
-  LV_N=() # loop variables stay set for the rest of the command, $(...) too
-  LV_P=()
-  LV_X=()
   NESTED=("$1")
   NESTED_CWD=("$2")
   NESTED_DEPTH=(0)

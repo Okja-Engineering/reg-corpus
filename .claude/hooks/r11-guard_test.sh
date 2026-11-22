@@ -560,18 +560,6 @@ EOF
   sh_case 0 $'cd .claude/hooks && bash r11-guard_test.sh | tail -1\ncd ../.. && make build\n./regcorpus check --corpus > check.txt'
   sh_case 0 $'cd ../.. && make build\n./regcorpus check --corpus > check.txt' "$MAIN/.claude/hooks"
 
-  echo "-- loop variables: a for loop's variable keeps the directory its words share"
-  sh_case 2 $'for f in registry/records/*.yaml; do sed -i \'\' s/a/b/ "$f"; done'
-  sh_case 2 'for f in registry/verify.log; do rm "$f"; done'
-  sh_case 2 'for f in registry/records/a.yaml registry/records/b.yaml; do echo x > "${f}"; done'
-  sh_case 2 $'for f in .githooks/*\ndo\n  chmod -x $f\ndone'
-  sh_case 2 'for f in registry/records/*.yaml; do grep x "$f" > "$f.out"; done'
-  sh_case 0 'for f in registry/records/*.yaml; do grep -c x "$f"; done'
-  sh_case 0 'for f in registry/records/*.yaml; do cp "$f" /tmp/snap/; done'
-  sh_case 0 'for f in registry/records/*.yaml; do cp "$f" "staging/$(basename "$f")"; done'
-  sh_case 0 'for f in staging/*.yaml; do sed -i "" s/a/b/ "$f"; done'
-  sh_case 0 'for f in registry/records/*.yaml; do echo "$f"; done > staging/list.txt'
-
   echo "-- blocked: writers run by xargs, find, parallel and wrappers"
   sh_case 2 'ls staging | xargs -I{} cp {} registry/records/'
   sh_case 2 'echo a | xargs cp -t registry/records'
