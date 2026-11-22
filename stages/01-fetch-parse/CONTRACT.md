@@ -12,8 +12,10 @@ This stage records what the source says. It never decides what the source means.
   fetches run on the owner's machine.
 - The govinfo CFR 2026 annual edition, to set `verified_on` (R1).
 - The Federal Register, for `version_effective_date` and the amending document (R1).
-  `version_fr_citations` records the amendment page as the stored raw XML's citation
-  note (`<CITA>`) cites it (spec decision 11); `regcorpus meta set` sets both fields.
+  For 1024.41, 1024.30 and 1024.31, `version_fr_citations` records the amendment page
+  as the stored raw XML's citation note (`<CITA>`) cites it (spec decision 11), and
+  `regcorpus meta set` sets both fields for these three. Supplement I's two fields are
+  open until plan step 8.
 - `overrides.yaml` per source, if a source defect needs one (R1a). Each entry
   has a location, a replacement and a reason, and is reviewed.
 

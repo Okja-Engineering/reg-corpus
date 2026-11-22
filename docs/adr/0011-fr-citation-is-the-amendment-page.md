@@ -43,67 +43,81 @@ these two fields.
 
 ## Options considered
 As on issue #6:
-- (a) The amendment page, as the stored XML cites it (chosen), or the
-  document's first page. The amendment page can be checked against the
-  stored raw XML. The first page is the API's `citation`, which the stored
-  XML doesn't hold.
-- (b) All three sources in step 3 (chosen), or 1024.41 only. The facts for
-  1024.30 and 1024.31 were already researched. With 1024.41 only, their two
-  fields would stay unset until a later step that names them, and none
-  does.
+- (a) The amendment page, as the stored XML cites it (recommended), or the
+  document's first page. Chosen: the amendment page.
+- (b) All three sources in step 3 (recommended), or 1024.41 only. Chosen:
+  all three.
+
+The chief of staff's notes, not on the issue: the amendment page is in the
+stored raw XML, and the first page is not (it is the API's `citation`); with
+1024.41 only, the fields of 1024.30 and 1024.31 would stay unset until a
+later step names them, and none does.
 
 ## Decision
-The owner decided:
-- (a) `version_fr_citations` records the amendment page, as the citation
-  note (`<CITA>`) of the stored raw XML cites it, for the change that
-  produced the stored version. For an amendment that runs over more than one
-  page, that is the page the note cites, where the amendment begins.
-- (b) Plan step 3 sets both version fields for 1024.41, 1024.30 and 1024.31.
+The owner decided, for 1024.41, 1024.30 and 1024.31:
+- (a) `version_fr_citations` records the amendment page, as the stored raw
+  XML's citation note (`<CITA>`) cites it.
+- (b) Plan step 3 sets both version fields for all three.
+
+The owner made no call for Supplement I: its two fields are open until plan
+step 8 (issue #6's correction).
 
 How it is carried out was the chief of staff's (an agent's) choice, not the
 owner's call. Each choice and its reason:
+- **Where an amendment runs over more than one page, the page recorded is
+  the one the note cites, where the amendment begins.** Why: that is what
+  "as the stored XML cites it" gives. 1024.41's amendment begins on 20792
+  and runs onto 20793; its note cites 20792 only.
 - **`regcorpus meta set` refuses a citation the note doesn't cite.** It
-  reads each run of a `<CITA>` element's text on its own, any whitespace
-  between a citation's parts, and eCFR's shorthand pages ("78 FR 63004,
-  63005"). Why: issue #6 asked that the value be checkable against L0
-  itself. The check is membership only. It doesn't prove that a cited page
-  is the amendment that produced the version: that evidence is the step 3
-  diff record in PR #7.
-- **`version_effective_date` must not be after `source_version_date`.** Why:
-  the spec defines it as the "effective date of the change that produced this
-  version", and the version eCFR dates `source_version_date` holds that
-  change, so the change took effect by that date. No other check is made on
-  it.
+  reads each run of a `<CITA>` element's text on its own; a citation's parts
+  may be separated by spaces, tabs, line breaks and no-break spaces, and
+  eCFR's shorthand pages ("78 FR 63004, 63005") count, each up to the next
+  citation. Why: a value that must be in the stored L0 can't be mistyped or
+  taken from elsewhere, such as the API's first page, and anyone can
+  re-check it there. The check is membership only. It doesn't prove that a
+  cited page is the amendment that produced the version: that evidence is
+  the step 3 diff record in PR #7.
+- **`version_effective_date` is taken as given; only its form is checked.**
+  An earlier draft of this ADR refused a date after `source_version_date`.
+  The chief of staff dropped that bound in PR #7's second review round. Why:
+  eCFR also creates a version on a rule's publication date (1024.41's
+  2025-05-16 version only adds the cross-reference for an amendment
+  effective 2025-07-15), so the bound can refuse a correct value, and the
+  spec doesn't state it.
 
 ## Spec changes
 - `docs/03-spec.md`:
   - Decisions-table row 11 is added: "Which page does
     `version_fr_citations` record, and for which sources does plan step 3
-    set the version fields? The amendment page, as the citation note
-    (`<CITA>`) of the stored raw XML cites it. Plan step 3 sets both version
-    fields for 1024.41, 1024.30 and 1024.31."
+    set the version fields? For 1024.41, 1024.30 and 1024.31: the amendment
+    page, as the citation note (`<CITA>`) of the stored raw XML cites it, and
+    plan step 3 sets both version fields for all three. Supplement I is open
+    until plan step 8."
   - "L0 `meta.yaml`": `version_fr_citations: ["<vol> FR <page>"]` gains the
-    comment "the amendment page, as the raw XML's citation note (<CITA>)
-    cites it (decision 11)".
+    comment "1024.41, 1024.30, 1024.31: the amendment page the raw XML's
+    citation note (<CITA>) cites (decision 11); Supplement I: open until plan
+    step 8".
   - "Upstream": "the Federal Register supplies the FR citation and effective
     date" → "the Federal Register supplies the effective date and the
-    amending document; `version_fr_citations` records the amendment page as
-    the stored raw XML's citation note cites it (decision 11)".
+    amending document; for 1024.41, 1024.30 and 1024.31,
+    `version_fr_citations` records the amendment page as the stored raw
+    XML's citation note cites it (decision 11)".
 - `docs/04-plan.md`:
   - Upstream calls: "`documents/{doc}.json` for the FR citation and
     effective date" → "… for the effective date and the amending document;
-    `version_fr_citations` records the amendment page the stored XML's
-    `<CITA>` cites (ADR 0011)".
+    for 1024.41, 1024.30 and 1024.31, `version_fr_citations` records the
+    amendment page the stored XML's `<CITA>` cites (ADR 0011)".
   - Step 3: "Set `version_effective_date` and `version_fr_citations` from
     what the diff shows." → "… from what the diff shows, with `regcorpus meta
     set`. Set both for 1024.30 and 1024.31 too, each from the change that
     produced its stored version (ADRs 0010, 0011)."
 - `stages/01-fetch-parse/CONTRACT.md`, Inputs: "The Federal Register, for
   `version_fr_citations` and `version_effective_date` (R1)." → "The Federal
-  Register, for `version_effective_date` and the amending document (R1).
-  `version_fr_citations` records the amendment page as the stored raw XML's
-  citation note (`<CITA>`) cites it (spec decision 11); `regcorpus meta set`
-  sets both fields."
+  Register, for `version_effective_date` and the amending document (R1). For
+  1024.41, 1024.30 and 1024.31, `version_fr_citations` records the amendment
+  page as the stored raw XML's citation note (`<CITA>`) cites it (spec
+  decision 11), and `regcorpus meta set` sets both fields for these three.
+  Supplement I's two fields are open until plan step 8."
 - No other lines. AGENTS.md says nothing about these fields.
 
 ## Consequences
@@ -116,7 +130,7 @@ owner's call. Each choice and its reason:
   effective on April 19, 2018, the date eCFR gives the version. A tool that
   copied `effective_on` would record the wrong date; `meta set` takes the
   date as given.
-- Supplement I (plan step 8) will need the same call for its two fields.
+- Supplement I (plan step 8) will need the owner's call for its two fields.
   This ADR doesn't make it.
 
 ## Requirement IDs

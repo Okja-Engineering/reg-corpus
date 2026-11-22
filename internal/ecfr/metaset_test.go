@@ -651,9 +651,10 @@ func notedCorpus(t *testing.T, notes string) string {
 
 // TestCitationsAreReadFromEachNoteAsWritten: a citation is "<vol> FR
 // <page>" within one run of a citation note's text, its parts separated by
-// any whitespace (a line break or a no-break space too); a shorthand page
-// after a citation ("78 FR 63004, 63005") is cited too. Text in two notes,
-// or on either side of an element inside a note, never joins into one.
+// spaces, tabs, line breaks or no-break spaces; a shorthand page after a
+// citation ("78 FR 63004, 63005") is cited too, up to the next citation.
+// Text in two notes, or on either side of an element inside a note, never
+// joins into one.
 func TestCitationsAreReadFromEachNoteAsWritten(t *testing.T) {
 	for _, tc := range []struct {
 		name, notes string

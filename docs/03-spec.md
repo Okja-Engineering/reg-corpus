@@ -20,8 +20,8 @@ Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no
 | 7 | What is the corpus repo's gate? | CI: the `C6 gate` check runs C6 on the commit under test (for a pull request, GitHub's test merge commit), then `make test`. It is the gate once branch protection on `main` requires the `C6 gate` check and up-to-date branches (the owner's setting). The pre-commit hook and the R11 guard are seatbelts. [ADR 0007](adr/0007-ci-is-the-c6-gate.md) |
 | 8 | What may an eval arm see? | No arm's run directory holds `key.yaml`; only grading reads it. [ADR 0008](adr/0008-no-arm-sees-key-yaml.md) |
 | 9 | How do ADRs relate to this spec? | An accepted ADR is part of this spec. The intent, spec, plan, stage contracts and AGENTS.md never conflict with one: the PR that adds an ADR amends their text where it states what the ADR changes, and adds its row here. [ADR 0009](adr/0009-adrs-are-part-of-the-spec.md) |
-| 10 | Who writes an L0 source's `meta.yaml`? | One shared writer: one package owns the whole schema, and each plan step sets only its own fields through it, keeping the rest. [ADR 0010](adr/0010-one-writer-owns-meta-yaml.md) |
-| 11 | Which page does `version_fr_citations` record, and for which sources does plan step 3 set the version fields? | The amendment page, as the citation note (`<CITA>`) of the stored raw XML cites it. Plan step 3 sets both version fields for 1024.41, 1024.30 and 1024.31. [ADR 0011](adr/0011-fr-citation-is-the-amendment-page.md) |
+| 10 | Who writes an L0 source's `meta.yaml`? | One shared writer, standard library only: it reads, checks and rewrites the file in spec order, and each plan step sets only its own fields through it, keeping the rest. `internal/l0` is the writer and `internal/meta` owns the schema (two packages: the chief of staff's choice). [ADR 0010](adr/0010-one-writer-owns-meta-yaml.md) |
+| 11 | Which page does `version_fr_citations` record, and for which sources does plan step 3 set the version fields? | For 1024.41, 1024.30 and 1024.31: the amendment page, as the citation note (`<CITA>`) of the stored raw XML cites it, and plan step 3 sets both version fields for all three. Supplement I is open until plan step 8. [ADR 0011](adr/0011-fr-citation-is-the-amendment-page.md) |
 
 ## Definitions
 - **Anchor:** a stable ID for one labeled unit of L0 text: a regulation paragraph at any depth (`1024-41-b-2-i-B`), one official comment (`1024-41-b-2-i-interp-1`), or a definition (`1024-31-day`).
@@ -202,7 +202,7 @@ source: ecfr
 official: false
 source_version_date: <YYYY-MM-DD>  # eCFR version date
 version_effective_date: <YYYY-MM-DD>   # effective date of the change that produced this version
-version_fr_citations: ["<vol> FR <page>"]  # the amendment page, as the raw XML's citation note (<CITA>) cites it (decision 11)
+version_fr_citations: ["<vol> FR <page>"]  # 1024.41, 1024.30, 1024.31: the amendment page the raw XML's citation note (<CITA>) cites (decision 11); Supplement I: open until plan step 8
 retrieved_at: <YYYY-MM-DD>
 ecfr_up_to_date_as_of: <YYYY-MM-DD>
 verified_on: <YYYY-MM-DD or null>  # normalized text matched the govinfo annual edition; null on mismatch, diff recorded
@@ -350,7 +350,7 @@ Records are derived from cites, so each entry carries only a `reviewed` sign-off
 ### Upstream
 - **Rule text:** fetched point-in-time from the eCFR versioner API. `fetch --latest` (R1b) detects newer versions.
 - **Official-edition check:** govinfo's annual edition, for `verified_on`.
-- **Change labels:** the Federal Register supplies the effective date and the amending document; `version_fr_citations` records the amendment page as the stored raw XML's citation note cites it (decision 11).
+- **Change labels:** the Federal Register supplies the effective date and the amending document; for 1024.41, 1024.30 and 1024.31, `version_fr_citations` records the amendment page as the stored raw XML's citation note cites it (decision 11).
 - **Network:** eCFR, govinfo and the Federal Register API are blocked from the cloud workspace, so fetch steps run on the owner's machine.
 - **Carried forward:** a Federal Register watch for future-effective rules.
 

@@ -61,7 +61,7 @@ VERSION  CHANGES.json             # after accept
 **Upstream calls** (no API key; run on your machine, because these hosts are blocked from the cloud workspace):
 - **eCFR version lists:** `versions/title-12.json?section=1024.41`, and the same for `?part=1024&appendix=Supplement I to Part 1024`.
 - **eCFR text:** `full/{date}/title-12.xml?part=1024&section=<section>`. Send gzip and decode as UTF-8.
-- **Federal Register:** `documents/{doc}.json` for the effective date and the amending document; `version_fr_citations` records the amendment page the stored XML's `<CITA>` cites (ADR 0011).
+- **Federal Register:** `documents/{doc}.json` for the effective date and the amending document; for 1024.41, 1024.30 and 1024.31, `version_fr_citations` records the amendment page the stored XML's `<CITA>` cites (ADR 0011).
 - **govinfo:** the CFR 2026 annual edition, for `verified_on`.
 
 **Decision-critical path:** L0 → fixture freeze → arm (a) → extraction → verification → C5/C6 + C1 → skill → render → arms (b)/(c) → decision. Off-path work waits for "accept": the read and cite level fixtures, `upgrade`, release tagging, C2–C4 negatives and `init`.
