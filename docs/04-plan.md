@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADR 0007
+- **Amended:** 2026-11-22 by ADRs 0007, 0010 and 0011
 - **Spec:** `docs/03-spec.md`
 - **Appetite:** four weekends plus the following week as buffer; decision by 2026-12-20
 
@@ -27,8 +27,10 @@ go.mod
 Makefile                          # setup, build (CORPUS_REF, LOOKUP_ONLY), test, check, negative, levels, release
 .githooks/pre-commit              # per-commit C6 (a seatbelt)
 .github/workflows/c6.yml          # the C6 gate (ADR 0007): .github/c6.sh runs C6 with the checker .githooks/build-checker.sh builds
-cmd/regcorpus/main.go             # fetch, check, inventory, verify, upgrade, release, show, text, topics, version
-internal/ecfr/                    # versioner client; full/{date} XML
+cmd/regcorpus/main.go             # fetch, meta, check, inventory, verify, upgrade, release, show, text, topics, version
+internal/ecfr/                    # versioner client; full/{date} XML; fetch and meta set
+internal/meta/                    # meta.yaml schema: strict parse and render (ADR 0010)
+internal/l0/                      # stored L0 files: store once, the stored-state check, meta.yaml updates (ADR 0010)
 internal/parse/                   # deterministic label state machine: XML → tree.json (R1a)
 internal/anchors/                 # tree → anchors, text.md, normalization, per-node hashes
 internal/lookup/                  # show, text, topics
@@ -59,7 +61,7 @@ VERSION  CHANGES.json             # after accept
 **Upstream calls** (no API key; run on your machine, because these hosts are blocked from the cloud workspace):
 - **eCFR version lists:** `versions/title-12.json?section=1024.41`, and the same for `?part=1024&appendix=Supplement I to Part 1024`.
 - **eCFR text:** `full/{date}/title-12.xml?part=1024&section=<section>`. Send gzip and decode as UTF-8.
-- **Federal Register:** `documents/{doc}.json` for the FR citation and effective date.
+- **Federal Register:** `documents/{doc}.json` for the effective date and the amending document; `version_fr_citations` records the amendment page the stored XML's `<CITA>` cites (ADR 0011).
 - **govinfo:** the CFR 2026 annual edition, for `verified_on`.
 
 **Decision-critical path:** L0 → fixture freeze → arm (a) → extraction → verification → C5/C6 + C1 → skill → render → arms (b)/(c) → decision. Off-path work waits for "accept": the read and cite level fixtures, `upgrade`, release tagging, C2–C4 negatives and `init`.
@@ -71,7 +73,7 @@ VERSION  CHANGES.json             # after accept
 3. **Version-date question:**
    - Fetch 1024.41 at 2025-05-15, 2025-05-16 and 2025-07-15, and diff them.
    - Record what changed on each date.
-   - Set `version_effective_date` and `version_fr_citations` from what the diff shows.
+   - Set `version_effective_date` and `version_fr_citations` from what the diff shows, with `regcorpus meta set`. Set both for 1024.30 and 1024.31 too, each from the change that produced its stored version (ADRs 0010, 0011).
 4. **`internal/parse` (R1a).** Write the golden tests before the code, built from the fetched XML only (CFPB pages still show removed 41(f)(3) comments). The goldens cover:
    - letter (i) after (h), and roman (i)
    - the duplicative-requests paragraph
@@ -89,7 +91,7 @@ VERSION  CHANGES.json             # after accept
 5. `internal/anchors`:
    - Generate `text.md` from the tree.
    - Normalize the text, and write a per-node `sha256` of normalized own text into `tree.json`.
-   - Write `meta.yaml`.
+   - Set `sha256_text` in `meta.yaml` through `internal/l0`, keeping the other fields (ADR 0010).
 6. `regcorpus fetch --verify`: compare the version date, tree and `sha256_text`, recording `sha256_raw` as information only. Then compare the normalized text to the govinfo CFR 2026 edition and set `verified_on`. Add `regcorpus fetch --latest` (R1b).
 7. `regcorpus text <anchor>`.
 
