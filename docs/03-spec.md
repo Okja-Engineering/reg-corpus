@@ -7,7 +7,7 @@
 - **Intent:** `docs/01-intent.md` (accepted 2026-11-21)
 
 ## Decisions on the intent's open questions
-Rows 1–6 answer the intent's open questions. Rows 7 on are accepted ADRs (`docs/adr/`), which are part of this spec.
+Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no-go. Rows 7 on are accepted ADRs (`docs/adr/`), which are part of this spec.
 
 | # | Question | Decision |
 |---|---|---|
@@ -19,7 +19,7 @@ Rows 1–6 answer the intent's open questions. Rows 7 on are accepted ADRs (`doc
 | 6 | Interface | CLI only in phase 1, with no server, API or MCP. Every phase-1 consumer has a shell, and the gate needs a binary anyway. |
 | 7 | What is the corpus repo's gate? | CI: the `C6 gate` check runs C6 on the commit under test (for a pull request, GitHub's test merge commit), then `make test`. It is the gate once branch protection on `main` requires the `C6 gate` check and up-to-date branches (the owner's setting). The pre-commit hook and the R11 guard are seatbelts. [ADR 0007](adr/0007-ci-is-the-c6-gate.md) |
 | 8 | What may an eval arm see? | No arm's run directory holds `key.yaml`; only grading reads it. [ADR 0008](adr/0008-no-arm-sees-key-yaml.md) |
-| 9 | How do ADRs relate to this spec? | An accepted ADR is part of this spec. The intent, spec and plan never conflict with one: the PR that adds an ADR amends the text it changes and adds its row here. [ADR 0009](adr/0009-adrs-are-part-of-the-spec.md) |
+| 9 | How do ADRs relate to this spec? | An accepted ADR is part of this spec. The intent, spec, plan, stage contracts and AGENTS.md never conflict with one: the PR that adds an ADR amends their text where it states what the ADR changes, and adds its row here. [ADR 0009](adr/0009-adrs-are-part-of-the-spec.md) |
 
 ## Definitions
 - **Anchor:** a stable ID for one labeled unit of L0 text: a regulation paragraph at any depth (`1024-41-b-2-i-B`), one official comment (`1024-41-b-2-i-interp-1`), or a definition (`1024-31-day`).

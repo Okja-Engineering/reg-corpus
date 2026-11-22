@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007–0009
+- **Amended:** 2026-11-22 by ADR 0007
 - **Spec:** `docs/03-spec.md`
 - **Appetite:** four weekends plus the following week as buffer; decision by 2026-12-20
 
@@ -26,7 +26,7 @@ skill/regcorpus/SKILL.md          # agent skill, no rule content (R9)
 go.mod
 Makefile                          # setup, build (CORPUS_REF, LOOKUP_ONLY), test, check, negative, levels, release
 .githooks/pre-commit              # per-commit C6 (a seatbelt)
-.github/workflows/c6.yml          # the C6 gate: CI runs .github/c6.sh, built by .githooks/build-checker.sh (ADR 0007)
+.github/workflows/c6.yml          # the C6 gate (ADR 0007): .github/c6.sh runs C6 with the checker .githooks/build-checker.sh builds
 cmd/regcorpus/main.go             # fetch, check, inventory, verify, upgrade, release, show, text, topics, version
 internal/ecfr/                    # versioner client; full/{date} XML
 internal/parse/                   # deterministic label state machine: XML → tree.json (R1a)
