@@ -8,7 +8,10 @@
 <!-- The forces, and the spec, plan or contract text this touches. Facts only. -->
 
 ## Decision
-<!-- What was decided, in a sentence or two. Name any spec or plan text it departs from. -->
+<!-- What was decided, in a sentence or two. -->
+
+## Spec changes
+<!-- Each intent, spec, plan or contract line this PR amends (file, before → after), and the spec's decisions-table row it adds. "None" if none. -->
 
 ## Consequences
 <!-- What changes, what it costs, and what is left for later. -->
