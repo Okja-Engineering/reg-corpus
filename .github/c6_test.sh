@@ -74,6 +74,11 @@ bootrec=$(commit "an unlogged record, before main has a checker") || die "commit
 g checkout -q -b oldweak "$pre"
 scaffold "$R" && cp "$tmp/evil.go" "$R/internal/check/check.go" && rec
 oldweak=$(commit "a weakened checker on a base without one") || die "commit"
+g checkout -q -b weakbase "$main" # a non-main base whose own checker is weakened
+cp "$tmp/evil.go" "$R/internal/check/check.go"
+weakbase=$(commit "a branch that weakens its checker") || die "commit"
+rec
+onweak=$(commit "an unlogged record, into the weakened branch") || die "commit"
 g checkout -q -b gomain "$main"
 gover=$(sed -n 's/^go //p' "$R/go.mod")
 sed "s/^go $gover\$/go 1.99.0/" "$R/go.mod" >"$tmp/go.mod" && cp "$tmp/go.mod" "$R/go.mod"
@@ -119,11 +124,18 @@ run 1 "bootstrap: the commit's own checker still rejects an unlogged record" "$p
 run 0 "bootstrap on push: origin/main is the base" refs/remotes/origin/main "$boot" "$boot_warn"
 BOOT=0
 
+# --- origin/main has no checker, the base has one: the base's checker.
+run 1 "origin/main without a checker: the base's checker rejects a weakened one" "$main" "$weak" "$C6"
+run 0 "origin/main without a checker: the base's checker passes a good change" "$main" "$good" \
+  "C6 checker built from the base"
+
 # --- origin/main has the checker.
 origin_main "$main"
 run 0 "a base with a checker passes a good change" "$main" "$good" "C6 checker built from the base"
 run 1 "a base with a checker rejects a weakened checker's commit" "$main" "$weak" "$C6"
 run 1 "on push: origin/main's checker rejects a weakened checker's commit" refs/remotes/origin/main "$weak" "$C6"
+run 1 "a non-main base with its own weakened checker: origin/main's checker rejects" \
+  "$weakbase" "$onweak" "$C6"
 run 1 "a base without a checker: origin/main's checker rejects a weakened one" "$pre" "$oldweak" "$C6"
 run 0 "a base without a checker: origin/main's checker passes a good change" "$pre" "$good" \
   "C6 checker built from origin/main"
