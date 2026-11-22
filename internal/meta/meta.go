@@ -348,17 +348,6 @@ func parseVerifiedOn(m *Meta, v string) error {
 	return nil
 }
 
-// consistent returns an error unless m's fields agree with one another:
-// version_effective_date, the effective date of the change that produced
-// the version eCFR dates source_version_date, is not after that date.
-func consistent(m Meta) error {
-	if m.VersionEffectiveDate > m.SourceVersionDate { // YYYY-MM-DD orders as text; absent is ""
-		return fmt.Errorf("version_effective_date %q is after source_version_date %q; the change that produced a version takes effect by its date",
-			m.VersionEffectiveDate, m.SourceVersionDate)
-	}
-	return nil
-}
-
 // Marshal writes m as meta.yaml: one "key: value" line per field present, in
 // the spec's order. It refuses (an error naming the fields) a Meta lacking a
 // field every meta.yaml has, or holding a value Parse would refuse, so what it
@@ -379,9 +368,6 @@ func Marshal(m Meta) ([]byte, error) {
 	}
 	if problems := append(missing, bad...); len(problems) > 0 {
 		return nil, errors.New(strings.Join(problems, "; "))
-	}
-	if err := consistent(m); err != nil {
-		return nil, err
 	}
 	return []byte(b.String()), nil
 }
@@ -429,7 +415,7 @@ func Parse(b []byte) (Meta, error) {
 	if len(missing) > 0 {
 		return m, errors.New(strings.Join(missing, ", "))
 	}
-	return m, consistent(m)
+	return m, nil
 }
 
 func index(key string) int {

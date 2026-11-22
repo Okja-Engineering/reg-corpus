@@ -150,17 +150,20 @@ func (st State) Stored(root string, s Source) ([]byte, error) {
 }
 
 // Update changes s's meta.yaml under root, and is how every command that
-// changes an existing meta.yaml writes it. Holding s's lock (one Update per
-// source at a time, across processes) from before it reads until meta.yaml
-// is replaced, it reads s's directory (Read), checks it (Stored), lets set
-// change the fields its command owns, given the raw XML, and replaces
-// meta.yaml with what meta.Marshal writes (Replace), unless that is what it
-// holds. Read, under the lock, refuses a symlink or a file on the way, as it
-// does for every command. It returns that meta.yaml and whether it changed. A value
-// meta.Marshal refuses after set (set gives only values of their type: one
-// that disagrees with the fields stored) is a *Conflict; so is a missing
-// source directory, which has no meta.yaml.
+// changes an existing meta.yaml writes it. It first checks that s's
+// directory and every directory on the way are real ones (RealDirs), so the
+// lock opens nothing else. Then, holding s's lock (one Update per source at
+// a time, across processes) from before it reads until meta.yaml is
+// replaced, it reads s's directory (Read, which checks the way again),
+// checks it (Stored), lets set change the fields its command owns, given the
+// raw XML, and replaces meta.yaml with what meta.Marshal writes (Replace),
+// unless that is what it holds. It returns that meta.yaml and whether it
+// changed. A missing source directory has no meta.yaml: a *Conflict, as
+// Stored gives for one.
 func Update(root string, s Source, set func(m *meta.Meta, raw []byte) error) (b []byte, changed bool, err error) {
+	if err := RealDirs(root, s.Dir); err != nil {
+		return nil, false, err
+	}
 	unlock, err := lock(filepath.Join(root, filepath.FromSlash(s.Dir)))
 	if errors.Is(err, fs.ErrNotExist) {
 		_, err = State{}.Stored(root, s)
@@ -183,7 +186,7 @@ func Update(root string, s Source, set func(m *meta.Meta, raw []byte) error) (b 
 	}
 	b, err = meta.Marshal(m)
 	if err != nil {
-		return nil, false, Conflictf("%s: %v; nothing is written (R1)", s.MetaPath(), err)
+		return nil, false, err
 	}
 	if bytes.Equal(b, st.metaBytes) {
 		return b, false, nil

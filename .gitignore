@@ -42,15 +42,17 @@ go.work.sum
 # regcorpus (R5 build output; R1 local download cache; R11 local agent state).
 # sources/, registry/ and registry/verify.log stay tracked: in them git ignores
 # only what the patterns above ignore anywhere (binaries, test and coverage
-# output, go.work, .env, OS and editor clutter) and fetch's temporary files
-# (below), none of them a corpus file.
+# output, go.work, .env, OS and editor clutter) and the temporary files of
+# fetch and meta set (below), none of them a corpus file.
 /regcorpus
 /dist/
 # Local raw-download cache: exploratory fetches and the govinfo edition.
 # Committed raw XML lives under sources/**/raw/ and stays tracked.
 /.cache/
-# Temporary files `regcorpus fetch` writes beside a source while storing it
-# (R1, internal/ecfr/store.go); an interrupted run can leave one behind.
+# Temporary files written beside a stored L0 file before it is linked or
+# renamed into place (R1; internal/l0/store.go: StoreOnce for `regcorpus
+# fetch`, Replace for `regcorpus meta set`); an interrupted run can leave one
+# behind.
 /sources/**/.fetch-*
 .claude/settings.local.json
 .claude/worktrees/

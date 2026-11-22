@@ -1,4 +1,4 @@
-// Tests for meta.yaml's one writer (spec "L0 meta.yaml"; R1; issue #5): the
+// Tests for meta.yaml's one writer (spec "L0 meta.yaml"; R1; ADR 0010): the
 // thirteen fields in the spec's order, each value well-typed and written one
 // way, a file parsed only when it is exactly what Marshal writes, and the
 // fields a later plan step owns absent until it sets them.

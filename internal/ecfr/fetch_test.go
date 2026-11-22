@@ -469,7 +469,7 @@ func TestStoredStateKeepsOneRawPerSource(t *testing.T) {
 			symlink(metaPath("1024.41"), "nowhere.yaml")},
 			[]string{metaPath("1024.41"), "not a regular file"}},
 		// meta.yaml is in the spec's schema (internal/meta), and every field
-		// fetch writes says what fetch's source table says (issue #5).
+		// fetch writes says what fetch's source table says (ADR 0010).
 		{"meta.yaml naming another section", []func(*testing.T, string){file(rawPath("1024.41"), latestBody),
 			file(metaPath("1024.41"), strings.Replace(goodMeta, "12 CFR 1024.41", "12 CFR 1024.30", 1))},
 			[]string{metaPath("1024.41"), "cfr", `"12 CFR 1024.30"`, `"12 CFR 1024.41"`}},

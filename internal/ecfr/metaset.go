@@ -33,8 +33,8 @@ does (cfr, tier, role, source, official), and raw/ holds exactly
 raw/<source_version_date>.xml, a regular file with sha256_raw's bytes.
 
   version_effective_date YYYY-MM-DD
-        the effective date of the change that produced this version; not
-        after source_version_date
+        the effective date of the change that produced this version, as
+        given; only its form is checked
   version_fr_citations "<vol> FR <page>" ...
         replaces the list with the citations given, in that order, each once.
         Each must be cited in a citation note (<CITA>) of that raw XML. This
@@ -44,15 +44,16 @@ Exit 0: set, or already that value. Exit 1: refused by what is stored: no
 meta.yaml (run regcorpus fetch first), or one not in the spec's schema or
 naming another source; raw/ not holding exactly the raw file meta.yaml
 describes, with its bytes; a symlink or a file in place of meta.yaml, the
-raw file or a directory on the way; an effective date after
-source_version_date; a citation the note doesn't cite. Nothing is written.
+raw file or a directory on the way; a citation the note doesn't cite.
+Nothing is written.
 Exit 2: a usage error (no such section, any other field, a flag, a value not
 of its field's type, a citation given twice), no sources/ecfr/title-12/ (not
 the corpus root), a file that can't be read or written, or a platform
 without the lock (darwin and linux have it).
 `
 
-// The fields meta set writes (plan step 3; issue #5).
+// The fields meta set writes (plan step 3). The command is the chief of
+// staff's choice for setting them through the one writer (ADR 0010).
 const (
 	keyEffective = "version_effective_date"
 	keyCitations = "version_fr_citations"
@@ -182,8 +183,9 @@ func fieldLine(b []byte, key string) string {
 
 // cited returns a *l0.Conflict unless each of cites is cited in a citation
 // note (<CITA>) of raw, the raw XML at rawPath that meta.yaml describes
-// (l0 has checked it is). So version_fr_citations is checkable against L0
-// itself (issue #6, ADR 0011). It checks membership only: that the note
+// (l0 has checked it is). The chief of staff's choice (ADR 0011): a value
+// that must be in the stored L0 can't be mistyped or taken from elsewhere,
+// and anyone can re-check it there. It checks membership only: that the note
 // cites the page, not that it is the amendment that produced the version.
 func cited(raw []byte, rawPath string, cites []meta.Citation) error {
 	note, err := citationNote(raw)
@@ -207,7 +209,7 @@ func cited(raw []byte, rawPath string, cites []meta.Citation) error {
 	if len(note) > 0 {
 		which = joinCitations(note)
 	}
-	return l0.Conflictf("%s %s not cited in the citation note (<CITA>) of %s, the raw file meta.yaml describes, which cites %s; %s records only citations that note cites (R1, issue #6)",
+	return l0.Conflictf("%s %s not cited in the citation note (<CITA>) of %s, the raw file meta.yaml describes, which cites %s; %s records only citations that note cites (R1, ADR 0011)",
 		strings.Join(missing, ", "), verb, rawPath, which, keyCitations)
 }
 
@@ -215,13 +217,15 @@ func cited(raw []byte, rawPath string, cites []meta.Citation) error {
 // the line breaks, and the no-break space.
 const space = `[\s\x{A0}]`
 
-// frCitation is a Federal Register citation in a note's text: "<vol> FR
-// <page>", then any shorthand pages eCFR writes after it (", <page>", as in
-// "78 FR 63004, 63005"), its parts separated by any space.
-var frCitation = regexp.MustCompile(`\b([0-9]+)` + space + `+FR` + space + `+([0-9]+)((?:,` + space + `*[0-9]+)*)`)
+// frCitation is a Federal Register citation in a note's text, "<vol> FR
+// <page>", its parts separated by space.
+var frCitation = regexp.MustCompile(`\b([0-9]+)` + space + `+FR` + space + `+([0-9]+)`)
 
-// number is one page in frCitation's shorthand pages.
-var number = regexp.MustCompile(`[0-9]+`)
+// shorthand is one shorthand page eCFR writes after a citation (", <page>",
+// as in "78 FR 63004, 63005"). It is looked for only between a citation and
+// the next, so the volume of a citation that follows ("78 FR 6856, 81 FR
+// 72370") is never read as a page.
+var shorthand = regexp.MustCompile(`^,` + space + `*([0-9]+)`)
 
 // citationNote returns the "<vol> FR <page>" citations of body's citation
 // notes (<CITA> elements, eCFR XML), in order, each once. A citation lies
@@ -265,9 +269,22 @@ func citationNote(body []byte) ([]meta.Citation, error) {
 	}
 	var out []meta.Citation
 	for _, r := range runs {
-		for _, m := range frCitation.FindAllStringSubmatch(r, -1) {
-			for _, page := range append([]string{m[2]}, number.FindAllString(m[3], -1)...) {
-				if c := meta.Citation(m[1] + " FR " + page); !slices.Contains(out, c) {
+		ms := frCitation.FindAllStringSubmatchIndex(r, -1)
+		for i, m := range ms {
+			pages := []string{r[m[4]:m[5]]}
+			next := len(r)
+			if i+1 < len(ms) {
+				next = ms[i+1][0]
+			}
+			for rest := r[m[1]:next]; ; {
+				p := shorthand.FindStringSubmatchIndex(rest)
+				if p == nil {
+					break
+				}
+				pages, rest = append(pages, rest[p[2]:p[3]]), rest[p[1]:]
+			}
+			for _, page := range pages {
+				if c := meta.Citation(r[m[2]:m[3]] + " FR " + page); !slices.Contains(out, c) {
 					out = append(out, c)
 				}
 			}

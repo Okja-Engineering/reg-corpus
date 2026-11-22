@@ -56,14 +56,14 @@
 //   - --date fetches that point in time into .cache/ecfr/title-12/ (git
 //     ignores it), never into sources/, and writes no meta.yaml.
 //
-// Built (plan step 3; issues #5 and #6, ADRs 0010 and 0011): `regcorpus meta
+// Built (plan step 3; ADRs 0010 and 0011): `regcorpus meta
 // set <section> <field> <value ...>` (metaset.go) sets version_effective_date
 // or version_fr_citations in a stored source's meta.yaml and nothing else;
 // every other field is refused (exit 2). Through l0.Update, under the
 // source's lock, it first makes the stored-state check fetch makes (exit 1
 // otherwise), then sets the field and replaces meta.yaml whole; setting the
-// value a field has is a no-op. version_effective_date must not be after
-// source_version_date (internal/meta). Each citation, each given once, must
+// value a field has is a no-op. version_effective_date is set as given; only
+// its form is checked (internal/meta). Each citation, each given once, must
 // be cited in a citation note (<CITA>) of the raw XML meta.yaml describes
 // (citationNote reads each run of a note's text on its own, shorthand pages
 // too); that checks membership only, not that the page is the amendment

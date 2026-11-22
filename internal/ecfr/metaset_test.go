@@ -1,4 +1,4 @@
-// Tests for `regcorpus meta set` (R1, plan step 3; issues #5 and #6): it
+// Tests for `regcorpus meta set` (R1, plan step 3; ADRs 0010 and 0011): it
 // sets version_effective_date or version_fr_citations in a stored source's
 // meta.yaml through internal/meta and changes nothing else; it sets no other
 // field; each citation must be in the citation note (<CITA>) of the raw XML
@@ -123,7 +123,7 @@ func TestMetaSetIsANoOpWhenTheValueIsSet(t *testing.T) {
 
 // TestMetaSetTakesOnlyCitationsTheStoredXMLCites: each citation must be one
 // the citation note (<CITA>) of the raw XML cites, whole: not one cited only
-// elsewhere in the XML, and not a prefix of one it cites (issue #6). One
+// elsewhere in the XML, and not a prefix of one it cites (ADR 0011). One
 // refused citation refuses the run, and nothing is written.
 func TestMetaSetTakesOnlyCitationsTheStoredXMLCites(t *testing.T) {
 	for _, tc := range []struct {
