@@ -14,8 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 // corpusRoot returns a root holding the three section directories, each with
@@ -124,43 +122,32 @@ func TestFetchStoresEachSectionsLatestRawXMLUntouched(t *testing.T) {
 }
 
 // TestMetaYAMLHasTheFetchOwnedFieldsInSpecOrder: the spec's L0 meta.yaml
-// fields that exist at fetch time, in the spec's order; the fields later
-// steps add (version_effective_date, version_fr_citations: step 3;
-// verified_on: step 6; sha256_text: step 5) are absent.
+// fields that exist at fetch time, in the spec's order and style; the fields
+// later steps add (version_effective_date, version_fr_citations: step 3;
+// verified_on: step 6; sha256_text: step 5) are absent. Enum words and the
+// bool are plain, as in the spec; every other value is double-quoted, so no
+// YAML reader types a date or a hash as anything but a string.
 func TestMetaYAMLHasTheFetchOwnedFieldsInSpecOrder(t *testing.T) {
 	_, c := newFake(t)
 	root := corpusRoot(t)
 	if code, _, stderr := fetchAt(t, root, c, "2026-11-22"); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
-	keys := []string{"cfr", "tier", "role", "source", "official", "source_version_date",
-		"retrieved_at", "ecfr_up_to_date_as_of", "sha256_raw"}
 	for _, tc := range []struct{ id, role string }{
 		{"1024.41", "inventoried"}, {"1024.30", "cite_only"}, {"1024.31", "cite_only"},
 	} {
-		want := map[string]string{
-			"cfr": "12 CFR " + tc.id, "tier": "law", "role": tc.role, "source": "ecfr",
-			"official": "false", "source_version_date": latest[tc.id], "retrieved_at": "2026-11-22",
-			"ecfr_up_to_date_as_of": "2026-11-19", "sha256_raw": sha(xmlBody(tc.id, latest[tc.id])),
-		}
-		var doc yaml.Node
-		if err := yaml.Unmarshal([]byte(readFile(t, root, metaPath(tc.id))), &doc); err != nil {
-			t.Fatalf("%s: %v", metaPath(tc.id), err)
-		}
-		m := doc.Content[0]
-		var got []string
-		for i := 0; i < len(m.Content); i += 2 {
-			k, v := m.Content[i].Value, m.Content[i+1]
-			got = append(got, k)
-			if v.Kind != yaml.ScalarNode || v.Value != want[k] {
-				t.Errorf("%s: %s is %q, want %q", metaPath(tc.id), k, v.Value, want[k])
-			}
-			if k == "official" && v.ShortTag() != "!!bool" {
-				t.Errorf("%s: official is %s, want a YAML bool", metaPath(tc.id), v.ShortTag())
-			}
-		}
-		if strings.Join(got, ",") != strings.Join(keys, ",") {
-			t.Errorf("%s: keys %v, want %v", metaPath(tc.id), got, keys)
+		want := `cfr: "12 CFR ` + tc.id + `"
+tier: law
+role: ` + tc.role + `
+source: ecfr
+official: false
+source_version_date: "` + latest[tc.id] + `"
+retrieved_at: "2026-11-22"
+ecfr_up_to_date_as_of: "2026-11-19"
+sha256_raw: "` + sha(xmlBody(tc.id, latest[tc.id])) + `"
+`
+		if got := readFile(t, root, metaPath(tc.id)); got != want {
+			t.Errorf("%s:\n%s\nwant:\n%s", metaPath(tc.id), got, want)
 		}
 	}
 }
