@@ -74,6 +74,24 @@ func TestHelpExitsZeroOnStdout(t *testing.T) {
 	}
 }
 
+// TestUsageGivesEveryCommandsExitCodes: AGENTS.md says `regcorpus help` and
+// each command's -h give the exit codes, so help names where check's and
+// fetch's are and states verify's, which has no -h of its own (R10).
+func TestUsageGivesEveryCommandsExitCodes(t *testing.T) {
+	in, out, errf := files(t)
+	run([]string{"help"}, in, out, errf)
+	u := read(t, out)
+	for _, want := range []string{
+		`"regcorpus check -h" and "regcorpus fetch -h" show their flags and their exit`,
+		"verify exits 2 without an interactive terminal and 1 until it is built",
+		"A missing or unknown command exits 2.",
+	} {
+		if !strings.Contains(u, want) {
+			t.Errorf("usage %q lacks %q", u, want)
+		}
+	}
+}
+
 func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 	in, out, errf := files(t)
 	run([]string{"help"}, in, out, errf)
