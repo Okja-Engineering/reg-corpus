@@ -9,7 +9,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -214,24 +217,6 @@ func TestDifferingRawFailsAndLeavesItUntouched(t *testing.T) {
 	}
 }
 
-// TestMetaForAnotherVersionFails: a meta.yaml without the latest raw file
-// describes another stored version; fetch exits 1 and writes nothing there.
-func TestMetaForAnotherVersionFails(t *testing.T) {
-	_, c := newFake(t)
-	root := corpusRoot(t)
-	old := "cfr: 12 CFR 1024.41\nsource_version_date: 2025-05-16\n"
-	writeFile(t, root, metaPath("1024.41"), old)
-	before := tree(t, root)
-	code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
-	if code != 1 || !strings.Contains(stderr, metaPath("1024.41")) || !strings.Contains(stderr, rawPath("1024.41")) {
-		t.Errorf("exit %d, stderr %q; want 1 naming %s and %s", code, stderr, metaPath("1024.41"), rawPath("1024.41"))
-	}
-	after := tree(t, root)
-	if len(after) != len(before) || after[metaPath("1024.41")] != before[metaPath("1024.41")] {
-		t.Errorf("files changed: before %v, after %v", keysOf(before), keysOf(after))
-	}
-}
-
 // TestStoredRawWithoutMetaGetsItsMeta: a run cut short after storing raw XML
 // converges on the next run.
 func TestStoredRawWithoutMetaGetsItsMeta(t *testing.T) {
@@ -315,8 +300,10 @@ func TestFetchFailureExitsTwoAndStoresNothingForThatSection(t *testing.T) {
 	}
 }
 
+// TestUsageAndRootErrors: a usage error or a directory that isn't a corpus
+// root exits 2 before any request, and writes nothing.
 func TestUsageAndRootErrors(t *testing.T) {
-	_, c := newFake(t)
+	notRoot := t.TempDir()
 	for _, tc := range []struct {
 		name   string
 		root   string
@@ -329,25 +316,339 @@ func TestUsageAndRootErrors(t *testing.T) {
 		{"unknown section", corpusRoot(t), []string{"1024.99"}, 2, "",
 			`regcorpus fetch: unknown section "1024.99" (known: 1024.41, 1024.30, 1024.31)`},
 		{"bad date", corpusRoot(t), []string{"--date", "2025-5-15"}, 2, "",
-			`regcorpus fetch: --date "2025-5-15" is not YYYY-MM-DD`},
+			`regcorpus fetch: invalid value "2025-5-15" for flag -date: "2025-5-15" is not YYYY-MM-DD` + "\nusage: regcorpus fetch"},
+		{"empty date", corpusRoot(t), []string{"--date="}, 2, "",
+			`regcorpus fetch: invalid value "" for flag -date: "" is not YYYY-MM-DD` + "\nusage: regcorpus fetch"},
+		{"date given twice", corpusRoot(t), []string{"--date", "2025-05-15", "--date", "2025-05-16"}, 2, "",
+			`regcorpus fetch: invalid value "2025-05-16" for flag -date: --date given more than once` + "\nusage: regcorpus fetch"},
+		{"a flag after a section", corpusRoot(t), []string{"1024.41", "--date", "2025-05-15"}, 2, "",
+			`regcorpus fetch: "--date" comes after a section; flags go before the sections` + "\nusage: regcorpus fetch"},
 		{"unknown flag", corpusRoot(t), []string{"--latest"}, 2, "",
 			"regcorpus fetch: flag provided but not defined: -latest\nusage: regcorpus fetch"},
-		{"not a corpus root", t.TempDir(), nil, 2, "", "regcorpus fetch: "},
+		{"not a corpus root", notRoot, nil, 2, "",
+			"regcorpus fetch: " + notRoot + " is not a corpus root (no sources/ecfr/title-12/ directory); run fetch from the corpus root\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			f, c := newFake(t)
 			code, stdout, stderr := fetchAt(t, tc.root, c, "2026-11-22", tc.args...)
 			if code != tc.code || !prefixOrEmpty(stdout, tc.stdout) || !prefixOrEmpty(stderr, tc.stderr) {
 				t.Fatalf("exit %d, stdout %q, stderr %q; want %d, %q, %q", code, stdout, stderr, tc.code, tc.stdout, tc.stderr)
 			}
-			if tc.code != 0 {
-				for p := range tree(t, tc.root) {
-					if !strings.HasSuffix(p, ".gitkeep") {
-						t.Errorf("wrote %s on a usage error", p)
-					}
+			if n := len(f.requests()); n != 0 {
+				t.Errorf("%d requests; want none", n)
+			}
+			for p := range tree(t, tc.root) {
+				if !strings.HasSuffix(p, ".gitkeep") {
+					t.Errorf("wrote %s", p)
 				}
 			}
 		})
 	}
+}
+
+// TestStoredStateKeepsOneRawPerSource: a source directory holds one raw file,
+// the one its meta.yaml describes. fetch reads what is stored once and stores
+// nothing, exiting 1, when that would leave two raw files, a meta.yaml beside
+// a raw file it doesn't describe, or a meta.yaml whose raw file is missing.
+func TestStoredStateKeepsOneRawPerSource(t *testing.T) {
+	const older = "sources/ecfr/title-12/1024.41/raw/2025-05-16.xml"
+	oldMeta := "cfr: \"12 CFR 1024.41\"\nsource_version_date: \"2025-05-16\"\n"
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		want  []string // in stderr
+	}{
+		{"meta.yaml whose raw file is missing", map[string]string{metaPath("1024.41"): oldMeta},
+			[]string{metaPath("1024.41"), "sources/ecfr/title-12/1024.41/raw/ holds no raw XML", "git restore"}},
+		{"an older raw file, no meta.yaml", map[string]string{older: "<DIV8/>"},
+			[]string{older, "one raw file per source"}},
+		{"an older raw file and its meta.yaml", map[string]string{older: "<DIV8/>", metaPath("1024.41"): oldMeta},
+			[]string{older, "one raw file per source"}},
+		{"the latest raw file and an older one", map[string]string{older: "<DIV8/>", rawPath("1024.41"): xmlBody("1024.41", "2025-07-15")},
+			[]string{older, "one raw file per source"}},
+		{"the latest raw file, an older one and meta.yaml", map[string]string{older: "<DIV8/>",
+			rawPath("1024.41"): xmlBody("1024.41", "2025-07-15"), metaPath("1024.41"): oldMeta},
+			[]string{older, "one raw file per source"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c := newFake(t)
+			root := corpusRoot(t)
+			for p, b := range tc.files {
+				writeFile(t, root, p, b)
+			}
+			before := tree(t, root)
+			code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+			if code != 1 || !strings.HasPrefix(stderr, "regcorpus fetch: 1024.41: ") {
+				t.Errorf("exit %d, stderr %q; want 1 for 1024.41", code, stderr)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(stderr, w) {
+					t.Errorf("stderr %q lacks %q", stderr, w)
+				}
+			}
+			if after := tree(t, root); !equalTrees(before, after) {
+				t.Errorf("files changed: before %v, after %v", keysOf(before), keysOf(after))
+			}
+		})
+	}
+	t.Run("a leftover temporary file is not a raw file", func(t *testing.T) {
+		_, c := newFake(t)
+		root := corpusRoot(t)
+		writeFile(t, root, "sources/ecfr/title-12/1024.41/raw/.fetch-123", "partial")
+		if code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41"); code != 0 {
+			t.Errorf("exit %d, stderr %q; want 0", code, stderr)
+		}
+	})
+}
+
+func equalTrees(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for p, v := range a {
+		if b[p] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// TestStoreNeverReplacesWhatIsAtThePath: a file is placed by a hard link,
+// which fails when anything is at the path, even a symlink to nothing. That
+// is an error, and the symlink is left as it was, its target not created.
+func TestStoreNeverReplacesWhatIsAtThePath(t *testing.T) {
+	_, c := newFake(t)
+	root := corpusRoot(t)
+	raw := filepath.Join(root, filepath.FromSlash(rawPath("1024.41")))
+	target := filepath.Join(root, "elsewhere.xml")
+	if err := os.MkdirAll(filepath.Dir(raw), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, raw); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+	if code != 2 || !strings.Contains(stderr, rawPath("1024.41")) {
+		t.Errorf("exit %d, stderr %q; want 2 naming %s", code, stderr, rawPath("1024.41"))
+	}
+	if got, err := os.Readlink(raw); err != nil || got != target {
+		t.Errorf("%s: readlink %q, %v; want the symlink to %s left as it was", raw, got, err, target)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Errorf("%s: lstat err %v; want not created", target, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(metaPath("1024.41")))); !os.IsNotExist(err) {
+		t.Errorf("meta.yaml written beside a raw file that wasn't stored")
+	}
+}
+
+// TestStoredFilesAreWorldReadable: raw XML and meta.yaml are stored mode
+// 0644, not the temporary file's 0600.
+func TestStoredFilesAreWorldReadable(t *testing.T) {
+	_, c := newFake(t)
+	root := corpusRoot(t)
+	if code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41"); code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	for _, p := range []string{rawPath("1024.41"), metaPath("1024.41")} {
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(p)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o644 {
+			t.Errorf("%s: mode %v, want 0644", p, info.Mode().Perm())
+		}
+	}
+}
+
+// TestAMetaWriteFailureStillReportsTheStoredRaw: when meta.yaml can't be
+// written, the raw file already stored is still reported, and fetch exits 2.
+func TestAMetaWriteFailureStillReportsTheStoredRaw(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running with privileges that write into a mode-0555 directory")
+	}
+	_, c := newFake(t)
+	root := corpusRoot(t)
+	dir := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.30"))
+	if err := os.MkdirAll(filepath.Join(dir, "raw"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.30")
+	if want := "1024.30 2018-04-19: stored " + rawPath("1024.30"); code != 2 || !strings.Contains(stdout, want) || !strings.HasPrefix(stderr, "regcorpus fetch: 1024.30: ") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 2, stdout naming %q", code, stdout, stderr, want)
+	}
+}
+
+// TestExitCodeIsTheWorstAcrossSections: each section is fetched whatever
+// another's outcome, and the exit code is the largest: a network failure (2)
+// outranks a conflict (1) in either order.
+func TestExitCodeIsTheWorstAcrossSections(t *testing.T) {
+	for _, args := range [][]string{{"1024.41", "1024.31"}, {"1024.31", "1024.41"}} {
+		t.Run(strings.Join(args, " then "), func(t *testing.T) {
+			f, c := newFake(t)
+			root := corpusRoot(t)
+			writeFile(t, root, rawPath("1024.41"), "<DIV8>earlier bytes</DIV8>")
+			f.set(xmlURI("2025-07-15", "1024.31"), reply{status: 500, body: "boom"})
+			code, _, stderr := fetchAt(t, root, c, "2026-11-22", args...)
+			if code != 2 || !strings.Contains(stderr, "regcorpus fetch: 1024.41: ") || !strings.Contains(stderr, "regcorpus fetch: 1024.31: ") {
+				t.Errorf("exit %d, stderr %q; want 2 and both sections named", code, stderr)
+			}
+		})
+	}
+}
+
+// TestRetrievedAtIsTheUTCDate: retrieved_at is the UTC date of the fetch,
+// whatever the local zone, on either side of local midnight.
+func TestRetrievedAtIsTheUTCDate(t *testing.T) {
+	for _, tc := range []struct {
+		now  time.Time
+		want string
+	}{
+		{time.Date(2026, 11, 22, 23, 30, 0, 0, time.FixedZone("UTC-5", -5*3600)), "2026-11-23"},
+		{time.Date(2026, 11, 23, 1, 0, 0, 0, time.FixedZone("UTC+9", 9*3600)), "2026-11-22"},
+	} {
+		_, c := newFake(t)
+		root := corpusRoot(t)
+		var out, errb bytes.Buffer
+		f := fetcher{root: root, client: c, now: func() time.Time { return tc.now }}
+		if code := f.main([]string{"1024.31"}, &out, &errb); code != 0 {
+			t.Fatalf("exit %d, stderr %q", code, errb.String())
+		}
+		if got := readFile(t, root, metaPath("1024.31")); !strings.Contains(got, "retrieved_at: \""+tc.want+"\"\n") {
+			t.Errorf("now %v: meta.yaml\n%s\nwant retrieved_at %s", tc.now, got, tc.want)
+		}
+	}
+}
+
+// TestFailuresBeforeTheXMLExitTwoAndStoreNothing: titles.json, the version
+// list and the connection itself each fail the fetch (exit 2) before anything
+// is stored.
+func TestFailuresBeforeTheXMLExitTwoAndStoreNothing(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	for _, tc := range []struct {
+		name  string
+		uri   string
+		reply reply
+		want  string
+	}{
+		{"titles.json fails", apiPath + "/titles.json", reply{status: 503, body: "down"}, "503"},
+		{"eCFR is importing", apiPath + "/titles.json",
+			reply{body: strings.Replace(titlesJSON, `"import_in_progress":false`, `"import_in_progress":true`, 1)}, "retry later"},
+		{"the version list fails", versionsURI("1024.41"), reply{status: 500, body: "boom"}, "500"},
+		{"the version list has no versions", versionsURI("1024.41"), reply{body: `{"content_versions":[]}`}, "no versions"},
+		{"the connection fails", "", reply{}, closed.URL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, c := newFake(t)
+			if tc.uri == "" {
+				c.BaseURL = closed.URL + apiPath
+			} else {
+				f.set(tc.uri, tc.reply)
+			}
+			root := corpusRoot(t)
+			before := tree(t, root)
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus fetch: ") || !strings.Contains(stderr, tc.want) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 2 and an error naming %q", code, stdout, stderr, tc.want)
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+			for _, r := range f.requests() {
+				if strings.Contains(r.URL.Path, "/full/") {
+					t.Errorf("requested %s after an earlier failure", r.URL)
+				}
+			}
+		})
+	}
+}
+
+// TestDateGuards: --date stores under .cache/ by the same rules as sources/:
+// the body must be the section's XML, and a cached file is never overwritten.
+func TestDateGuards(t *testing.T) {
+	cached := ".cache/ecfr/title-12/1024.41/2025-05-15.xml"
+	t.Run("a cached file with other bytes", func(t *testing.T) {
+		_, c := newFake(t)
+		root := corpusRoot(t)
+		writeFile(t, root, cached, "<DIV8>other</DIV8>")
+		code, _, stderr := fetchAt(t, root, c, "2026-11-22", "--date", "2025-05-15", "1024.41")
+		if code != 1 || !strings.Contains(stderr, cached) {
+			t.Errorf("exit %d, stderr %q; want 1 naming %s", code, stderr, cached)
+		}
+		if got := readFile(t, root, cached); got != "<DIV8>other</DIV8>" {
+			t.Errorf("%s overwritten with %q", cached, got)
+		}
+	})
+	t.Run("a body that isn't the section's XML", func(t *testing.T) {
+		f, c := newFake(t)
+		root := corpusRoot(t)
+		f.set(xmlURI("2025-05-15", "1024.41"), reply{body: xmlBody("1024.30", "2025-05-15")})
+		before := tree(t, root)
+		code, _, stderr := fetchAt(t, root, c, "2026-11-22", "--date", "2025-05-15", "1024.41")
+		if code != 2 || !strings.Contains(stderr, "root element") {
+			t.Errorf("exit %d, stderr %q; want 2 naming the root element", code, stderr)
+		}
+		if !equalTrees(before, tree(t, root)) {
+			t.Errorf("files changed")
+		}
+	})
+}
+
+// TestFetchTemporariesAndRawBytesAreSafeFromGit: git ignores the temporary
+// files fetch writes beside a source (so an interrupted run can't be
+// committed), and never converts line endings in raw XML (so a checkout can't
+// rewrite L0 bytes). Needs the repository's git.
+func TestFetchTemporariesAndRawBytesAreSafeFromGit(t *testing.T) {
+	top := repoTop(t)
+	for _, p := range []string{
+		"sources/ecfr/title-12/1024.41/raw/.fetch-123",
+		"sources/ecfr/title-12/1024.41/.fetch-123",
+		"sources/ecfr/title-12/supplement-i/41/raw/.fetch-123",
+	} {
+		if out, err := exec.Command("git", "-C", top, "check-ignore", "--no-index", "-q", p).CombinedOutput(); err != nil {
+			t.Errorf("git check-ignore %s: %v %s; want it ignored", p, err, out)
+		}
+	}
+	raws, err := filepath.Glob(filepath.Join(top, "sources", "*", "*", "*", "raw", "*.xml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raws) == 0 {
+		t.Fatal("no committed raw XML found")
+	}
+	paths := []string{"sources/ecfr/title-12/supplement-i/41/raw/2025-01-01.xml"} // a later source
+	for _, r := range raws {
+		rel, _ := filepath.Rel(top, r)
+		paths = append(paths, filepath.ToSlash(rel))
+	}
+	for _, p := range paths {
+		out, err := exec.Command("git", "-C", top, "check-attr", "text", "eol", "--", p).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := p + ": text: unset\n" + p + ": eol: unspecified\n"; string(out) != want {
+			t.Errorf("git check-attr: %q, want %q", out, want)
+		}
+	}
+}
+
+// repoTop is the repository's top directory, or skips the test when git or
+// the repository isn't there (a source tarball).
+func repoTop(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		t.Skip("not in a git repository")
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func prefixOrEmpty(got, want string) bool {
