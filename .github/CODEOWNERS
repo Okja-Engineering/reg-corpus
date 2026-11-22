@@ -1,0 +1,11 @@
+# The owner reviews and merges everything.
+* @imagineux
+
+# The gate and the registry, each on its own line so they stay owned if the
+# line above changes: .github/ holds CI (the C6 gate), .githooks/ the hook and
+# the gate's checker build, .claude/ the R11 guard, and registry/ what only a
+# person writes (AGENTS.md, hard rules). A diff here changes what is enforced.
+/.github/ @imagineux
+/.githooks/ @imagineux
+/.claude/ @imagineux
+/registry/ @imagineux

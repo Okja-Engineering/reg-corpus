@@ -1,0 +1,23 @@
+# Weekly version updates, at most two open PRs per ecosystem.
+# Actions stay pinned by SHA: Dependabot bumps the SHA and the `# vX.Y.Z`
+# comment after it, so keep that comment and leave `uses:` unquoted. An action
+# bump edits .github/workflows/c6.yml, part of the C6 gate: review it as a
+# gate diff. No labels, so the label set stays the one in .github/labels.json.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels: []
+    commit-message:
+      prefix: Deps
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    labels: []
+    commit-message:
+      prefix: Deps
