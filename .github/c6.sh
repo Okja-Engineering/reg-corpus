@@ -6,8 +6,8 @@
 # Builds the checker with .githooks/build-checker.sh, the same build the
 # pre-commit hook uses, and runs `regcorpus check --corpus --tree COMMIT`.
 # The checker comes from origin/main (refs/remotes/origin/main) whenever it
-# has cmd/regcorpus/main.go, whatever BASE is; from BASE only while
-# origin/main has none. Only while neither has it (bootstrap: before the
+# has one (a package main in cmd/regcorpus/), whatever BASE is; from BASE only
+# while origin/main has none. Only while neither has it (bootstrap: before the
 # checker first lands on main) is it built from COMMIT, and a warning
 # annotation says so. BASE, origin/main and COMMIT must each name a commit; a
 # run that can't resolve one fails. The checker is built with the Go its own
@@ -31,7 +31,7 @@ src=$(bash .githooks/build-checker.sh --auto-toolchain "$tmp/regcorpus" "$commit
 case $src in
   "$main") echo "C6 checker built from origin/main ($main)" ;;
   "$base") echo "C6 checker built from the base, $1 ($base): origin/main has none" ;;
-  *) echo "::warning title=C6 bootstrap::Neither the base ($1) nor origin/main has cmd/regcorpus/main.go, so $2 is checked by its own checker." ;;
+  *) echo "::warning title=C6 bootstrap::Neither the base ($1) nor origin/main has a checker (a package main in cmd/regcorpus/), so $2 is checked by its own checker." ;;
 esac
 echo "C6 check of $2:"
 "$tmp/regcorpus" check --corpus --tree "$commit"

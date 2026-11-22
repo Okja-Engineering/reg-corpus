@@ -13,10 +13,11 @@
 #   TRUSTED...  revisions to build from, preferred first (hook: the known mains;
 #               CI: origin/main, then the base, both resolved by c6.sh). One
 #               that doesn't resolve is skipped.
-# Builds from the first TRUSTED that holds cmd/regcorpus/main.go, and prints
-# its commit oid on stdout. Only when none does (bootstrap: a fresh repo, or
-# before the checker first lands on main) does it build from UNDER-TEST: it
-# then warns on stderr and prints UNDER-TEST's tree oid.
+# Builds from the first TRUSTED that has a checker (cmd/regcorpus/ holds a
+# package main Go source, whatever its file name), and prints its commit oid
+# on stdout. Only when none does (bootstrap: a fresh repo, or before the
+# checker first lands on main) does it build from UNDER-TEST: it then warns
+# on stderr and prints UNDER-TEST's tree oid.
 #
 # The source (go.mod, go.sum when present, cmd/, internal/) is copied as raw
 # blobs (ls-tree, cat-file, no replace refs), the way the check reads a commit,
@@ -41,10 +42,21 @@ out=$1 under=$2
 shift 2
 case $out in /*) ;; *) out=$PWD/$out ;; esac
 
+has_checker() { # OID: cmd/regcorpus/ in commit OID holds a package main source
+  local entry meta name
+  while IFS= read -r -d '' entry; do # "<mode> <type> <oid>\t<name>"
+    meta=${entry%%$'\t'*} name=${entry#*$'\t'}
+    case $meta in '100644 blob '* | '100755 blob '*) ;; *) continue ;; esac
+    case $name in *_test.go | .* | _*) continue ;; *.go) ;; *) continue ;; esac
+    grep -qE '^[[:space:]]*package[[:space:]]+main([^[:alnum:]_]|$)' \
+      < <(git cat-file blob "${meta##* }") && return 0
+  done < <(git ls-tree -z "$1:cmd/regcorpus" 2>/dev/null)
+  return 1
+}
+
 src= what= trusted=0
 for rev in "$@"; do
-  if oid=$(git rev-parse -q --verify "$rev^{commit}") &&
-    git cat-file -e "$oid:cmd/regcorpus/main.go" 2>/dev/null; then
+  if oid=$(git rev-parse -q --verify "$rev^{commit}") && has_checker "$oid"; then
     src=$oid what="$rev ($oid)" trusted=1
     break
   fi
@@ -53,8 +65,8 @@ if [ "$trusted" = 0 ]; then
   src=$(git rev-parse -q --verify "$under^{tree}") || die "cannot read $under"
   what="the commit under test ($under)"
   echo "C6 checker: warning: bootstrap: no trusted main (${*:-none given}) has" \
-    "cmd/regcorpus/main.go, so $what is checked by its own checker. This stops" \
-    "once main has the checker." >&2
+    "a checker (a package main in cmd/regcorpus/), so $what is checked by its" \
+    "own checker. This stops once main has the checker." >&2
 fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/regcorpus-checker.XXXXXX") || die "mktemp"

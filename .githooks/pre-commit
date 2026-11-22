@@ -16,9 +16,10 @@
 # refs/remotes/origin/main and refs/heads/main. Rule: prefer origin/main,
 # unless local main contains it (a person merged locally and hasn't pushed);
 # if the preferred one has no checker, use the other. So a stale, missing or
-# diverged local main never picks the checker. Only while neither holds
-# cmd/regcorpus/main.go (bootstrap: a repo whose main has no checker yet) is the
-# commit checked by its own staged checker, with a warning on stderr. If
+# diverged local main never picks the checker. A main has the checker when
+# cmd/regcorpus/ holds a package main Go source, whatever its file name. Only
+# while neither has one (bootstrap: a repo whose main has no checker yet) is
+# the commit checked by its own staged checker, with a warning on stderr. If
 # main's checker doesn't build, every commit is blocked and the error says how
 # to recover.
 #
