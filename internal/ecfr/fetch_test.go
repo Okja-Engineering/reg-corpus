@@ -310,6 +310,8 @@ func TestFetchFailureExitsTwoAndStoresNothingForThatSection(t *testing.T) {
 // root exits 2 before any request, and writes nothing.
 func TestUsageAndRootErrors(t *testing.T) {
 	notRoot := t.TempDir()
+	titleFile := t.TempDir()
+	writeFile(t, titleFile, "sources/ecfr/title-12", "not a directory")
 	for _, tc := range []struct {
 		name   string
 		root   string
@@ -333,9 +335,12 @@ func TestUsageAndRootErrors(t *testing.T) {
 			"regcorpus fetch: flag provided but not defined: -latest\nusage: regcorpus fetch"},
 		{"not a corpus root", notRoot, nil, 2, "",
 			"regcorpus fetch: " + notRoot + " is not a corpus root (no sources/ecfr/title-12/ directory); run fetch from the corpus root\n"},
+		{"sources/ecfr/title-12 is a file", titleFile, nil, 2, "",
+			"regcorpus fetch: " + titleFile + " is not a corpus root (no sources/ecfr/title-12/ directory); run fetch from the corpus root\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
+			before := tree(t, tc.root)
 			code, stdout, stderr := fetchAt(t, tc.root, c, "2026-11-22", tc.args...)
 			if code != tc.code || !prefixOrEmpty(stdout, tc.stdout) || !prefixOrEmpty(stderr, tc.stderr) {
 				t.Fatalf("exit %d, stdout %q, stderr %q; want %d, %q, %q", code, stdout, stderr, tc.code, tc.stdout, tc.stderr)
@@ -343,10 +348,8 @@ func TestUsageAndRootErrors(t *testing.T) {
 			if n := len(f.requests()); n != 0 {
 				t.Errorf("%d requests; want none", n)
 			}
-			for p := range tree(t, tc.root) {
-				if !strings.HasSuffix(p, ".gitkeep") {
-					t.Errorf("wrote %s", p)
-				}
+			if after := tree(t, tc.root); !equalTrees(before, after) {
+				t.Errorf("files changed: before %v, after %v", keysOf(before), keysOf(after))
 			}
 		})
 	}
@@ -502,7 +505,6 @@ func TestUnreadableStoredStateExitsTwo(t *testing.T) {
 		files map[string]string
 		then  func(*testing.T, string)
 	}{
-		{"raw is a file, not a directory", map[string]string{"sources/ecfr/title-12/1024.41/raw": "x"}, nil},
 		{"raw/ can't be listed", map[string]string{rawPath("1024.41"): xmlBody("1024.41", "2025-07-15"),
 			metaPath("1024.41"): fetchMeta("2025-07-15", sha(xmlBody("1024.41", "2025-07-15")))},
 			unreadable("sources/ecfr/title-12/1024.41/raw")},
@@ -522,6 +524,73 @@ func TestUnreadableStoredStateExitsTwo(t *testing.T) {
 			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
 			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "regcorpus fetch: 1024.41: ") {
 				t.Errorf("exit %d, stdout %q, stderr %q; want 2 for 1024.41", code, stdout, stderr)
+			}
+		})
+	}
+}
+
+// TestEveryDirectoryOnTheWayIsReal: every directory fetch reads or writes,
+// from the corpus root down (sources/ to raw/, .cache/ to the source's cache
+// directory), must be a real directory. A symlink (even to a directory) or a
+// file in its place exits 1, and nothing is stored there or outside.
+func TestEveryDirectoryOnTheWayIsReal(t *testing.T) {
+	latestBody := xmlBody("1024.41", "2025-07-15")
+	for _, tc := range []struct {
+		name    string
+		link    string            // slash path made a symlink to a directory outside the root
+		outside map[string]string // what that outside directory holds
+		file    string            // or: slash path made a regular file
+		args    []string
+	}{
+		{name: "raw/ a symlink", link: "sources/ecfr/title-12/1024.41/raw"},
+		{name: "raw/ a symlink to the latest file, with its meta.yaml", link: "sources/ecfr/title-12/1024.41/raw",
+			outside: map[string]string{"2025-07-15.xml": latestBody}},
+		{name: "raw/ a symlink to an older file", link: "sources/ecfr/title-12/1024.41/raw",
+			outside: map[string]string{"2025-05-16.xml": "<DIV8/>"}},
+		{name: "raw a file", file: "sources/ecfr/title-12/1024.41/raw"},
+		{name: "the source directory a symlink", link: "sources/ecfr/title-12/1024.41"},
+		{name: "sources/ a symlink", link: "sources",
+			outside: map[string]string{"ecfr/title-12/1024.41/.gitkeep": ""}},
+		{name: ".cache/ a symlink, with --date", link: ".cache", args: []string{"--date", "2025-05-15"}},
+		{name: "the cache directory a symlink, with --date", link: ".cache/ecfr/title-12/1024.41", args: []string{"--date", "2025-05-15"}},
+		{name: "the cache directory a file, with --date", file: ".cache/ecfr/title-12/1024.41", args: []string{"--date", "2025-05-15"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c := newFake(t)
+			root := t.TempDir()
+			outside := t.TempDir()
+			for p, b := range tc.outside {
+				writeFile(t, outside, p, b)
+			}
+			for _, s := range sources {
+				if !strings.HasPrefix(s.dir()+"/", tc.link+"/") || tc.link == "" {
+					writeFile(t, root, s.dir()+"/.gitkeep", "")
+				}
+			}
+			if tc.outside["2025-07-15.xml"] != "" {
+				writeFile(t, root, metaPath("1024.41"), fetchMeta("2025-07-15", sha(latestBody)))
+			}
+			if tc.link != "" {
+				full := filepath.Join(root, filepath.FromSlash(tc.link))
+				if err := os.RemoveAll(full); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, full); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				writeFile(t, root, tc.file, "not a directory")
+			}
+			before, beforeOutside := tree(t, root), tree(t, outside)
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", append(tc.args, "1024.41")...)
+			if code != 1 || stdout != "" || !strings.Contains(stderr, "not a real directory") || !strings.Contains(stderr, tc.link+tc.file) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1 naming %s as not a real directory", code, stdout, stderr, tc.link+tc.file)
+			}
+			if !equalTrees(before, tree(t, root)) || !equalTrees(beforeOutside, tree(t, outside)) {
+				t.Errorf("files changed under the root or outside it")
 			}
 		})
 	}
@@ -764,18 +833,32 @@ func TestFetchTemporariesAndRawBytesAreSafeFromGit(t *testing.T) {
 			t.Errorf("git check-ignore %s: %v %s; want it ignored", p, err, out)
 		}
 	}
-	raws, err := filepath.Glob(filepath.Join(top, "sources", "*", "*", "*", "raw", "*.xml"))
+	// Every file under sources/ is L0 whose bytes matter: the raw XML, the
+	// meta.yaml fetch reads back (a CRLF checkout would make it unreadable),
+	// and the tree.json, text.md and overrides.yaml later steps add.
+	committed, err := exec.Command("git", "-C", top, "ls-files", "--", "sources/").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raws) == 0 {
-		t.Fatal("no committed raw XML found")
+	paths := strings.Fields(string(committed))
+	var raw, meta int
+	for _, p := range paths {
+		switch {
+		case strings.HasSuffix(p, ".xml"):
+			raw++
+		case strings.HasSuffix(p, "/meta.yaml"):
+			meta++
+		}
 	}
-	paths := []string{"sources/ecfr/title-12/supplement-i/41/raw/2025-01-01.xml"} // a later source
-	for _, r := range raws {
-		rel, _ := filepath.Rel(top, r)
-		paths = append(paths, filepath.ToSlash(rel))
+	if raw == 0 || meta == 0 {
+		t.Fatalf("committed under sources/: %v; want raw XML and meta.yaml", paths)
 	}
+	paths = append(paths, // a later source and later steps' files
+		"sources/ecfr/title-12/supplement-i/41/raw/2025-01-01.xml",
+		"sources/ecfr/title-12/supplement-i/41/meta.yaml",
+		"sources/ecfr/title-12/1024.41/tree.json",
+		"sources/ecfr/title-12/1024.41/text.md",
+		"sources/ecfr/title-12/1024.41/overrides.yaml")
 	// Every attribute by which git can rewrite bytes on checkout or commit is
 	// unset: end-of-line conversion, clean/smudge filters, $Id$ expansion and
 	// re-encoding.

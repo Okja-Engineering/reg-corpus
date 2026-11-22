@@ -312,6 +312,9 @@ func TestXMLReturnsTheDecodedBodyByteForByte(t *testing.T) {
 		{"every XML whitespace outside the root", reply{body: "\t\r\n <DIV8 N=\"1024.41\" TYPE=\"SECTION\"/>\t\r\n "}},
 		{"a PI whose target starts with xml", reply{body: `<DIV8 N="1024.41" TYPE="SECTION"/><?xml-stylesheet href="a"?>`}},
 		{"CDATA and character references inside the root", reply{body: `<DIV8 N="1024.41" TYPE="SECTION"><![CDATA[<x>]]>&#167;</DIV8>`}},
+		{"a declaration with spaces around = and single quotes", reply{body: "<?xml version = '1.0' ?>\n<DIV8 N=\"1024.41\" TYPE=\"SECTION\"/>"}},
+		{"a declaration with every part", reply{body: "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n<DIV8 N=\"1024.41\" TYPE=\"SECTION\"/>"}},
+		{"a declaration with standalone only", reply{body: "<?xml version=\"1.0\"\tstandalone='no'\r\n?><DIV8 N=\"1024.41\" TYPE=\"SECTION\"/>"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
@@ -361,6 +364,25 @@ func TestXMLIsOneDocumentWhoseRootIsTheSectionAsked(t *testing.T) {
 		{"an upper-case declaration", `<?XML version="1.0"?>` + root + "</DIV8>", "XML declaration"},
 		{"a mixed-case declaration", `<?Xml version="1.0"?>` + root + "</DIV8>", "XML declaration"},
 		{"a declaration without a version", `<?xml encoding="UTF-8"?>` + root + "</DIV8>", "XML declaration"},
+		// The declaration is parsed by its grammar (XML 1.0, 2.8): version 1.0,
+		// then optionally encoding UTF-8, then optionally standalone, in that
+		// order, each with Eq (= with optional spaces) and a quoted value.
+		{"an empty declaration", `<?xml?>` + root + "</DIV8>", "XML declaration"},
+		{"a version without a value", `<?xml version?>` + root + "</DIV8>", "XML declaration"},
+		{"a misspelt version", `<?xml versionx="2.0"?>` + root + "</DIV8>", "XML declaration"},
+		{"version 2.0 with spaces around =", `<?xml version = "2.0"?>` + root + "</DIV8>", "XML declaration"},
+		{"version 1.1", `<?xml version="1.1"?>` + root + "</DIV8>", "not well-formed XML"},
+		{"mismatched quotes", `<?xml version="1.0'?>` + root + "</DIV8>", "XML declaration"},
+		{"no space before encoding", `<?xml version="1.0"encoding="UTF-8"?>` + root + "</DIV8>", "XML declaration"},
+		{"Latin-1 with spaces around =", `<?xml version="1.0" encoding = "ISO-8859-1"?>` + root + "</DIV8>", "XML declaration"},
+		{"encoding before version", `<?xml encoding="UTF-8" version="1.0"?>` + root + "</DIV8>", "XML declaration"},
+		{"standalone maybe", `<?xml version="1.0" standalone="maybe"?>` + root + "</DIV8>", "XML declaration"},
+		{"standalone before encoding", `<?xml version="1.0" standalone="yes" encoding="UTF-8"?>` + root + "</DIV8>", "XML declaration"},
+		{"junk after the declaration's attributes", `<?xml version="1.0" junk?>` + root + "</DIV8>", "XML declaration"},
+		{"a namespaced N on the root", decl + `<DIV8 xmlns:x="urn:x" x:N="1024.41" TYPE="SECTION"></DIV8>`, `root element <DIV8 TYPE="SECTION">`},
+		{"a namespaced TYPE on the root", decl + `<DIV8 xmlns:x="urn:x" N="1024.41" x:TYPE="SECTION"></DIV8>`, `root element <DIV8 N="1024.41">`},
+		{"a default namespace on the root", decl + `<DIV8 N="1024.41" TYPE="SECTION" xmlns="urn:x"></DIV8>`, "root element <urn:x:DIV8"},
+		{"a duplicate attribute through two prefixes", decl + root + `<P xmlns:a="u" xmlns:b="u" a:x="1" b:x="2"/></DIV8>`, "duplicate attribute u:x"},
 		{"a doctype", decl + "<!DOCTYPE DIV8>" + root + "</DIV8>", "<!DOCTYPE DIV8>"},
 		{"a duplicate N on the root", decl + `<DIV8 N="1024.40" N="1024.41" TYPE="SECTION"></DIV8>`, `duplicate attribute N`},
 		{"a duplicate TYPE on the root", decl + `<DIV8 TYPE="APPENDIX" N="1024.41" TYPE="SECTION"></DIV8>`, `duplicate attribute TYPE`},
@@ -600,7 +622,7 @@ func TestAnErrorBodyIsReadOnlyForItsSnippet(t *testing.T) {
 }
 
 // TestAZeroClientHasADefaultHTTPClient: a Client with no HTTP client works,
-// with a default one, instead of panicking.
+// with a default one that has a timeout, so it never waits forever.
 func TestAZeroClientHasADefaultHTTPClient(t *testing.T) {
 	_, c := newFake(t)
 	zero := &Client{BaseURL: c.BaseURL}
