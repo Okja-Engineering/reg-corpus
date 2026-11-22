@@ -35,7 +35,7 @@ Phase 1 covers 12 CFR 1024.41 and its official commentary, plus, as cite-only te
 - **"Verified" means the whole rule** (trigger, deadline, day type, conditions, exceptions), recorded with who, when and against which source version.
 - **Dates kept apart.** Each entry keeps its effective, retrieved and verified dates separate.
 - **Sources labeled by tier:** law, regulator interpretation, investor guide, standard.
-- **Enforced, not advised.** The check, and the rule that no model edits or verifies registry records, run as a CI gate in the corpus repo, with hooks as seatbelts, and as hooks in consumers (CI later), not as instructions. A person can still bypass local hooks; CI closes that, in the corpus from phase 1 (ADR 0007).
+- **Enforced, not advised.** The check, and the rule that no model edits or verifies registry records, run as hooks, not as instructions. A person can still bypass local hooks. For the check, CI closes that: in the corpus repo from phase 1, where CI's `C6 gate` check is the gate once `main`'s branch protection requires it and up-to-date branches, and the hooks are seatbelts (ADR 0007); in consumers, later. CI can't tell who wrote a record, so the no-model-edits rule rests on the R11 agent guard and on `verify` needing a terminal.
 - **No-gos:**
   - CLI only in phase 1: no server, API or MCP until a consumer without a shell needs one (every phase-1 consumer has a shell, and the gate needs a binary anyway)
   - no search-based retrieval
