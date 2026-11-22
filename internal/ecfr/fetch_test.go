@@ -308,11 +308,21 @@ func TestFetchFailureExitsTwoAndStoresNothingForThatSection(t *testing.T) {
 }
 
 // TestUsageAndRootErrors: a usage error or a directory that isn't a corpus
-// root exits 2 before any request, and writes nothing.
+// root (no sources/ecfr/title-12) exits 2 before any request, and writes
+// nothing. A symlink or a file in place of a directory there is what it is
+// anywhere under sources/: not a real directory, exit 1, also before any
+// request.
 func TestUsageAndRootErrors(t *testing.T) {
 	notRoot := t.TempDir()
 	titleFile := t.TempDir()
 	writeFile(t, titleFile, "sources/ecfr/title-12", "not a directory")
+	titleLink := t.TempDir()
+	writeFile(t, titleLink, "sources/ecfr/.gitkeep", "")
+	if err := os.Symlink(corpusRoot(t), filepath.Join(titleLink, "sources", "ecfr", "title-12")); err != nil {
+		t.Fatal(err)
+	}
+	sourcesFile := t.TempDir()
+	writeFile(t, sourcesFile, "sources", "not a directory")
 	for _, tc := range []struct {
 		name   string
 		root   string
@@ -336,8 +346,12 @@ func TestUsageAndRootErrors(t *testing.T) {
 			"regcorpus fetch: flag provided but not defined: -latest\nusage: regcorpus fetch"},
 		{"not a corpus root", notRoot, nil, 2, "",
 			"regcorpus fetch: " + notRoot + " is not a corpus root (no sources/ecfr/title-12/ directory); run fetch from the corpus root\n"},
-		{"sources/ecfr/title-12 is a file", titleFile, nil, 2, "",
-			"regcorpus fetch: " + titleFile + " is not a corpus root (no sources/ecfr/title-12/ directory); run fetch from the corpus root\n"},
+		{"sources/ecfr/title-12 is a file", titleFile, nil, 1, "",
+			"regcorpus fetch: sources/ecfr/title-12 is not a real directory"},
+		{"sources/ecfr/title-12 is a symlink", titleLink, nil, 1, "",
+			"regcorpus fetch: sources/ecfr/title-12 is not a real directory"},
+		{"sources is a file", sourcesFile, nil, 1, "",
+			"regcorpus fetch: sources is not a real directory"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)

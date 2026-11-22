@@ -25,6 +25,7 @@ type fsizeResult struct {
 	Skip           string
 	Code           int
 	Stdout, Stderr string
+	After          string // the error writing a file after the fetch, if any
 }
 
 const fsizeMarker = "fsize-result: "
@@ -33,6 +34,8 @@ const fsizeMarker = "fsize-result: "
 // and leaves neither the file nor a temporary behind. RLIMIT_FSIZE binds the
 // whole process, so the fetch runs in a child test binary: in this one, any
 // write in the window (go test's own log of file accesses) would fail too.
+// And in the child only the fetch runs under the limit: what writes after it
+// (a coverage profile at exit, say) can write in full.
 func TestAFailedWriteStoresNothing(t *testing.T) {
 	if root := os.Getenv(fsizeRootEnv); root != "" {
 		fsizeChild(t, root)
@@ -60,6 +63,9 @@ func TestAFailedWriteStoresNothing(t *testing.T) {
 	if r.Code != 2 || r.Stdout != "" || !strings.HasPrefix(r.Stderr, "regcorpus fetch: 1024.41: ") {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 2 for 1024.41", r.Code, r.Stdout, r.Stderr)
 	}
+	if r.After != "" {
+		t.Errorf("after the fetch the child can't write a file: %s; the limit outlived the fetch", r.After)
+	}
 	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41/raw")))
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
@@ -85,6 +91,9 @@ func fsizeChild(t *testing.T, root string) {
 		r.Skip = fmt.Sprintf("can't lower RLIMIT_FSIZE: %v", err)
 	} else {
 		r.Code, r.Stdout, r.Stderr = fetchAt(t, root, c, "2026-11-22", "1024.41")
+		if err := os.WriteFile(filepath.Join(t.TempDir(), "after"), make([]byte, 1<<10), 0o644); err != nil {
+			r.After = err.Error()
+		}
 	}
 	b, err := json.Marshal(r)
 	if err != nil {

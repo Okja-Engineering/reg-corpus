@@ -622,18 +622,49 @@ func TestAnErrorBodyIsReadOnlyForItsSnippet(t *testing.T) {
 	}
 }
 
-// TestAZeroClientHasADefaultHTTPClient: a Client with no HTTP client works,
-// with a default one that has a timeout, so it never waits forever.
+// deadlines is a RoundTripper that records each request's deadline and
+// passes it on.
+type deadlines struct {
+	next http.RoundTripper
+	mu   sync.Mutex
+	seen []time.Time // the zero Time for a request without one
+}
+
+func (d *deadlines) RoundTrip(req *http.Request) (*http.Response, error) {
+	dl, _ := req.Context().Deadline()
+	d.mu.Lock()
+	d.seen = append(d.seen, dl)
+	d.mu.Unlock()
+	return d.next.RoundTrip(req)
+}
+
+// TestAZeroClientHasADefaultHTTPClient: a Client with no HTTP client, the
+// zero one or NewClient's, works, and each request it sends has
+// defaultTimeout as its deadline, so it never waits forever. The deadline is
+// read where the request leaves, in http.DefaultTransport, which such a
+// Client sends through.
 func TestAZeroClientHasADefaultHTTPClient(t *testing.T) {
 	_, c := newFake(t)
-	zero := &Client{BaseURL: c.BaseURL}
+	rec := &deadlines{next: http.DefaultTransport}
+	http.DefaultTransport = rec
+	t.Cleanup(func() { http.DefaultTransport = rec.next })
 	s, _ := lookup("1024.41")
-	if _, err := zero.XML(context.Background(), s, "2025-07-15"); err != nil {
-		t.Fatal(err)
-	}
-	for name, c := range map[string]*Client{"zero": zero, "NewClient": NewClient()} {
-		if hc := c.httpClient(); hc.Timeout != defaultTimeout || hc.Timeout <= 0 {
-			t.Errorf("%s Client's HTTP timeout is %v; want %v", name, hc.Timeout, defaultTimeout)
+	nc := NewClient()
+	nc.BaseURL = c.BaseURL
+	for name, c := range map[string]*Client{"zero": {BaseURL: c.BaseURL}, "NewClient": nc} {
+		rec.seen = nil
+		start := time.Now()
+		if _, err := c.XML(context.Background(), s, "2025-07-15"); err != nil {
+			t.Fatalf("%s Client: %v", name, err)
+		}
+		end := time.Now()
+		if defaultTimeout <= 0 || len(rec.seen) == 0 {
+			t.Fatalf("%s Client: defaultTimeout %v, %d requests seen", name, defaultTimeout, len(rec.seen))
+		}
+		for _, dl := range rec.seen {
+			if dl.Before(start.Add(defaultTimeout)) || dl.After(end.Add(defaultTimeout)) {
+				t.Errorf("%s Client sent a request with deadline %v; want %v after it was sent", name, dl, defaultTimeout)
+			}
 		}
 	}
 }
