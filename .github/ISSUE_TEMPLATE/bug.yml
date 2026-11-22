@@ -1,0 +1,53 @@
+name: Bug
+description: The CLI, the gate, a hook or a document does something other than the spec says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report tool and process behavior only. No interpretation of the regulation, and no product or compliance guidance (AGENTS.md, hard rules). A defect in the eCFR source text is fixed by a reviewed `overrides.yaml` entry, not here.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Where the spec, a contract or AGENTS.md says so, cite it.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command, full output and exit code
+      description: The exact command, everything it printed, and `echo $?` after it.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: Commit SHA
+      description: "`git rev-parse HEAD` where it ran."
+    validations:
+      required: true
+  - type: input
+    id: requirements
+    attributes:
+      label: Requirement IDs
+      description: The spec's R and C IDs this touches.
+      placeholder: R5, C6
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Stage
+      options:
+        - 01 fetch-parse
+        - 02 extract
+        - 03 verify
+        - 04 release
+        - 05 evaluate
+        - Outside the stages (a tool step or the gate)

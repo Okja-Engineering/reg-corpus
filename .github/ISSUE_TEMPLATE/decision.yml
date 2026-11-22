@@ -1,0 +1,46 @@
+name: Decision
+description: An open technical call for the owner. Once made, it is recorded as an ADR under docs/adr/.
+labels: [decision]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Technical calls only: no interpretation of the regulation, and no product or compliance guidance (AGENTS.md, hard rules). The owner decides. Once decided, the call is quoted here with its time and timezone, recorded as the next `docs/adr/NNNN-*.md` in a PR, and this issue is closed (see `docs/adr/README.md`).
+  - type: input
+    id: call
+    attributes:
+      label: The call
+      description: One sentence, as a question the owner can answer.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What forces the call, and the spec, plan or contract text it touches (with R and C IDs).
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options
+      description: Each option with its cost. Mark the recommended one and say why.
+      value: |
+        1. (recommended)
+        2.
+    validations:
+      required: true
+  - type: textarea
+    id: blocks
+    attributes:
+      label: What it blocks
+      description: The plan steps, stages or PRs waiting on it.
+    validations:
+      required: true
+  - type: input
+    id: decider
+    attributes:
+      label: Who decides
+      value: The owner
+    validations:
+      required: true
