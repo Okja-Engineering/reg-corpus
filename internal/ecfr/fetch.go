@@ -28,6 +28,8 @@ entry in raw/, the latest version's file, and meta.yaml names its date and
 sha256; a stored file is never overwritten. Identical bytes are a no-op.
 Different bytes, any other entry in raw/, or a meta.yaml that isn't fetch's,
 lacks its raw file or names another date or sha256 exit 1 and store nothing.
+So does a symlink or a file where a directory on the way should be, under
+sources/ or .cache/: fetch goes only through real directories.
 
 Every fetch, --date's too, refuses (exit 2) while eCFR reports an import in
 progress, and any date after the one eCFR is up to date as of.
@@ -214,10 +216,14 @@ type storedMeta struct {
 
 // readState reads s's directory under the root, once. A meta.yaml that isn't
 // a regular file in fetch's own format is a *conflictError: fetch never
-// replaces one, and won't guess what it describes. A directory or file it
-// can't read is an error as is (exit 2).
+// replaces one, and won't guess what it describes; so is a symlink or file on
+// the way to raw/ (realDirs). A directory or file it can't read is an error
+// as is (exit 2).
 func (f fetcher) readState(s Source) (sourceState, error) {
 	var st sourceState
+	if err := realDirs(f.root, path.Join(s.dir(), "raw")); err != nil {
+		return st, err
+	}
 	dir := filepath.Join(f.root, filepath.FromSlash(s.dir()))
 	ents, err := os.ReadDir(filepath.Join(dir, "raw"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {

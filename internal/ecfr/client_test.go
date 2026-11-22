@@ -373,6 +373,7 @@ func TestXMLIsOneDocumentWhoseRootIsTheSectionAsked(t *testing.T) {
 		{"version 2.0 with spaces around =", `<?xml version = "2.0"?>` + root + "</DIV8>", "XML declaration"},
 		{"version 1.1", `<?xml version="1.1"?>` + root + "</DIV8>", "not well-formed XML"},
 		{"mismatched quotes", `<?xml version="1.0'?>` + root + "</DIV8>", "XML declaration"},
+		{"a value not quoted", "<?xml version=`1.0`?>" + root + "</DIV8>", "XML declaration"},
 		{"no space before encoding", `<?xml version="1.0"encoding="UTF-8"?>` + root + "</DIV8>", "XML declaration"},
 		{"Latin-1 with spaces around =", `<?xml version="1.0" encoding = "ISO-8859-1"?>` + root + "</DIV8>", "XML declaration"},
 		{"encoding before version", `<?xml encoding="UTF-8" version="1.0"?>` + root + "</DIV8>", "XML declaration"},
@@ -629,6 +630,11 @@ func TestAZeroClientHasADefaultHTTPClient(t *testing.T) {
 	s, _ := lookup("1024.41")
 	if _, err := zero.XML(context.Background(), s, "2025-07-15"); err != nil {
 		t.Fatal(err)
+	}
+	for name, c := range map[string]*Client{"zero": zero, "NewClient": NewClient()} {
+		if hc := c.httpClient(); hc.Timeout != defaultTimeout || hc.Timeout <= 0 {
+			t.Errorf("%s Client's HTTP timeout is %v; want %v", name, hc.Timeout, defaultTimeout)
+		}
 	}
 }
 

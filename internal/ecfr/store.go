@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // conflictError is a fetch that would change a stored file. fetch never
@@ -29,8 +31,12 @@ const tempPattern = ".fetch-*"
 // written to a temporary file, synced, and hard-linked into place, which
 // fails if anything is at p, so a file is never overwritten, never seen
 // half-written, and never left short by a crash. So the corpus needs a
-// filesystem with hard links (not FAT or exFAT); there is no fallback.
+// filesystem with hard links (not FAT or exFAT); there is no fallback. Every
+// directory on the way to p must be a real one (realDirs).
 func storeOnce(root, p string, body []byte) (stored bool, err error) {
+	if err := realDirs(root, path.Dir(p)); err != nil {
+		return false, err
+	}
 	full := filepath.Join(root, filepath.FromSlash(p))
 	have, err := os.ReadFile(full)
 	if err == nil {
@@ -61,18 +67,49 @@ func storeOnce(root, p string, body []byte) (stored bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if err := os.Link(tmp.Name(), full); err != nil {
-		if !errors.Is(err, fs.ErrExist) {
-			return false, fmt.Errorf("storing %s: fetch places a file by hard link so it never overwrites one, and the link failed (a filesystem without hard links, such as FAT or exFAT, can't hold the corpus): %w", p, err)
-		}
-		// Something is at p after all: written since the read above, or a
-		// symlink to nothing. It is compared, never replaced.
-		if have, err = os.ReadFile(full); err != nil {
-			return false, fmt.Errorf("%s exists but can't be read: %w", p, err)
-		}
-		return false, compare(p, have, body)
+	return link(tmp.Name(), full, p, body)
+}
+
+// link places tmp, holding body, at full (slash path p) by a hard link, which
+// fails if anything is there. Then (something written since storeOnce read
+// full, or a symlink to nothing) what is there is compared, never replaced:
+// the same bytes are a no-op (stored false), others a *conflictError.
+func link(tmp, full, p string, body []byte) (stored bool, err error) {
+	err = os.Link(tmp, full)
+	if err == nil {
+		return true, nil
 	}
-	return true, nil
+	if !errors.Is(err, fs.ErrExist) {
+		return false, fmt.Errorf("storing %s: fetch places a file by hard link so it never overwrites one, and the link failed (a filesystem without hard links, such as FAT or exFAT, can't hold the corpus): %w", p, err)
+	}
+	have, err := os.ReadFile(full)
+	if err != nil {
+		return false, fmt.Errorf("%s exists but can't be read: %w", p, err)
+	}
+	return false, compare(p, have, body)
+}
+
+// realDirs returns a *conflictError when an entry on slash path dir under
+// root, dir itself included, is anything but a real directory: a symlink
+// (even to a directory) or a file. fetch reads and writes only through real
+// directories, so nothing it stores lands outside the root or behind a link
+// git can't see through. A missing entry ends the walk: what fetch creates
+// there is real.
+func realDirs(root, dir string) error {
+	p := ""
+	for _, name := range strings.Split(dir, "/") {
+		p = path.Join(p, name)
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p)))
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return err
+		case !info.IsDir():
+			return &conflictError{fmt.Sprintf("%s is not a real directory (it is a symlink or a file); fetch reads and writes only through real directories under the corpus root, and changes nothing (R1)", p)}
+		}
+	}
+	return nil
 }
 
 // compare returns nil when the stored bytes have (at slash path p) equal

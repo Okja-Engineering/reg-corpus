@@ -1,5 +1,7 @@
-# Raw XML is L0, stored byte for byte as eCFR served it (R1): git never
+# Everything under sources/ is L0, stored byte for byte (R1): git never
 # rewrites it on checkout or commit, whatever its config says. No end-of-line
 # conversion (text), clean/smudge filter, $Id$ expansion (ident) or
-# re-encoding (working-tree-encoding).
-sources/**/raw/*.xml -text -filter -ident -working-tree-encoding
+# re-encoding (working-tree-encoding). Raw XML must keep eCFR's bytes, and
+# meta.yaml fetch's: checked out with CRLF, fetch can't read one and every
+# source would exit 1. tree.json, text.md and overrides.yaml are L0 too.
+sources/** -text -filter -ident -working-tree-encoding
