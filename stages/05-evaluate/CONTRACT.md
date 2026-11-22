@@ -13,10 +13,12 @@ rule (spec decision 5) to reach accept, revise or kill.
   extraction (plan step 10).
 - `eval/judge-v1.md`: the committed judge prompt, written before any run.
 - Per arm (spec "Arms"), each run in its own temp directory:
-  - (a): the L0 text files and `eval/fixture-src/` (plan step 11);
+  - (a): the L0 text files and `eval/fixture-src/` without `key.yaml` (plan step 11);
   - (b): L0, the lookup-only binary (`make build LOOKUP_ONLY=1`), the skill and
     `eval/fixture/`;
   - (c): as (b), with the full binary and the `regcorpus check` output.
+  - No arm's run directory holds `key.yaml`; only grading reads it (owner's
+    decision, 2026-11-21; the spec's arm (a) line says `fixture-src` whole).
 - `eval/render/`: maps `fixture-src` to `eval/fixture/` through the derived
   inventory (plan step 25). The skill is installed as a project skill in arms
   (b) and (c) (plan steps 23, 25 and 26).
