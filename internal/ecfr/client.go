@@ -204,11 +204,7 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("User-Agent", userAgent)
-	hc := http.Client{Timeout: defaultTimeout}
-	if c.HTTP != nil {
-		hc = *c.HTTP
-	}
-	hc.CheckRedirect = sameOrigin
+	hc := c.httpClient()
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err // already names the method and URL
@@ -227,6 +223,17 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 		return nil, fmt.Errorf("GET %s: %w", u, err)
 	}
 	return body, nil
+}
+
+// httpClient is the client get uses: a copy of c.HTTP, or one with
+// defaultTimeout when c.HTTP is nil, with sameOrigin as its redirect policy.
+func (c *Client) httpClient() http.Client {
+	hc := http.Client{Timeout: defaultTimeout}
+	if c.HTTP != nil {
+		hc = *c.HTTP
+	}
+	hc.CheckRedirect = sameOrigin
+	return hc
 }
 
 // sameOrigin is the redirect policy of get: a redirect is followed only to the
@@ -326,8 +333,9 @@ var bom = []byte("\xef\xbb\xbf")
 //   - outside the root, only comments, processing instructions and XML
 //     whitespace (space, tab, CR, LF) as written: no other text, and no CDATA
 //     or character reference even if it stands for whitespace;
-//   - a PI target of "xml" in any case only as the XML declaration, written
-//     <?xml version=...?> at the very start (after an optional UTF-8 BOM);
+//   - a PI target of "xml" in any case only as the XML declaration, at the
+//     very start (after an optional UTF-8 BOM), and that by its grammar
+//     (xmlDeclaration): version 1.0, encoding UTF-8 if any, standalone if any;
 //   - no <!DOCTYPE> or other declaration anywhere: eCFR serves none, and a
 //     document that has one is not eCFR's.
 func document(b []byte, want rootElement) error {
@@ -371,13 +379,18 @@ func document(b []byte, want rootElement) error {
 		case xml.CharData:
 			// Judged as written, not as decoded: CDATA and character
 			// references decode to text indistinguishable from whitespace.
-			if written := in[start:d.InputOffset()]; depth == 0 && len(bytes.Trim(written, " \t\r\n")) > 0 {
+			if written := in[start:d.InputOffset()]; depth == 0 && len(bytes.Trim(written, xmlSpace)) > 0 {
 				return malformed(d, "text outside the root element: %s", snippet(written))
 			}
 		case xml.ProcInst:
-			declaration := first && t.Target == "xml" && bytes.HasPrefix(bytes.TrimLeft(t.Inst, " \t\r\n"), []byte("version"))
-			if strings.EqualFold(t.Target, "xml") && !declaration {
+			if !strings.EqualFold(t.Target, "xml") {
+				break
+			}
+			if !first || t.Target != "xml" {
 				return malformed(d, "<?%s %s?> is not an XML declaration, <?xml version=...?> at the very start", t.Target, t.Inst)
+			}
+			if err := xmlDeclaration(t.Inst); err != nil {
+				return malformed(d, "XML declaration <?xml %s?>: %v", t.Inst, err)
 			}
 		case xml.Directive:
 			return malformed(d, "<!%s>", t)
@@ -385,6 +398,56 @@ func document(b []byte, want rootElement) error {
 	}
 	if roots == 0 {
 		return errors.New("not well-formed XML: no root element")
+	}
+	return nil
+}
+
+// xmlSpace is XML's whitespace (XML 1.0, 2.3 S).
+const xmlSpace = " \t\r\n"
+
+// xmlDeclaration returns nil when inst, what follows the target of an
+// <?xml ...?> PI, is an XML declaration by its grammar (XML 1.0, 2.8): version
+// 1.0, then optionally encoding UTF-8 (in any case), then optionally
+// standalone yes or no, in that order, each name Eq (= with optional
+// whitespace) and a single- or double-quoted value, separated by whitespace.
+func xmlDeclaration(inst []byte) error {
+	rest := string(inst)
+	for i, part := range []struct {
+		name string
+		ok   func(string) bool
+	}{
+		{"version", func(v string) bool { return v == "1.0" }},
+		{"encoding", func(v string) bool { return strings.EqualFold(v, "UTF-8") }},
+		{"standalone", func(v string) bool { return v == "yes" || v == "no" }},
+	} {
+		// The parser has read the whitespace after the target, so version
+		// needs none of its own; the others are each separated from the last.
+		s := strings.TrimLeft(rest, xmlSpace)
+		if (i > 0 && len(s) == len(rest)) || !strings.HasPrefix(s, part.name) {
+			if i == 0 {
+				return errors.New("no version")
+			}
+			continue // an optional part, absent
+		}
+		s = strings.TrimLeft(s[len(part.name):], xmlSpace)
+		if !strings.HasPrefix(s, "=") {
+			return fmt.Errorf("%s without =", part.name)
+		}
+		s = strings.TrimLeft(s[1:], xmlSpace)
+		if s == "" || (s[0] != '"' && s[0] != '\'') {
+			return fmt.Errorf("%s without a quoted value", part.name)
+		}
+		end := strings.IndexByte(s[1:], s[0])
+		if end < 0 {
+			return fmt.Errorf("%s's value is not closed", part.name)
+		}
+		if v := s[1 : 1+end]; !part.ok(v) {
+			return fmt.Errorf("%s %q", part.name, v)
+		}
+		rest = s[2+end:]
+	}
+	if s := strings.Trim(rest, xmlSpace); s != "" {
+		return fmt.Errorf("unexpected %q", s)
 	}
 	return nil
 }

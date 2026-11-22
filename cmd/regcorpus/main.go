@@ -60,4 +60,6 @@ commands:
 codes, which are the authority. In short: 0 ok, 1 violations or a conflict
 with a stored file, 2 anything that stops the command (usage, network, eCFR,
 or a file it can't read or write). A missing or unknown command exits 2.
+verify exits 2 without an interactive terminal and 1 until it is built
+(plan step 19).
 `
