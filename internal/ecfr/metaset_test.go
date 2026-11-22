@@ -668,6 +668,11 @@ func TestCitationsAreReadFromEachNoteAsWritten(t *testing.T) {
 		{"the second of a shorthand pair", "<CITA TYPE=\"N\">[78 FR 63004, 63005, Oct. 23, 2013]</CITA>", "78 FR 63005", 0},
 		{"a year is no page", "<CITA TYPE=\"N\">[78 FR 60437, Oct. 1, 2013]</CITA>", "78 FR 2013", 1},
 		{"parts split by an element", "<CITA TYPE=\"N\">[90 FR <E T=\"03\">20792</E>, May 16, 2025]</CITA>", "90 FR 20792", 1},
+		{"parts split by an element's end", "<CITA TYPE=\"N\">[<E T=\"03\">90 FR</E> 20792, May 16, 2025]</CITA>", "90 FR 20792", 1},
+		{"a citation after another, past only a comma", "<CITA TYPE=\"N\">[78 FR 6856, 81 FR 72370, Oct. 19, 2016]</CITA>", "81 FR 72370", 0},
+		{"no shorthand page taken from the next citation", "<CITA TYPE=\"N\">[78 FR 6856, 81 FR 72370, Oct. 19, 2016]</CITA>", "78 FR 81", 1},
+		{"a citation in the first of two notes", "<CITA TYPE=\"N\">[78 FR 10876, Feb. 14, 2013]</CITA>\n<P>(b) Text.</P>\n<CITA TYPE=\"N\">[90 FR 20792, May 16, 2025]</CITA>", "78 FR 10876", 0},
+		{"a citation in the second of two notes", "<CITA TYPE=\"N\">[78 FR 10876, Feb. 14, 2013]</CITA>\n<P>(b) Text.</P>\n<CITA TYPE=\"N\">[90 FR 20792, May 16, 2025]</CITA>", "90 FR 20792", 0},
 		{"parts split across two notes", "<CITA TYPE=\"N\">[90 FR</CITA>\n<CITA TYPE=\"N\">20792, May 16, 2025]</CITA>", "90 FR 20792", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -685,34 +690,42 @@ func TestCitationsAreReadFromEachNoteAsWritten(t *testing.T) {
 	if want := "which cites 78 FR 10876, 78 FR 63004, 78 FR 63005, 90 FR 20792;"; code != 1 || !strings.Contains(stderr, want) {
 		t.Errorf("exit %d, stderr %q; want 1 and %q", code, stderr, want)
 	}
+	root = notedCorpus(t, "<CITA TYPE=\"N\">[78 FR 6856, 81 FR 72370, Oct. 19, 2016]</CITA>")
+	code, _, stderr = metaAt(t, root, "set", "1024.41", "version_fr_citations", "90 FR 1")
+	if want := "which cites 78 FR 6856, 81 FR 72370;"; code != 1 || !strings.Contains(stderr, want) {
+		t.Errorf("exit %d, stderr %q; want 1 and %q", code, stderr, want)
+	}
 }
 
-// TestEffectiveDateIsNotAfterTheVersionDate: version_effective_date, the
-// effective date of the change that produced the stored version, is on or
-// before source_version_date; a later one is refused (exit 1) and nothing
-// is written.
-func TestEffectiveDateIsNotAfterTheVersionDate(t *testing.T) {
-	for _, tc := range []struct {
-		date string
-		code int
-	}{{"2025-07-15", 0}, {"2013-02-14", 0}, {"2025-07-16", 1}, {"2026-01-01", 1}} {
-		t.Run(tc.date, func(t *testing.T) {
+// TestCitationsComeOnlyFromWellFormedXML: raw XML a strict parse refuses
+// (here an unquoted attribute) is refused (exit 1, naming the raw file), even
+// with sha256_raw's bytes; no citation is read from it.
+func TestCitationsComeOnlyFromWellFormedXML(t *testing.T) {
+	root := notedCorpus(t, "<CITA TYPE=N>[90 FR 20792, May 16, 2025]</CITA>")
+	before := tree(t, root)
+	code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_fr_citations", "90 FR 20792")
+	if code != 1 || stdout != "" || !strings.Contains(stderr, rawPath("1024.41")) || !strings.Contains(stderr, "well-formed") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 1 naming the raw file as not well-formed", code, stdout, stderr)
+	}
+	if !equalTrees(before, tree(t, root)) {
+		t.Errorf("files changed")
+	}
+}
+
+// TestEffectiveDateIsTakenAsGiven: version_effective_date is set as given,
+// whatever its relation to source_version_date (2025-07-15 here): only its
+// form is checked. eCFR also dates a version by a rule's publication, before
+// the rule takes effect, so no bound between the two dates holds.
+func TestEffectiveDateIsTakenAsGiven(t *testing.T) {
+	for _, date := range []string{"2025-07-15", "2013-02-14", "2025-07-16", "2026-01-01"} {
+		t.Run(date, func(t *testing.T) {
 			root := citedCorpus(t)
-			before := tree(t, root)
-			code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", tc.date)
-			if code != tc.code {
-				t.Fatalf("exit %d, stdout %q, stderr %q; want %d", code, stdout, stderr, tc.code)
+			code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_effective_date", date)
+			if code != 0 || stderr != "" {
+				t.Fatalf("exit %d, stdout %q, stderr %q; want 0", code, stdout, stderr)
 			}
-			if tc.code == 0 {
-				return
-			}
-			for _, w := range []string{tc.date, "source_version_date", "2025-07-15"} {
-				if !strings.Contains(stderr, w) {
-					t.Errorf("stderr %q lacks %q", stderr, w)
-				}
-			}
-			if !equalTrees(before, tree(t, root)) {
-				t.Errorf("files changed")
+			if got, want := readFile(t, root, metaPath("1024.41")), withLines(`"`+date+`"`, ""); got != want {
+				t.Errorf("meta.yaml:\n%s\nwant:\n%s", got, want)
 			}
 		})
 	}

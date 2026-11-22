@@ -85,6 +85,16 @@ func TestMarshalAndParseAreInverses(t *testing.T) {
 			m.VersionEffectiveDate = "2018-04-19"
 			return m
 		}(), strings.Replace(fullYAML, `version_effective_date: "2025-07-15"`, `version_effective_date: "2018-04-19"`, 1)},
+		{"an effective date after the version date", func() Meta {
+			m := full()
+			m.VersionEffectiveDate = "2025-07-16"
+			return m
+		}(), strings.Replace(fullYAML, `version_effective_date: "2025-07-15"`, `version_effective_date: "2025-07-16"`, 1)},
+		{"a cfr with a backslash before an x", func() Meta {
+			m := created()
+			m.CFR = `12 CFR 1024.41\x`
+			return m
+		}(), strings.Replace(createdYAML, `cfr: "12 CFR 1024.41"`, `cfr: "12 CFR 1024.41\\x"`, 1)},
 		{"a cfr with an escape YAML reads the same", func() Meta {
 			m := created()
 			m.CFR = "12 CFR \"1024.41\""
@@ -178,10 +188,6 @@ func TestParseRefusesAnythingMarshalWouldNotWrite(t *testing.T) {
 		{"a list without its closing bracket", line(`["90 FR 20792", "86 FR 34899"]`, `["90 FR 20792", "86 FR 34899"`), []string{"version_fr_citations"}},
 		{"a citation twice", line(`["90 FR 20792", "86 FR 34899"]`, `["90 FR 20792", "86 FR 34899", "90 FR 20792"]`),
 			[]string{"version_fr_citations", `"90 FR 20792"`, "twice"}},
-		// version_effective_date: the change that produced the version took
-		// effect on or before source_version_date.
-		{"an effective date after the version date", line(`version_effective_date: "2025-07-15"`, `version_effective_date: "2025-07-16"`),
-			[]string{"version_effective_date", "2025-07-16", "source_version_date", "2025-07-15"}},
 		// Escapes: only those Go and YAML read the same way. Go reads \xe9 as
 		// the byte 0xe9, YAML as U+00E9.
 		{"a \\x escape YAML reads as another character", line(`cfr: "12 CFR 1024.41"`, `cfr: "12 CFR 1024.41\xe9"`), []string{"line 1", "cfr", `\x`}},
@@ -224,7 +230,6 @@ func TestMarshalRefusesWhatParseWouldRefuse(t *testing.T) {
 		{"a null verified_on with a date", func(m *Meta) { m.VerifiedOn = &NullDate{Date: "2026-11-23"} }, "verified_on"},
 		{"a bad hash", func(m *Meta) { m.SHA256Text = "deadbeef" }, "sha256_text"},
 		{"a citation twice", func(m *Meta) { m.VersionFRCitations = []Citation{"90 FR 20792", "90 FR 20792"} }, "twice"},
-		{"an effective date after the version date", func(m *Meta) { m.VersionEffectiveDate = "2025-07-16" }, "version_effective_date"},
 		{"a cfr that isn't UTF-8", func(m *Meta) { m.CFR = "12 CFR 1024.41\xe9" }, "cfr"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -67,6 +67,11 @@ func tree(t *testing.T, root string) map[string]string {
 			out[filepath.ToSlash(rel)] = "symlink to " + to
 			return err
 		}
+		if !d.Type().IsRegular() { // a named pipe, say: never opened
+			rel, _ := filepath.Rel(root, p)
+			out[filepath.ToSlash(rel)] = "special " + d.Type().String()
+			return nil
+		}
 		b, err := os.ReadFile(p)
 		if err != nil {
 			return err
