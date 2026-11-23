@@ -35,6 +35,8 @@ func TestMalformed(t *testing.T) {
 			`parse: line 2, column 1: malformed: text outside the root element: "\n\u00a0"`},
 		{"byte-order mark", []byte("\xef\xbb\xbf" + decl + div8 + head + para + "</DIV8>"),
 			"parse: line 1, column 1: malformed: text outside the section element"},
+		{"a duplicate attribute after a byte-order mark", []byte("\xef\xbb\xbf" + decl + `<DIV8 N="0.1" N="0.2" TYPE="SECTION">` + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: duplicate attribute N on <DIV8>"},
 		{"comment before the section", doc("<!-- c -->" + div8 + head + para + "</DIV8>"),
 			"parse: line 2, column 1: malformed: unexpected comment before the section element"},
 		{"directive before the section", doc("<!DOCTYPE DIV8>" + div8 + head + para + "</DIV8>"),
