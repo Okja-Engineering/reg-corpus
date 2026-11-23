@@ -258,9 +258,9 @@ const maxErrorBody = 8 << 10
 func errorSnippet(encoding string, r io.Reader) string {
 	raw, _ := io.ReadAll(io.LimitReader(r, maxErrorBody))
 	if body, err := decode(encoding, raw); err == nil {
-		return snippet(body)
+		return parse.Snippet(body)
 	}
-	return snippet(raw)
+	return parse.Snippet(raw)
 }
 
 // readCapped reads r to the end, failing past maxBody bytes.
@@ -296,15 +296,6 @@ func decode(encoding string, raw []byte) ([]byte, error) {
 	}
 }
 
-// snippet quotes up to the first 300 bytes of an error body.
-func snippet(body []byte) string {
-	const max = 300
-	if len(body) > max {
-		return strconv.Quote(string(body[:max])) + "..."
-	}
-	return strconv.Quote(string(body))
-}
-
 // firstInvalid returns the offset of the first byte of b that is not part of
 // a valid UTF-8 sequence, or -1.
 func firstInvalid(b []byte) int {
@@ -317,10 +308,6 @@ func firstInvalid(b []byte) int {
 	}
 	return -1
 }
-
-// bom is the UTF-8 byte order mark. It may open a document and is not part of
-// it (XML 1.0, 4.3.3).
-var bom = []byte("\xef\xbb\xbf")
 
 // document returns nil when b is one well-formed XML document whose root
 // element is want; otherwise an error completing "body is ...". The
@@ -337,22 +324,14 @@ func document(b []byte, want rootElement) error {
 	})
 }
 
-// qualified is n with its namespace, if any, before a colon.
-func qualified(n xml.Name) string {
-	if n.Space != "" {
-		return n.Space + ":" + n.Local
-	}
-	return n.Local
-}
-
 // rootOf is start's name and TYPE and N attributes. A namespaced element or
 // attribute keeps its namespace in the name, so it never equals an eCFR root.
 // parse.WellFormed refuses duplicate attributes before it calls the root
 // check, so each is read once.
 func rootOf(start xml.StartElement) rootElement {
-	r := rootElement{Name: qualified(start.Name)}
+	r := rootElement{Name: parse.Qualified(start.Name)}
 	for _, a := range start.Attr {
-		switch qualified(a.Name) {
+		switch parse.Qualified(a.Name) {
 		case "TYPE":
 			r.Type = a.Value
 		case "N":

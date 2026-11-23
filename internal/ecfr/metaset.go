@@ -240,7 +240,7 @@ func citationNote(body []byte) ([]meta.Citation, error) {
 	if err := parse.WellFormed(body, nil); err != nil {
 		return nil, err
 	}
-	d := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(body, bom)))
+	d := xml.NewDecoder(bytes.NewReader(body)) // a byte-order mark is text outside every note
 	d.Strict = true
 	var runs []string
 	var run strings.Builder

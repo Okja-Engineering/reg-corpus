@@ -88,7 +88,7 @@ func WellFormed(b []byte, root func(xml.StartElement) error) error {
 			for i, a := range t.Attr {
 				for _, prev := range t.Attr[:i] {
 					if a.Name == prev.Name {
-						return malformed(start, "duplicate attribute %s on <%s>", qualified(a.Name), qualified(t.Name))
+						return malformed(start, "duplicate attribute %s on <%s>", Qualified(a.Name), Qualified(t.Name))
 					}
 				}
 			}
@@ -110,7 +110,7 @@ func WellFormed(b []byte, root func(xml.StartElement) error) error {
 			// references decode to text indistinguishable from whitespace.
 			written := in[start:d.InputOffset()]
 			if text := bytes.TrimLeft(written, xmlSpace); depth == 0 && len(text) > 0 {
-				return malformed(start+int64(len(written)-len(text)), "text outside the root element: %s", snippet(written))
+				return malformed(start+int64(len(written)-len(text)), "text outside the root element: %s", Snippet(written))
 			}
 		case xml.ProcInst:
 			if !strings.EqualFold(t.Target, "xml") {
@@ -179,16 +179,19 @@ func xmlDeclaration(inst []byte) error {
 	return nil
 }
 
-// qualified is n with its namespace, if any, before a colon.
-func qualified(n xml.Name) string {
+// Qualified is n with its namespace, if any, before a colon: how a message,
+// here or in fetch, names an element or attribute.
+func Qualified(n xml.Name) string {
 	if n.Space != "" {
 		return n.Space + ":" + n.Local
 	}
 	return n.Local
 }
 
-// snippet quotes up to the first 300 bytes of b for a message.
-func snippet(b []byte) string {
+// Snippet quotes up to the first 300 bytes of b for a message, with "..."
+// after when there are more: text outside the root here, an error body in
+// fetch.
+func Snippet(b []byte) string {
 	const max = 300
 	if len(b) > max {
 		return strconv.Quote(string(b[:max])) + "..."

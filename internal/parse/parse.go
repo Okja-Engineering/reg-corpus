@@ -76,11 +76,7 @@ func (p *parser) next() (xml.Token, int, error) {
 		if allowed, ok := attrs[t.Name.Local]; ok {
 			for _, a := range t.Attr {
 				if a.Name.Space != "" || a.Name.Local != allowed {
-					name := a.Name.Local
-					if a.Name.Space != "" {
-						name = a.Name.Space + ":" + name
-					}
-					return nil, off, p.fail(off, Malformed, "", fmt.Sprintf("unexpected attribute %q on <%s>", name, t.Name.Local))
+					return nil, off, p.fail(off, Malformed, "", fmt.Sprintf("unexpected attribute %q on <%s>", Qualified(a.Name), t.Name.Local))
 				}
 			}
 		}
@@ -137,7 +133,7 @@ func (p *parser) fail(off int, reason Reason, label, detail string) *Error {
 // no-break space or a byte-order mark is text.
 func (p *parser) space(cd xml.CharData, off int, detail string) error {
 	i := 0
-	for i < len(cd) && strings.IndexByte(" \t\r\n", cd[i]) >= 0 {
+	for i < len(cd) && strings.IndexByte(xmlSpace, cd[i]) >= 0 {
 		i++
 	}
 	if i == len(cd) {
