@@ -250,7 +250,10 @@ func citationNote(body []byte) ([]meta.Citation, error) {
 		if err == io.EOF {
 			break
 		}
-		if err != nil { // not reached: WellFormed has decoded the same bytes
+		// Not reached: WellFormed has decoded body after one leading BOM, if
+		// any, and this decoder reads that BOM as text (U+FEFF, a legal XML
+		// character), then the same bytes.
+		if err != nil {
 			return nil, fmt.Errorf("not well-formed XML: %w", err)
 		}
 		if t, ok := tok.(xml.CharData); ok {
