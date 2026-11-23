@@ -148,11 +148,13 @@ owner's call. Each choice and its reason:
   reject a valid structure. The owner can overrule it; that case then
   fails instead.
 - **What a heading is.** One `<I>` element after a label and exactly one
-  space (U+0020) outside the `<I>` (`(b) <I>…</I>`). A second `<I>` right
-  after it, empty or not (`(a) <I>Head</I><I>(1)</I>`), fails as
-  malformed, at its start tag. Why: it is how every heading in 1024.41 is
-  written, and a second `<I>` read as part of the heading would hide what
-  it holds.
+  space (U+0020) outside the `<I>` (`(b) <I>…</I>`). Its start tag is the
+  only `<I>` start tag from the label's end to the heading's end: any
+  other, empty or not, before the heading (`(a) <I></I><I>Head</I>`) or
+  right after it (`(a) <I>Head</I><I>(1)</I>`), fails as malformed, at
+  its start tag. Why: it is how every heading in 1024.41 is written, and
+  another `<I>` read with the heading, or passed over because it is empty,
+  would hide what is there.
 - **The dash or space that ends a heading.** Exactly one "—" or one space
   (U+0020), right after the heading's `</I>`. Why: the owner's rule says
   "past the dash or space that ends it"; a label past no separator, or any
@@ -187,6 +189,11 @@ owner's call. Each choice and its reason:
   4. Otherwise the lead ends at the run's end. A digit ends the run as a
      letter does: in `(a) 2(1) text.`, "(1)" is running text.
 
+  Where one lead holds more than one of these failures, the one that comes
+  first in the XML is reported: `(a) <I>Head—(1) Sub</I><I>x</I>` fails at
+  (1), not at the second `<I>`. Of two at one place
+  (`(a).<I>(1) Head</I>`), the label is reported.
+
   Why: R1a never guesses, and reading such a label as running text would
   drop a possible anchor without a word. (Reviewers on PR #8 suggested
   keeping it as running text; that is not done, for this reason.) One rule
@@ -201,7 +208,9 @@ owner's call. Each choice and its reason:
   only the markup around a heading. A "(" that starts no label fails as
   unplaceable wherever a label goes, since it may be a label the source
   broke. A digit ends the run because the owner's rule ends the lead "at
-  the first other text", and a digit is text.
+  the first other text", and a digit is text. The first failure in the XML
+  is reported because the package doc says Parse reports the first
+  failure, and it is the one a person reading the source meets first.
 - **A label after another in one lead opens the level below it.** A
   sibling or a higher level there ("(a)(b)", or "(a) <I>See</I> (b) of this
   section") fails as unplaceable; the level below at another value than its
@@ -327,8 +336,10 @@ owner's call. Each choice and its reason:
   label after a label past a space, a sibling after a label in a lead, a
   heading placed other than past one space outside the `<I>`, a heading
   that begins with a "(" (words in parentheses too), a "(" after any dash
-  inside a heading, a second `<I>` right after a heading, and a "(" in a
-  lead that starts no label each fail the parse. A later source laid out
+  inside a heading before the next letter or digit
+  (`(a) <I>Head—Sub (1) x</I>` parses), another `<I>` start tag between a
+  label and the end of its heading, and a "(" in a lead that starts no
+  label each fail the parse. A later source laid out
   that way needs a reviewed override, if it is a source defect, or an ADR.
 - (h)(1)(i) followed by (i) parses as (h)(1)(i) and the letter (i), as do
   the same shapes under (u) and (w); if the owner overrules that choice,
@@ -356,9 +367,12 @@ R1a (deterministic parse: label position, the (i)/(v)/(x) rule); spec
   near-lead, processing-instruction, surrogate and location tests, red),
   `c2edc86` (`follow` and the XML rules that pass them, green), `08f4536`
   (one rule over every "(" in every run, every dash, one `<I>` per
-  heading, red), `3c8a0a2` (`paren`, green) and `0b9e1f0` (a row from the
-  mutant pass): `internal/parse/label.go` (`leads`, `follow`, `paren`,
-  `choose`, `fit`),
+  heading, red), `3c8a0a2` (`paren`, green), `0b9e1f0` (a row from the
+  mutant pass), `eb5f021` (the heading's start tag as the only one, and
+  the first failure in the XML, red), `4c7f5d9` (`oneElement` and
+  `earliest`, green) and `957a61d` (rows from the mutant pass, and a dead
+  stop removed): `internal/parse/label.go` (`leads`, `follow`, `paren`,
+  `oneElement`, `choose`, `fit`),
   `internal/parse/parse.go`, `internal/parse/doc.go`, and the tests
   `internal/parse/lookahead_test.go`, `internal/parse/lead_test.go`,
   `internal/parse/rules_test.go` and `internal/parse/malformed_test.go`.
