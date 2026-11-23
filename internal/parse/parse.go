@@ -292,15 +292,15 @@ type para struct {
 // element begins, and the tag's XML offset.
 type open struct{ at, offset int }
 
-// openAt reports the first <I> start tag at index i of the text, and its
-// offset. An empty <I> has one too.
-func (pa *para) openAt(i int) (int, bool) {
+// opensAt reports whether an <I> start tag, an empty <I>'s too, is at index
+// i of the text.
+func (pa *para) opensAt(i int) bool {
 	for _, o := range pa.opens {
 		if o.at == i {
-			return o.offset, true
+			return true
 		}
 	}
-	return 0, false
+	return false
 }
 
 // offset is the XML byte offset of the paragraph's text at index i, or of

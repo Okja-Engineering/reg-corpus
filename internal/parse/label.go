@@ -95,17 +95,21 @@ const (
 // follow decides what comes at pos, right after the lead label prev, or
 // after prev's heading. It is the one place where the lead goes on, ends,
 // or almost goes on and fails. A run is the text up to the first letter or
-// digit, italic or not; paren decides every "(" in every run. In order:
+// digit, italic or not; paren decides every "(" in every run. The cases:
 //  1. A chained label: right after the label, or past exactly one "—" or
 //     one space after its heading. A bad label shape there fails.
 //  2. Any other "(" in the run from pos fails (paren). After a label, that
 //     run also holds the start of any heading.
 //  3. After a label, the <I> element in the run or right after it is the
-//     heading. Past anything but one space outside the <I>, with a space
-//     first inside it, or with a second <I> right after it, it fails. A "("
-//     in the run after each dash inside it fails (paren).
+//     heading. It fails past anything but one space outside the <I>, with a
+//     space first inside it, or with any other <I> start tag from pos to
+//     its end, empty or not, before it or right after it. A "(" in the run
+//     after each dash inside it fails (paren).
 //  4. Otherwise the lead ends, and running text starts at the run's end:
 //     "(a) 2(1)" holds the running text "2(1)".
+//
+// Where cases 2 and 3 find more than one failure, follow reports the one
+// that comes first in the XML.
 func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 	s := pa.text
 	run := pos + len(nonWord(s[pos:]))
@@ -118,11 +122,9 @@ func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 			return next{chain: true, label: l}, err
 		}
 	}
-	if err := p.paren(pa, pos, run, w, prev); err != nil {
-		return next{}, err
-	}
+	err := p.paren(pa, pos, run, w, prev)
 	if w == afterHeading {
-		return next{}, nil
+		return next{}, err
 	}
 
 	h := -1
@@ -133,33 +135,74 @@ func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 		}
 	}
 	if h < 0 {
-		return next{}, nil
-	}
-	r, _ := utf8.DecodeRuneInString(s[h:])
-	switch {
-	case unicode.IsSpace(r):
-		return next{}, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space outside the <I>, not a space inside it")
-	case s[pos:h] != " ":
-		return next{}, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space; here "+describe(s[pos:h])+" separates them")
+		return next{}, err
 	}
 	end := h + 1
 	for end < len(s) && pa.italic[end] {
-		if _, ok := pa.openAt(end); ok {
+		if pa.opensAt(end) {
 			break
 		}
 		end++
 	}
-	if off, ok := pa.openAt(end); ok {
-		return next{}, p.fail(off, Malformed, "", "a heading is one <I> element; here a second <I> follows it")
+	errs := []error{err}
+	r, _ := utf8.DecodeRuneInString(s[h:])
+	switch {
+	case unicode.IsSpace(r):
+		errs = append(errs, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space outside the <I>, not a space inside it"))
+	case s[pos:h] != " ":
+		errs = append(errs, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space; here "+describe(s[pos:h])+" separates them"))
 	}
+	errs = append(errs, p.oneElement(pa, pos, h, end))
 	for i, r := range s[h:end] {
 		if c := h + i + utf8.RuneLen(r); isDash(r) {
 			if err := p.paren(pa, c, c+len(nonWord(s[c:end])), afterDash, prev); err != nil {
-				return next{}, err
+				errs = append(errs, err)
+				break
 			}
 		}
 	}
+	if err := earliest(errs); err != nil {
+		return next{}, err
+	}
 	return next{heading: true, start: h, end: end}, nil
+}
+
+// oneElement fails unless the heading's start tag, the last one at h, is the
+// only <I> start tag from pos to end, the heading's end: any other, empty or
+// not, fails at its start tag.
+func (p *parser) oneElement(pa *para, pos, h, end int) error {
+	own := -1
+	for k, o := range pa.opens {
+		if o.at == h {
+			own = k
+		}
+	}
+	for k, o := range pa.opens {
+		if k != own && pos <= o.at && o.at <= end {
+			where := "a second <I> follows it"
+			if k < own {
+				where = "another <I> comes before it"
+			}
+			return p.fail(o.offset, Malformed, "", "a heading is one <I> element; here "+where)
+		}
+	}
+	return nil
+}
+
+// earliest is the failure among errs that comes first in the XML; of two at
+// one place, the first in errs. It is nil if there is none.
+func earliest(errs []error) error {
+	var first *Error
+	for _, err := range errs {
+		e, ok := err.(*Error)
+		if ok && (first == nil || e.Line < first.Line || e.Line == first.Line && e.Column < first.Column) {
+			first = e
+		}
+	}
+	if first == nil {
+		return nil
+	}
+	return first
 }
 
 // paren is the one rule for a "(" in a run, the text s[a:b] after a lead

@@ -14,9 +14,11 @@
 // HEAD, P and CITA that is not XML whitespace (space, tab, CR, LF), such as
 // a no-break space or a byte-order mark.
 //
-// Parse reads in three passes and reports the first failure of the first
-// pass that fails: the XML's form, then each paragraph's lead, then each
-// label's place in document order.
+// Parse reads in three passes and reports one failure, from the first pass
+// that fails: the XML's form, the first fault the reader meets as it reads;
+// then each paragraph's lead, the paragraphs in order, and within a lead the
+// failure that comes first in the XML; then each label's place in document
+// order.
 //
 //   - Label position (ADR 0012, spec decision 12): a label counts only in a
 //     paragraph's lead: at the start of the <P>, right after a heading past
@@ -51,8 +53,9 @@
 //     outside the <I>. Italic text in the run, or right after it, past
 //     anything else (nothing, two spaces, a no-break space, a quotation
 //     mark), or with a space first inside the <I>, fails as Malformed at
-//     its first italic character. A second <I> right after the heading,
-//     empty or not, fails as Malformed at its start tag.
+//     its first italic character. Its start tag is the only <I> start tag
+//     from the label's end to the heading's end: any other, empty or not,
+//     before the heading or right after it, fails as Malformed at that tag.
 //     4. Otherwise the lead ends at the run's end, and what follows is
 //     running text: in "(a) 2(1) text." the digit ends the run, so "(1)"
 //     is running text.
@@ -81,8 +84,8 @@
 //     For a label, they are its "("; for a "(" that starts no label, that
 //     "("; for Unlabeled, the paragraph's first character, or its <P> tag if
 //     it is empty; for a misplaced heading, its first italic character, and
-//     for a second <I> right after a heading, its start tag; for
-//     Malformed, the start of what is wrong: the element or token, the
+//     for another <I> before or right after a heading, that <I>'s start tag;
+//     for Malformed, the start of what is wrong: the element or token, the
 //     character reference to a surrogate, the first byte of stray text that
 //     is not whitespace, the <DIV8> tag for a missing N, HEAD or P, and for
 //     XML that is not well-formed, the start of the token the decoder was
