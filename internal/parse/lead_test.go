@@ -130,6 +130,7 @@ func TestHeadingPosition(t *testing.T) {
 		{"a second <I> holding a label", "(a) <I>Head</I><I>(1)</I> text.", "<I>(1)", second},
 		{"a second <I> holding words", "(a) <I>Head.</I><I>Sub.</I> text.", "<I>Sub", second},
 		{"an empty second <I>", "(a) <I>Head</I><I></I>—(1) text.", "<I></I>", second},
+		{"an empty second <I>, then a third", "(a) <I>Head</I><I></I><I>Sub</I> text.", "<I></I>", second},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", col(c.para, c.mark), c.want))
