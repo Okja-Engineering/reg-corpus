@@ -216,10 +216,14 @@ owner's call. Each choice and its reason:
   first fails as skipped, as any new level does. Why: in 1024.41 all 16
   labels after another in a lead open the level below at its first value,
   and the lead rule is what makes them structural.
-- **The italic level.** An italic label is exactly `(`, a number in
-  `<I>…</I>`, `)`. Italic parentheses, a label partly in italics and an
-  italic letter fail as unplaceable. Why: it is how every italic label in
-  1024.41 is written.
+- **The italic level.** An italic label is exactly `(`, a number in one
+  `<I>…</I>` element, `)`; a label's token is one run of text, all in one
+  `<I>` or none of it in any. Italic parentheses, a label partly in
+  italics, one in more than one `<I>` (`(<I>1</I><I>2</I>)`) and an italic
+  letter fail as unplaceable. Why: it is how every italic label in 1024.41
+  is written. At `ffd14b9`, `(<I>1</I><I>2</I>)` after (1) to (11) parsed
+  as (12): the check compared each character's italic flag, the same in
+  both `<I>`, not where each `<I>` starts.
 - **Where the dash or space after a heading goes.** It stays at the end of
   the parent's own text, so the own texts of one `<P>`, joined, are exactly
   its character data (`(b) Receipt of a loss mitigation application—`).
@@ -372,8 +376,9 @@ owner's call. Each choice and its reason:
   that begins with a "(" (words in parentheses too), a "(" after any dash
   inside a heading before the next letter or digit
   (`(a) <I>Head—Sub (1) x</I>` parses), a second `<I>` right after a
-  heading, an empty `<I>` anywhere, an attribute on `<HEAD>`, `<P>` or
-  `<I>` or one other than TYPE on `<CITA>`, a duplicate attribute, an XML
+  heading, a label in more than one `<I>`, an empty `<I>` anywhere, an
+  attribute on `<HEAD>`, `<P>` or `<I>` or one other than TYPE on
+  `<CITA>`, a duplicate attribute, an XML
   declaration that breaks its grammar, a character reference outside the
   section even to whitespace, and a "(" in a lead that starts
   no label each fail the parse. A later source laid out
@@ -417,10 +422,12 @@ R1a (deterministic parse: label position, the (i)/(v)/(x) rule); spec
   tests, red), `aaa3da7` (`WellFormed`, shared with fetch, green),
   `35c7913` (`WellFormed`'s own tests, from the mutant pass), `6c65815`
   (meta set's test, red), `9df53e1` (`citationNote` runs `WellFormed`,
-  green), `d73e8cc` (one home per helper), `e1d0062` (dead branches) and
-  `54a4806` (character references outside the section and inside it):
-  `internal/parse/label.go` (`leads`, `follow`, `paren`,
-  `oneElement`, `choose`, `fit`), `internal/parse/wellformed.go`
+  green), `d73e8cc` (one home per helper), `e1d0062` (dead branches),
+  `54a4806` (character references outside the section and inside it),
+  `1f59279` (a label in more than one `<I>`, red), `21654e0` (`opened`,
+  green) and `6691dc8` (a row from the mutant pass):
+  `internal/parse/label.go` (`leads`, `follow`, `paren`, `oneElement`,
+  `opened`, `labelAt`, `choose`, `fit`), `internal/parse/wellformed.go`
   (`WellFormed`), `internal/ecfr/client.go` (`document`),
   `internal/ecfr/metaset.go` (`citationNote`),
   `internal/parse/parse.go`, `internal/parse/doc.go`, and the tests
