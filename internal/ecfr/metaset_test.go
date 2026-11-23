@@ -723,10 +723,11 @@ func TestCitationsComeOnlyFromWellFormedXML(t *testing.T) {
 	}
 }
 
-// TestCitationsComeOnlyFromXMLFetchWouldStore: well-formed means what fetch
-// checks before storing a body (parse.WellFormed), not only what the strict
-// parse refuses, so raw XML it would refuse is refused here too (exit 1,
-// naming the raw file and what is wrong), and no citation is read from it.
+// TestCitationsComeOnlyFromXMLFetchWouldStore: well-formed means the form
+// fetch checks before storing a body (parse.WellFormed), not only what the
+// strict parse refuses, so raw XML it would refuse as not well-formed is
+// refused here too (exit 1, naming the raw file and what is wrong), and no
+// citation is read from it.
 func TestCitationsComeOnlyFromXMLFetchWouldStore(t *testing.T) {
 	const (
 		decl = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"

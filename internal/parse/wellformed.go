@@ -40,8 +40,9 @@ const xmlSpace = " \t\r\n"
 
 // WellFormed returns nil when b is one well-formed XML document; otherwise a
 // *FormError, or what root returned. It is the one check of an XML
-// document's form: fetch (internal/ecfr) runs it on every body it stores, and
-// Parse runs it before its own, stricter rules. It is not an XML 1.0
+// document's form: fetch (internal/ecfr) runs it on every body it stores, meta
+// set on the raw XML it reads citations from, and Parse before its own,
+// stricter rules. It is not an XML 1.0
 // validator: it checks what encoding/xml's strict parse checks (syntax,
 // nesting, unknown entities, unquoted attributes, characters XML forbids)
 // and, on top:
