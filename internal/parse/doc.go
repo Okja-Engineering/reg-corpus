@@ -16,8 +16,22 @@
 // character data outside HEAD, P and CITA that is not XML whitespace (space,
 // tab, CR, LF), such as a no-break space or a byte-order mark.
 //
+// WellFormed (wellformed.go) is the one check of an XML document's form, and
+// Parse runs it first. fetch (internal/ecfr) runs it on every body before
+// storing it, so the two refuse the same malformed XML and can't drift
+// apart. What it refuses fails as Malformed with its message: XML that is
+// not well-formed, an XML declaration that breaks its grammar, a duplicate
+// attribute on any element (the DIV8's too), text or a second element
+// outside the root, and a declaration such as <!DOCTYPE>. Parse's own rules
+// above then apply. It lives here because fetch may import parse but parse
+// must not import internal/ecfr, which holds the network client, and a
+// package of its own isn't needed for one function. The root element is
+// left to the caller: fetch checks it is the section asked for, Parse that
+// it is a <DIV8 TYPE="SECTION"> with an N.
+//
 // Parse reads in three passes and reports one failure, from the first pass
-// that fails: the XML's form, the first fault the reader meets as it reads;
+// that fails: the XML's form, WellFormed's and then the rules above, each
+// the first fault the reader meets as it reads;
 // then each paragraph's lead, the paragraphs in order, and within a lead the
 // failure that comes first in the XML; then each label's place in document
 // order.
@@ -89,10 +103,11 @@
 //     the start of what is wrong: the element or token (an element's start
 //     tag for an attribute it may not carry, an empty <I>'s start tag), the
 //     character reference to a surrogate, the first byte of stray text that
-//     is not whitespace, the <DIV8> tag for a missing N, HEAD or P, and for
-//     XML that is not well-formed, the start of the token the decoder was
-//     reading (e.g. the text that holds a bad entity), or the end of a
-//     truncated file.
+//     is not whitespace (outside the section, as written: the "&" of a
+//     character reference), the <DIV8> tag for a missing N, HEAD or P, the
+//     end of the file for no root element, and for XML that is not
+//     well-formed, the start of the token the decoder was reading (e.g. the
+//     text that holds a bad entity), or the end of a truncated file.
 //   - Deterministic: the same bytes give the same tree.
 //
 // The tree (tree.go): a Tree is the section, holding the DIV8's N attribute,

@@ -12,11 +12,17 @@ import (
 
 // Parse parses one eCFR section's XML into a Tree. It reads in three passes
 // and fails with an *Error at the first failure of the first pass that
-// fails: the XML's form (Malformed), each paragraph's lead (Unlabeled, and
-// Unplaceable for a label's shape or position), then each label's place in
-// document order (Skipped, Repeated, OutOfOrder, Unplaceable).
+// fails: the XML's form (Malformed: WellFormed, then 1024.41's form), each
+// paragraph's lead (Unlabeled; Unplaceable for a label's shape or position;
+// Malformed for a misplaced heading), then each label's place in document
+// order (Skipped, Repeated, OutOfOrder, Unplaceable).
 func Parse(data []byte) (*Tree, error) {
 	p := &parser{data: data, dec: xml.NewDecoder(bytes.NewReader(data))}
+	if err := WellFormed(data, nil); err != nil {
+		var fe *FormError
+		errors.As(err, &fe) // with no root func, WellFormed's only error
+		return nil, p.fail(fe.Offset, Malformed, "", fe.Msg)
+	}
 	paras, err := p.section()
 	if err != nil {
 		return nil, err
@@ -43,11 +49,12 @@ type parser struct {
 }
 
 // next returns the next token and the byte offset where it starts. Tokens
-// are contiguous, so a token starts where the one before it ended. A token
-// that is not well-formed fails at the start of the token being read. CDATA,
-// namespaced elements and character references to a surrogate fail:
-// 1024.41's form holds none of them, and the decoder would store a
-// surrogate as U+FFFD.
+// are contiguous, so a token starts where the one before it ended. WellFormed
+// has passed the same bytes, so the decoder fails here only at the end.
+// CDATA, a namespaced element, an attribute on HEAD, P or I or one but TYPE
+// on CITA (attrs), and a character reference to a surrogate fail: 1024.41's
+// form holds none of them, and the decoder would store a surrogate as
+// U+FFFD.
 func (p *parser) next() (xml.Token, int, error) {
 	off := int(p.dec.InputOffset())
 	tok, err := p.dec.Token()
@@ -55,12 +62,7 @@ func (p *parser) next() (xml.Token, int, error) {
 		return nil, off, err
 	}
 	if err != nil {
-		msg := err.Error()
-		var se *xml.SyntaxError
-		if errors.As(err, &se) {
-			msg = se.Msg
-		}
-		return nil, off, p.fail(off, Malformed, "", msg)
+		return nil, off, p.fail(off, Malformed, "", err.Error())
 	}
 	switch t := tok.(type) {
 	case xml.CharData:
@@ -214,18 +216,17 @@ func (p *parser) section() ([]*para, error) {
 
 // root reads up to the section element, a <DIV8 TYPE="SECTION"> with an N,
 // and returns its offset. The one processing instruction allowed is the
-// XML declaration at the very start.
+// XML declaration, which WellFormed has allowed only at the very start; and
+// a byte-order mark, which WellFormed allows, is text here.
 func (p *parser) root() (int, error) {
 	for {
 		tok, off, err := p.next()
-		if err == io.EOF {
-			return 0, p.fail(off, Malformed, "", "no <DIV8> section element")
-		} else if err != nil {
+		if err != nil {
 			return 0, err
 		}
 		switch t := tok.(type) {
 		case xml.ProcInst:
-			if off != 0 || t.Target != "xml" {
+			if t.Target != "xml" {
 				return 0, p.fail(off, Malformed, "", "unexpected "+what(tok)+" before the section element")
 			}
 		case xml.CharData:
@@ -246,7 +247,9 @@ func (p *parser) root() (int, error) {
 	}
 }
 
-// end checks that only XML whitespace follows the section element.
+// end checks that nothing but text follows the section element: no comment
+// or processing instruction. WellFormed has checked the text is XML
+// whitespace and that no element follows.
 func (p *parser) end() error {
 	for {
 		tok, off, err := p.next()
@@ -255,12 +258,8 @@ func (p *parser) end() error {
 		} else if err != nil {
 			return err
 		}
-		cd, ok := tok.(xml.CharData)
-		if !ok {
+		if _, ok := tok.(xml.CharData); !ok {
 			return p.fail(off, Malformed, "", "content after the section element")
-		}
-		if err := p.space(cd, off, "content after the section element"); err != nil {
-			return err
 		}
 	}
 }
