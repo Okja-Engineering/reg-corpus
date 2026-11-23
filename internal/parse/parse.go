@@ -143,17 +143,17 @@ func (p *parser) space(cd xml.CharData, off int, detail string) error {
 	return p.fail(off+rawOffsets(raw, len(cd))[i], Malformed, "", detail)
 }
 
-// what names a token other than character data or an end tag in a message.
+// what names a token other than character data or an end tag in a message:
+// a start tag, a comment or a processing instruction. WellFormed has
+// refused every directive, so none reaches here.
 func what(tok xml.Token) string {
 	switch t := tok.(type) {
 	case xml.StartElement:
 		return "<" + t.Name.Local + ">"
 	case xml.Comment:
 		return "comment"
-	case xml.ProcInst:
-		return "processing instruction"
 	}
-	return "directive"
+	return "processing instruction"
 }
 
 // section reads the one DIV8: a HEAD, the P elements, then at most one CITA.
@@ -245,13 +245,16 @@ func (p *parser) root() (int, error) {
 
 // end checks that nothing but text follows the section element: no comment
 // or processing instruction. WellFormed has checked the text is XML
-// whitespace and that no element follows.
+// whitespace, as written, and that no element follows, so next() fails here
+// only at the end: what else it refuses (CDATA, an element, a reference to a
+// surrogate) WellFormed has refused past the root. The error is returned
+// all the same, never dropped.
 func (p *parser) end() error {
 	for {
 		tok, off, err := p.next()
 		if err == io.EOF {
 			return nil
-		} else if err != nil {
+		} else if err != nil { // not reached; see above
 			return err
 		}
 		if _, ok := tok.(xml.CharData); !ok {
