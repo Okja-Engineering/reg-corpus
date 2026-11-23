@@ -8,9 +8,11 @@
 // elements, then at most one CITA, with <I> the only element inside a P, not
 // nested. Anything else fails as Malformed: another element, a second HEAD or
 // CITA, a P before the HEAD or after the CITA, no HEAD, no P, a comment, a
-// directive, CDATA, a namespaced element, and character data outside HEAD, P
-// and CITA that is not XML whitespace (space, tab, CR, LF), such as a
-// no-break space or a byte-order mark.
+// directive, CDATA, a namespaced element, a processing instruction other
+// than one XML declaration at the very start of the file, a character
+// reference to a surrogate (U+D800 to U+DFFF), and character data outside
+// HEAD, P and CITA that is not XML whitespace (space, tab, CR, LF), such as
+// a no-break space or a byte-order mark.
 //
 // Parse reads in three passes and reports the first failure of the first
 // pass that fails: the XML's form, then each paragraph's lead, then each
@@ -19,14 +21,31 @@
 //   - Label position (ADR 0012, spec decision 12): a label counts only in a
 //     paragraph's lead: at the start of the <P>, right after a heading past
 //     the one "—" or one space that ends it, or right after another lead
-//     label ("(A)(<I>1</I>)"). A heading is the italic text right after a
-//     label and one space. The lead ends at the first other text; a label
-//     after that is running text (a cross-reference) and is never
-//     structural. A label where the lead almost goes on, past any other run
-//     of characters that are not letters or digits (nothing, an en dash, two
-//     spaces, a no-break space or ". " after a heading; a space after a
-//     label), fails as Unplaceable, and so does a heading that begins with a
-//     label. A label after another in one lead must open the level below it.
+//     label ("(A)(<I>1</I>)"). The lead ends at the first other text; a
+//     label after that is running text (a cross-reference) and is never
+//     structural. A label after another in one lead must open the level
+//     below it.
+//   - Where the lead almost goes on (ADR 0012), decided in one place,
+//     follow in label.go. The run is the text after a label, or after a
+//     heading, up to the first letter or digit. Each case:
+//     1. A chained label: right after a label with nothing between, or
+//     right after a heading past exactly one "—" or one space.
+//     2. Any other "(" in the run fails as Unplaceable at that "(": past
+//     the wrong separator if a label starts there ("(a) (1)", or "–",
+//     ". " or two spaces after a heading), or, if none does, as a "(" that
+//     starts no label ("(1 )", "(1.)", "()", "(é)"). A "(" at the start of a
+//     <P> that starts no label fails the same way.
+//     3. A heading is the <I> text after a label and exactly one space
+//     outside the <I>. Italic text in the run, or right after it, past
+//     anything else (nothing, two spaces, a no-break space, a quotation
+//     mark), or with a space first inside the <I>, fails as Malformed at
+//     its first italic character. A heading that begins with a label (an
+//     italic "(" too: "(a) <I>(</I>1)"), or holds a label after a dash
+//     ("—", "–" or "-"), fails as Unplaceable at that label. Any other
+//     parenthesis in a heading is its text ("(see (1))").
+//     4. Otherwise the lead ends at the run's end, and what follows is
+//     running text: in "(a) 2(1) text." the digit ends the run, so "(1)"
+//     is running text.
 //   - Label shape: "(", ASCII letters or digits, ")". Only an italic-level
 //     label has italics: its whole token, a number, is in <I>, as in
 //     "(<I>1</I>)". Italic parentheses, a partly italic token, an italic
@@ -48,11 +67,14 @@
 //     reason: Skipped, Repeated, OutOfOrder or Unplaceable. A <P> that does
 //     not start with a label fails as Unlabeled.
 //   - Locations: an *Error holds a line and a column, in bytes, in the XML.
-//     For a label, they are its "("; for Unlabeled, the paragraph's first
-//     character, or its </P> if it is empty; for Malformed, the start of what
-//     is wrong: the element or token, the first byte of stray text that is
-//     not whitespace, the <DIV8> tag for a missing N, HEAD or P, and for XML
-//     that is not well-formed, the start of the token the decoder was
+//     A line ends at LF, at CRLF or at a lone CR, as XML reads line ends.
+//     For a label, they are its "("; for a "(" that starts no label, that
+//     "("; for Unlabeled, the paragraph's first character, or its <P> tag if
+//     it is empty; for a misplaced heading, its first italic character; for
+//     Malformed, the start of what is wrong: the element or token, the
+//     character reference to a surrogate, the first byte of stray text that
+//     is not whitespace, the <DIV8> tag for a missing N, HEAD or P, and for
+//     XML that is not well-formed, the start of the token the decoder was
 //     reading (e.g. the text that holds a bad entity), or the end of a
 //     truncated file.
 //   - Deterministic: the same bytes give the same tree.

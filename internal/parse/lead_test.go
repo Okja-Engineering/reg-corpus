@@ -31,6 +31,8 @@ func TestLeadContinues(t *testing.T) {
 		{"(a) [Reserved]", []string{"(a)"}},
 		{"(a) <I>Loss mitigation (general).</I> Text (1) text.", []string{"(a)"}},
 		{"(a) <I>Head (see (1)) more.</I> Text.", []string{"(a)"}},
+		{"(a) <I>Self-help (see (1)).</I> Text.", []string{"(a)"}},
+		{"(a) <I>Head.</I> <I> Id.</I> text.", []string{"(a)"}},
 	} {
 		t.Run(c.para, func(t *testing.T) {
 			if got := paths(t, section(c.para)); !reflect.DeepEqual(got, c.want) {
@@ -64,6 +66,8 @@ func TestLeadEnds(t *testing.T) {
 		{"heading, dash and space", "(a) <I>Head</I>— (1) text.", "(1)",
 			"unplaceable label (1): " + afterHeading + `"— " separates them`},
 		{"label, space, label", "(a) (1) text.", "(1)",
+			`unplaceable label (1): a label follows another only with nothing between them, or past its heading; here " " separates them`},
+		{"label, space, italic label", "(a) (<I>1</I>) text.", "(<I>",
 			`unplaceable label (1): a label follows another only with nothing between them, or past its heading; here " " separates them`},
 		{"label, dash, label", "(a)—(1) text.", "(1)",
 			`unplaceable label (1): a label follows another only with nothing between them, or past its heading; here "—" separates them`},

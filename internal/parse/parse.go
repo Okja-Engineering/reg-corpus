@@ -44,8 +44,10 @@ type parser struct {
 
 // next returns the next token and the byte offset where it starts. Tokens
 // are contiguous, so a token starts where the one before it ended. A token
-// that is not well-formed fails at the start of the token being read. CDATA
-// and namespaced elements fail: 1024.41's form holds neither.
+// that is not well-formed fails at the start of the token being read. CDATA,
+// namespaced elements and character references to a surrogate fail:
+// 1024.41's form holds none of them, and the decoder would store a
+// surrogate as U+FFFD.
 func (p *parser) next() (xml.Token, int, error) {
 	off := int(p.dec.InputOffset())
 	tok, err := p.dec.Token()
@@ -70,14 +72,46 @@ func (p *parser) next() (xml.Token, int, error) {
 			return nil, off, p.fail(off, Malformed, "", fmt.Sprintf("element <%s> has namespace %q", t.Name.Local, t.Name.Space))
 		}
 	}
+	switch tok.(type) {
+	case xml.CharData, xml.StartElement: // where a reference is decoded
+		if i, ref := surrogate(p.data[off:p.dec.InputOffset()]); i >= 0 {
+			return nil, off, p.fail(off+i, Malformed, "", "character reference "+ref+" is to a surrogate")
+		}
+	}
 	return xml.CopyToken(tok), off, nil
 }
 
+// surrogate finds the first character reference in raw XML to a surrogate,
+// U+D800 to U+DFFF: its index and its text, or -1.
+func surrogate(raw []byte) (int, string) {
+	for i := 0; ; i += 2 {
+		j := bytes.Index(raw[i:], []byte("&#"))
+		if j < 0 {
+			return -1, ""
+		}
+		i += j
+		semi := bytes.IndexByte(raw[i:], ';')
+		if semi < 0 {
+			return -1, ""
+		}
+		ref := string(raw[i : i+semi+1])
+		if r, _ := charRef(ref[1 : len(ref)-1]); r >= 0xD800 && r <= 0xDFFF {
+			return i, ref
+		}
+	}
+}
+
+// fail is an *Error at a byte offset in the XML. A line ends at a LF, a CR
+// LF or a lone CR, as XML's line ends do.
 func (p *parser) fail(off int, reason Reason, label, detail string) *Error {
 	off = min(off, len(p.data))
-	line := 1 + bytes.Count(p.data[:off], []byte("\n"))
-	col := off - bytes.LastIndexByte(p.data[:off], '\n')
-	return &Error{Line: line, Column: col, Reason: reason, Label: label, Detail: detail}
+	line, start := 1, 0
+	for i, c := range p.data[:off] {
+		if c == '\n' || c == '\r' && (i+1 == len(p.data) || p.data[i+1] != '\n') {
+			line, start = line+1, i+1
+		}
+	}
+	return &Error{Line: line, Column: off - start + 1, Reason: reason, Label: label, Detail: detail}
 }
 
 // space fails unless character data that starts at off is only XML
@@ -143,7 +177,7 @@ func (p *parser) section() ([]*para, error) {
 					return nil, err
 				}
 			case t.Name.Local == "P" && head && !cita:
-				pa, err := p.readPara()
+				pa, err := p.readPara(off)
 				if err != nil {
 					return nil, err
 				}
@@ -163,7 +197,8 @@ func (p *parser) section() ([]*para, error) {
 }
 
 // root reads up to the section element, a <DIV8 TYPE="SECTION"> with an N,
-// and returns its offset.
+// and returns its offset. The one processing instruction allowed is the
+// XML declaration at the very start.
 func (p *parser) root() (int, error) {
 	for {
 		tok, off, err := p.next()
@@ -174,6 +209,9 @@ func (p *parser) root() (int, error) {
 		}
 		switch t := tok.(type) {
 		case xml.ProcInst:
+			if off != 0 || t.Target != "xml" {
+				return 0, p.fail(off, Malformed, "", "unexpected "+what(tok)+" before the section element")
+			}
 		case xml.CharData:
 			if err := p.space(t, off, "text outside the section element"); err != nil {
 				return 0, err
@@ -246,21 +284,23 @@ type para struct {
 	text   string
 	italic []bool
 	raw    []int
-	end    int // the offset of </P>
+	start  int // the offset of its <P> start tag
 }
 
-// offset is the XML byte offset of the paragraph's text at index i.
+// offset is the XML byte offset of the paragraph's text at index i, or of
+// its start tag past the text's end (for an empty <P>).
 func (pa *para) offset(i int) int {
 	if i < len(pa.raw) {
 		return pa.raw[i]
 	}
-	return pa.end
+	return pa.start
 }
 
-// readPara reads a <P>'s content: character data and <I> elements, not nested.
-func (p *parser) readPara() (*para, error) {
+// readPara reads the content of the <P> whose start tag is at offset start:
+// character data and <I> elements, not nested.
+func (p *parser) readPara(start int) (*para, error) {
 	var b strings.Builder
-	pa := &para{}
+	pa := &para{start: start}
 	italic := false
 	for {
 		tok, off, err := p.next()
@@ -285,7 +325,7 @@ func (p *parser) readPara() (*para, error) {
 			italic = true
 		case xml.EndElement: // </I>, or </P>: the decoder has checked it matches
 			if !italic {
-				pa.text, pa.end = b.String(), off
+				pa.text = b.String()
 				return pa, nil
 			}
 			italic = false
@@ -324,18 +364,24 @@ func rawOffsets(raw []byte, n int) []int {
 
 // entityLen is the UTF-8 length of what an entity reference decodes to.
 func entityLen(name string) int {
-	if strings.HasPrefix(name, "#") {
-		var r int64
-		var err error
-		if strings.HasPrefix(name, "#x") {
-			r, err = strconv.ParseInt(name[2:], 16, 32)
-		} else {
-			r, err = strconv.ParseInt(name[1:], 10, 32)
-		}
-		if err != nil {
-			return 1
-		}
+	if r, ok := charRef(name); ok {
 		return len(string(rune(r)))
 	}
 	return 1 // amp, lt, gt, quot, apos
+}
+
+// charRef is the code point of a character reference's name, "#64" or
+// "#x40", without its "&" and ";". ok is false for any other name.
+func charRef(name string) (int64, bool) {
+	var r int64
+	var err error
+	switch {
+	case strings.HasPrefix(name, "#x"):
+		r, err = strconv.ParseInt(name[2:], 16, 32)
+	case strings.HasPrefix(name, "#"):
+		r, err = strconv.ParseInt(name[1:], 10, 32)
+	default:
+		return 0, false
+	}
+	return r, err == nil
 }

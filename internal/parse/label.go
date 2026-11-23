@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // lead is one label of a paragraph's lead, with its heading and own text.
@@ -32,53 +33,35 @@ type reading struct {
 }
 
 // leads finds the labels of a paragraph's lead (ADR 0012): the label at its
-// start, then, while the lead goes on, the label right after the last one,
-// or past the last one's heading and the one "—" or one space that ends it.
-// A heading is the italic text right after a label and one space. The lead
-// ends at the first other text; a label after that is running text. A label
-// that sits where the lead almost goes on, past any other run of characters
-// that are not letters or digits, fails: it is never taken as running text.
+// start, then whatever follow decides comes after each label and heading.
 func (p *parser) leads(pa *para, n int) ([]lead, error) {
 	l, ok, err := p.labelAt(pa, 0)
-	if err != nil {
+	switch {
+	case err != nil:
 		return nil, err
-	}
-	if !ok {
+	case !ok && strings.HasPrefix(pa.text, "("):
+		return nil, p.broken(pa, 0)
+	case !ok:
 		return nil, p.fail(pa.offset(0), Unlabeled, "", "the paragraph does not start with a label")
 	}
 	var out []lead
 	for {
 		ld := lead{label: l, para: n, chained: len(out) > 0}
-		pos := l.end
-		if pos+1 < len(pa.text) && pa.text[pos] == ' ' && pa.italic[pos+1] {
-			h := pos + 1
-			if hl, ok, _ := p.labelAt(pa, h); ok {
-				return nil, p.fail(hl.offset, Unplaceable, hl.text, "it begins the italic text after "+l.text+", where a heading goes")
-			}
-			for pos = h; pos < len(pa.text) && pa.italic[pos]; pos++ {
-			}
-			ld.heading = pa.text[h:pos]
-		}
-		out = append(out, ld)
-
-		sep := separator(pa.text[pos:])
-		next, ok, err := p.labelAt(pa, pos+len(sep))
-		if !ok {
-			break
-		}
-		switch {
-		case ld.heading == "" && sep == "", ld.heading != "" && (sep == "—" || sep == " "):
-		case ld.heading != "":
-			return nil, p.fail(next.offset, Unplaceable, next.text,
-				`a label follows a heading only past one "—" or one space; here `+describe(sep)+" separates them")
-		default:
-			return nil, p.fail(next.offset, Unplaceable, next.text,
-				"a label follows another only with nothing between them, or past its heading; here "+describe(sep)+" separates them")
-		}
+		f, err := p.follow(pa, l.end, l.text, false)
 		if err != nil {
 			return nil, err
 		}
-		l = next
+		if f.heading {
+			ld.heading = pa.text[f.start:f.end]
+			if f, err = p.follow(pa, f.end, l.text, true); err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, ld)
+		if !f.chain {
+			break
+		}
+		l = f.label
 	}
 	for i := range out {
 		end := len(pa.text)
@@ -90,15 +73,114 @@ func (p *parser) leads(pa *para, n int) ([]lead, error) {
 	return out, nil
 }
 
-// separator is the run at the start of s of anything but letters, digits
-// and "(".
-func separator(s string) string {
+// next is what follow finds after a lead label or a heading: a chained
+// label, a heading (its bytes in the paragraph's text), or neither, and
+// the lead ends.
+type next struct {
+	chain, heading bool
+	label          label
+	start, end     int
+}
+
+// follow decides what comes at pos, right after the lead label prev, or
+// after prev's heading. It is the one place where the lead goes on, ends,
+// or almost goes on and fails. The run is the text from pos up to the
+// first letter or digit. In order:
+//  1. A chained label: right after the label, or past exactly one "—" or
+//     one space after its heading. A bad label shape there fails.
+//  2. A "(" in the run otherwise fails, at that "(": past the wrong
+//     separator if a label starts there, or as a broken label if none does.
+//  3. After a label, italic text in the run or right after it is the
+//     heading. Past anything but one space outside the <I>, or with a space
+//     first inside it, it fails. A heading that begins with a label, or
+//     holds a label after a dash, fails.
+//  4. Otherwise the lead ends, and running text starts at the run's end:
+//     "(a) 2(1)" holds the running text "2(1)".
+func (p *parser) follow(pa *para, pos int, prev string, afterHeading bool) (next, error) {
+	s := pa.text
+	run := pos + len(nonWord(s[pos:]))
+	seps := []string{""}
+	if afterHeading {
+		seps = []string{"—", " "}
+	}
+	for _, sep := range seps {
+		if l, ok, err := p.labelAt(pa, pos+len(sep)); ok && strings.HasPrefix(s[pos:], sep) {
+			return next{chain: true, label: l}, err
+		}
+	}
+
+	h := -1
+	for i := pos; !afterHeading && i <= run && i < len(s); i++ {
+		if pa.italic[i] {
+			h = i
+			break
+		}
+	}
+	if q := strings.IndexByte(s[pos:run], '('); q >= 0 && (h < 0 || pos+q < h) {
+		l, ok, _ := p.labelAt(pa, pos+q)
+		if !ok {
+			return next{}, p.broken(pa, pos+q)
+		}
+		why := "a label follows another only with nothing between them, or past its heading; here "
+		if afterHeading {
+			why = `a label follows a heading only past one "—" or one space; here `
+		}
+		return next{}, p.fail(l.offset, Unplaceable, l.text, why+describe(s[pos:pos+q])+" separates them")
+	}
+	if h < 0 {
+		return next{}, nil
+	}
+
+	r, _ := utf8.DecodeRuneInString(s[h:])
+	switch {
+	case unicode.IsSpace(r):
+		return next{}, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space outside the <I>, not a space inside it")
+	case s[pos:h] != " ":
+		return next{}, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space; here "+describe(s[pos:h])+" separates them")
+	}
+	end := h
+	for end < len(s) && pa.italic[end] {
+		end++
+	}
+	for i := h; i < end; i++ {
+		l, ok, _ := p.labelAt(pa, i)
+		switch {
+		case !ok:
+		case i == h:
+			return next{}, p.fail(l.offset, Unplaceable, l.text, "it begins the italic text after "+prev+", where a heading goes")
+		case strings.ContainsAny(nonWordEnd(s[h:i]), "—–-"):
+			return next{}, p.fail(l.offset, Unplaceable, l.text, "it follows a dash inside the heading of "+prev)
+		}
+	}
+	return next{heading: true, start: h, end: end}, nil
+}
+
+// broken fails at a "(" where a label goes that starts no label.
+func (p *parser) broken(pa *para, i int) error {
+	return p.fail(pa.offset(i), Unplaceable, "", `a "(" here starts no label`)
+}
+
+// nonWord is the run at the start of s of anything but letters and digits.
+func nonWord(s string) string {
 	for i, r := range s {
-		if r == '(' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			return s[:i]
 		}
 	}
 	return s
+}
+
+// nonWordEnd is the run at the end of s of anything but letters and digits.
+func nonWordEnd(s string) string {
+	i := len(s)
+	for i > 0 {
+		r, n := utf8.DecodeLastRuneInString(s[:i])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			break
+		}
+		i -= n
+	}
+	return s[i:]
 }
 
 func describe(sep string) string {
