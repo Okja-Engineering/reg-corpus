@@ -141,6 +141,8 @@ func TestMalformed(t *testing.T) {
 			`parse: line 3, column 1: malformed: unexpected attribute "id" on <HEAD>`},
 		{"attribute on CITA other than TYPE", doc(div8 + "\n" + head + "\n" + para + "\n<CITA TYPE=\"N\" x=\"y\">[Cite]</CITA>\n</DIV8>"),
 			`parse: line 5, column 1: malformed: unexpected attribute "x" on <CITA>`},
+		{"TYPE in a namespace on CITA", doc(div8 + "\n" + head + "\n" + para + "\n<CITA q:TYPE=\"N\">[Cite]</CITA>\n</DIV8>"),
+			`parse: line 5, column 1: malformed: unexpected attribute "q:TYPE" on <CITA>`},
 		{"namespace declaration on P", doc(div8 + "\n" + head + "\n" + `<P xmlns:q="u">(a) text.</P>` + "\n</DIV8>"),
 			`parse: line 4, column 1: malformed: unexpected attribute "xmlns:q" on <P>`},
 		{"attribute holding a surrogate on P", doc(div8 + "\n" + head + "\n" + `<P a="&#xD800;">(a) text.</P>` + "\n</DIV8>"),
