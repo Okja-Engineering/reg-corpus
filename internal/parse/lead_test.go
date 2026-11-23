@@ -279,3 +279,59 @@ func TestLabelShape(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) { wantFail(t, section(c.paras...), c.want) })
 	}
 }
+
+// italicTo is (a), (1), (i), (A), then the italic labels (1) to (n), one
+// paragraph each.
+func italicTo(n int) []string {
+	paras := []string{"(a) text.", "(1) text.", "(i) text.", "(A) text."}
+	for k := 1; k <= n; k++ {
+		paras = append(paras, fmt.Sprintf("(<I>%d</I>) text.", k))
+	}
+	return paras
+}
+
+// TestLabelIsOneTextRun: a label's token, between its parentheses, is one
+// run of text: all of it in one <I> element, the italic level's whole
+// number, or none of it in any. A token whose characters come from more
+// than one element fails at its "(", wherever a label goes. Text outside
+// an <I> is one run between two <I>, and no <I> is empty, so a token none
+// of which is italic never spans an element; one that does is partly
+// italic, or in two or more <I> elements side by side.
+func TestLabelIsOneTextRun(t *testing.T) {
+	const split = "the label is in more than one <I> element"
+	const part = "part of the label is italic"
+	for _, c := range []struct {
+		name  string
+		paras []string // all but the last, which fails
+		para  string
+		mark  string // the failing label's "(", once in para
+		want  string
+	}{
+		{"two <I> elements, after (1) to (11)", italicTo(11), "(<I>1</I><I>2</I>) text.", "(<I>1", "unplaceable label (12): " + split},
+		{"three <I> elements", italicTo(11), "(<I>1</I><I>2</I><I>3</I>) text.", "(<I>1", "unplaceable label (123): " + split},
+		{"two <I> elements, chained", italicTo(0)[:3], "(A)(<I>1</I><I>0</I>) text.", "(<I>1", "unplaceable label (10): " + split},
+		{"two <I> elements, past a heading and a space", italicTo(0)[:3], "(A) <I>Head.</I> (<I>1</I><I>0</I>) text.", "(<I>1", "unplaceable label (10): " + split},
+		{"two <I> elements, past a heading and a dash", italicTo(0)[:3], "(A) <I>Head</I>—(<I>1</I><I>0</I>) text.", "(<I>1", "unplaceable label (10): " + split},
+		{"a letter in two <I> elements", italicTo(0)[:1], "(<I>b</I><I>c</I>) text.", "(<I>b", "unplaceable label (bc): " + split},
+		{"italic, then not, then italic", italicTo(11), "(<I>1</I>0<I>2</I>) text.", "(<I>1", "unplaceable label (102): " + part},
+		{"two <I> elements, then not", italicTo(11), "(<I>1</I><I>2</I>3) text.", "(<I>1", "unplaceable label (123): " + part},
+		{"not, then italic, then not", italicTo(11), "(1<I>2</I>3) text.", "(1<I>", "unplaceable label (123): " + part},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			line := 4 + len(c.paras)
+			paras := append(append([]string{}, c.paras...), c.para)
+			wantFail(t, section(paras...), fmt.Sprintf("parse: line %d, column %d: %s", line, col(c.para, c.mark), c.want))
+		})
+	}
+	t.Run("the number in one <I> element", func(t *testing.T) {
+		got := paths(t, section(append(italicTo(11), "(<I>12</I>) text.")...))
+		if last := got[len(got)-1]; last != "(a)(1)(i)(A)(12)" {
+			t.Errorf("last path = %s, want (a)(1)(i)(A)(12)", last)
+		}
+	})
+	t.Run("in running text, not a label", func(t *testing.T) {
+		if got := paths(t, section("(a) Text (<I>1</I><I>2</I>) text.")); !reflect.DeepEqual(got, []string{"(a)"}) {
+			t.Errorf("paths = %v, want [(a)]", got)
+		}
+	})
+}
