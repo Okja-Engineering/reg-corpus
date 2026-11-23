@@ -230,9 +230,24 @@ owner's call. Each choice and its reason:
 - **Each node records its `<P>`** (`para`, counted from 1, in the tree's
   JSON form). Why: the tree alone then gives back each paragraph's text and
   which anchors share a paragraph, which plan step 5's joins need.
+- **One check of the XML's form, shared with fetch.** Parse first runs
+  `WellFormed` (`internal/parse/wellformed.go`), the check fetch's
+  `document` (`internal/ecfr/client.go`) runs on every body before storing
+  it, and reports what it refuses as malformed, with its message, at the
+  token where it is wrong; Parse's own rules (below) then apply. The root
+  element is left to the caller: fetch checks it is the section asked for,
+  Parse that it is a `<DIV8 TYPE="SECTION">` with an N. Why: Parse had
+  re-implemented part of fetch's check and missed some of it (at `b167542`,
+  `<?xml?>` and a duplicate attribute parsed); one check can't drift. It
+  lives in `internal/parse`, exported, because `internal/ecfr` may import
+  it and not the reverse, since `internal/ecfr` holds the network client;
+  a package of its own isn't needed for one function. Fetch's messages and
+  tests are as they were.
 - **What else fails as malformed.** CDATA, a namespaced element, a section
   with no N, no HEAD or no `<P>`, a processing instruction other than one
-  XML declaration at the very start of the file, a character reference to a
+  XML declaration at the very start of the file, an XML declaration that
+  breaks its grammar (`<?xml?>`, `<?xml garbage?>`), a duplicate attribute
+  on any element (the `<DIV8>`'s too), a character reference to a
   surrogate (U+D800 to U+DFFF), an empty `<I>` (`<I></I>` or `<I/>`)
   wherever it is, an attribute on `<HEAD>`, `<P>` or `<I>` or one other
   than TYPE on `<CITA>` (the `<DIV8>`'s other attributes are not read),
@@ -252,11 +267,16 @@ owner's call. Each choice and its reason:
   between elements dropped, a processing instruction before the section (a
   second XML declaration, or one not at the start) skipped, a surrogate
   reference stored as U+FFFD, an empty `<I>` passed over
-  (`(a)<I></I>(1) text.` chained (1) under (a)), and attributes not read.
+  (`(a)<I></I>(1) text.` chained (1) under (a)), an XML declaration that
+  breaks its grammar and a duplicate attribute on the `<DIV8>` or a `<P>`
+  passed, and attributes not read.
 - **Where an error is located.** A line ends at LF, at CRLF or at a lone
   CR, as XML reads line ends; an empty `<P>`, `<P></P>` or `<P/>`, is
   located at its start tag, as are an empty `<I>` and an element carrying
-  an attribute it may not. Why: at `b06dfa2` a file with lone-CR line ends
+  an attribute it may not or one twice. Text outside the section is
+  located at its first character that is not XML whitespace, as written
+  (the "&" of a character reference), and no root element at the end of
+  the file. Why: at `b06dfa2` a file with lone-CR line ends
   was one line, and an empty `<P>` was located after its start tag.
 
 ## Spec changes
@@ -346,9 +366,12 @@ owner's call. Each choice and its reason:
   inside a heading before the next letter or digit
   (`(a) <I>Head—Sub (1) x</I>` parses), a second `<I>` right after a
   heading, an empty `<I>` anywhere, an attribute on `<HEAD>`, `<P>` or
-  `<I>` or one other than TYPE on `<CITA>`, and a "(" in a lead that starts
+  `<I>` or one other than TYPE on `<CITA>`, a duplicate attribute, an XML
+  declaration that breaks its grammar, and a "(" in a lead that starts
   no label each fail the parse. A later source laid out
   that way needs a reviewed override, if it is a source defect, or an ADR.
+- Parse accepts no XML that fetch refuses as not well-formed, and what
+  counts as well-formed changes in one place, `WellFormed`, for both.
 - (h)(1)(i) followed by (i) parses as (h)(1)(i) and the letter (i), as do
   the same shapes under (u) and (w); if the owner overrules that choice,
   they fail.
@@ -380,9 +403,14 @@ R1a (deterministic parse: label position, the (i)/(v)/(x) rule); spec
   the first failure in the XML, red), `4c7f5d9` (`oneElement` and
   `earliest`, green), `957a61d` (rows from the mutant pass, and a dead
   stop removed), `78c7693` (an empty `<I>` anywhere, and attributes, red),
-  `a2cff76` (the checks that pass them, green) and `de8036b` (a row from
-  the mutant pass): `internal/parse/label.go` (`leads`, `follow`, `paren`,
-  `oneElement`, `choose`, `fit`),
+  `a2cff76` (the checks that pass them, green), `de8036b` (a row from
+  the mutant pass), `b88106e` (the XML declaration and duplicate-attribute
+  tests, red), `aaa3da7` (`WellFormed`, shared with fetch, green) and
+  `35c7913` (`WellFormed`'s own tests, from the mutant pass):
+  `internal/parse/label.go` (`leads`, `follow`, `paren`,
+  `oneElement`, `choose`, `fit`), `internal/parse/wellformed.go`
+  (`WellFormed`), `internal/ecfr/client.go` (`document`),
   `internal/parse/parse.go`, `internal/parse/doc.go`, and the tests
   `internal/parse/lookahead_test.go`, `internal/parse/lead_test.go`,
-  `internal/parse/rules_test.go` and `internal/parse/malformed_test.go`.
+  `internal/parse/rules_test.go`, `internal/parse/malformed_test.go` and
+  `internal/parse/wellformed_test.go`.
