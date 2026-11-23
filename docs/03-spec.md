@@ -22,7 +22,7 @@ Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no
 | 9 | How do ADRs relate to this spec? | An accepted ADR is part of this spec. The intent, spec, plan, stage contracts and AGENTS.md never conflict with one: the PR that adds an ADR amends their text where it states what the ADR changes, and adds its row here. [ADR 0009](adr/0009-adrs-are-part-of-the-spec.md) |
 | 10 | Who writes an L0 source's `meta.yaml`? | One shared writer, standard library only: it reads, checks and rewrites the file in spec order, and each plan step sets only its own fields through it, keeping the rest. `internal/l0` is the writer and `internal/meta` owns the schema (two packages: the chief of staff's choice). [ADR 0010](adr/0010-one-writer-owns-meta-yaml.md) |
 | 11 | Which page does `version_fr_citations` record, and for which sources does plan step 3 set the version fields? | For 1024.41, 1024.30 and 1024.31: the amendment page, as the citation note (`<CITA>`) of the stored raw XML cites it, and plan step 3 sets both version fields for all three. Supplement I is open until plan step 8. [ADR 0011](adr/0011-fr-citation-is-the-amendment-page.md) |
-| 12 | Where does a label count, and does R1a need (i)/(v)/(x) lookahead? | A label counts in a paragraph's lead: at the start of the `<P>`, right after a heading past the dash or space that ends it, or right after another lead label; the lead ends at the first other text. No lookahead: the (i)/(v)/(x) rule plus failing on any sequence break decides it; the one gap is a lone roman (i) that is a section's last label. [ADR 0012](adr/0012-labels-count-in-the-paragraph-lead.md) |
+| 12 | Where does a label count, and how is an (i), (v) or (x) that could be either a letter or a roman decided? | A label counts in a paragraph's lead: at the start of the `<P>`, right after a heading past the dash or space that ends it, or right after another lead label; the lead ends at the first other text. When (i)/(v)/(x) could be either a letter or a roman, the parser looks at the next label: the next letter means letter; the next roman, e.g. (ii), means roman; if there is no next label or it's neither, the parse fails. [ADR 0012](adr/0012-labels-count-in-the-paragraph-lead.md) |
 
 ## Definitions
 - **Anchor:** a stable ID for one labeled unit of L0 text: a regulation paragraph at any depth (`1024-41-b-2-i-B`), one official comment (`1024-41-b-2-i-interp-1`), or a definition (`1024-31-day`).
@@ -62,7 +62,7 @@ Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no
 **R1a Deterministic parse.** L0 anchors and `text.md` are generated from `tree.json`. That is a nested tree produced from eCFR XML by a rule-based parser; no heuristics or models are involved. The parser:
 - infers depth from the label sequence (letter → number → lowercase roman → capital letter → italic number)
 - recognizes a label only in a paragraph's lead: at the start of a paragraph element, right after a heading past the dash or space that ends it, or right after another lead label; the lead ends at the first other text, and labels inside running text (cross-references) are never structural (decision 12)
-- decides between letter and roman "(i)", "(v)" and "(x)" by sequence: it is a letter only when the last letter-level sibling directly precedes it ("(h)", "(u)", "(w)")
+- decides between letter and roman "(i)", "(v)" and "(x)" by sequence: it is a letter only when the last letter-level sibling directly precedes it ("(h)", "(u)", "(w)"); when it could be either, the next label decides: the reading after which the next label can be placed, and with no next label, or one placed after neither reading, the parse fails (decision 12)
 - **fails** on any skipped, repeated or out-of-order label, and on any label it can't place; it never guesses
 - **Supplement I:** comment headings ("41(x)…" or "Paragraph 41(x)…") must resolve to an existing regulation anchor and may skip; comment numbers ("1.", then "i.") are sequential within a heading
 - **1024.31:** anchors each unlabeled definition paragraph by its defined term (`1024-31-day`), and fails on a definition paragraph with no recognizable term
@@ -397,6 +397,7 @@ Records are derived from cites, so each entry carries only a `reviewed` sign-off
 | Item | When |
 |---|---|
 | eCFR lists 1024.41 versions on both 2025-05-16 (publication of FR 2025-08643) and 2025-07-15 (its effective date). The same pattern appears in 2021 (2021-06-30 published, 2021-08-31 effective), which suggests eCFR also records a version on the publication date. Diff the point-in-time XML locally, then set `version_fr_citations` and `version_effective_date`. | plan, step 3 |
+| Whether a heading's "—" or space left at the end of a parent's own text counts in the operative-anchor test and in the per-node hash, and how a multi-anchor cite joins own texts across a heading separator or a paragraph boundary (decision 12) | plan, step 5 |
 | Rules for `second-reviewed`, and who grants it | phase 2 |
 | A Federal Register watch for future-effective rules | phase 2 |
 | Investor-guide tier records | phase 2+ |

@@ -1,8 +1,8 @@
-# 0012. Labels count in a paragraph's lead; no (i)/(v)/(x) lookahead
+# 0012. A label counts in a paragraph's lead; the next label decides (i)/(v)/(x)
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
-- **Decided by:** the owner, 2026-11-22 19:41 CST, in chat (answers to the chief of staff's two questions), recorded on PR #8: (1) "Paragraph lead (Recommended)"; (2) "Close it (Recommended)"
+- **Decided by:** the owner, in chat (answers to the chief of staff's questions), recorded on PR #8: (1) 2026-11-22 19:41 CST, "Paragraph lead (Recommended)"; (2) 2026-11-22 20:43 CST, "Look one label ahead (Recommended)", which replaced the 19:41 answer "Close it (Recommended)" to the lookahead question
 
 ## Context
 R1a said where a label counts:
@@ -23,72 +23,151 @@ parse fails at the next paragraph:
 
 > parse: line 19, column 4: unplaceable label (1): italic labels sit under capital labels; the open levels are (c)(2)(v)
 
-So the spec's own acceptance goldens (c)(2)(v)(A)(*1*) and (c)(4)(ii)(B)(*2*)
-could not exist, and neither could the anchor (c)(3)(i) that plan step 8's
-golden 41(c)(3)(i)-3 must resolve to. This is the text's layout, not a
-source defect: an `overrides.yaml` entry would have to change verbatim text.
-In PR #8, mutant M3 (a label after a heading only past a dash, the literal
-wording) and M2 (a label only at the start of a `<P>`) each turn the goldens
-and the tree-shape test red.
+So the spec's goldens (c)(2)(v)(A)(*1*) and (c)(4)(ii)(B)(*2*) could not
+exist, and neither could the anchor (c)(3)(i) that plan step 8's golden
+41(c)(3)(i)-3 must resolve to. This is the text's layout, not a source
+defect: an `overrides.yaml` entry would have to change verbatim text. In
+PR #8, a parser that takes a label after a heading only past a dash (the
+literal wording), and one that takes a label only at the start of a `<P>`,
+each turn the goldens and the tree-shape test red.
 
 The spec's "Carried forward" table also held:
 
 > | (i)/(v)/(x) lookahead in R1a | before parsing any section where (h), (u) or (w) has children |
 
 1024.41's (h) has children (1) to (4). At line 66, `(i)` can be placed
-either way: as the letter after (h), or as the first roman under (h)(4).
-R1a's rule reads it as a letter; the next label, (j), confirms it, since a
-roman `(i)` there would leave (j) skipping (i) and the parse would fail.
+either way: as the letter after (h), or as the first roman under (h)(4). It
+is the only label in 1024.41 that can be placed both ways; the next label,
+(j), can be placed only after the letter.
+
+The question at 19:41 said that without lookahead the only gap was a lone
+roman (i) that is a section's last label. That was wrong. Reviewers of PR #8
+showed, and the parser at `b06dfa2` (no lookahead) confirms:
+- an (i), (v) or (x) that ends a section where both readings can be placed
+  is read as a letter with no error, at any depth: (a) to (u), (1), (i) to
+  (v) gives the letter (v); (a) to (w), (1), (i) to (x) gives the letter
+  (x);
+- valid structure fails: (a) to (h), (1), (i), (ii) fails at (ii), "roman
+  labels sit under number labels; the open levels are (i)", and no override
+  can fix that, since the text is not a defect.
+
+So the chief of staff asked again, and the owner answered at 20:43.
 
 ## Options considered
-As asked by the chief of staff:
+As asked by the chief of staff at 19:41:
 - The label rule:
   1. **Paragraph lead (recommended).** A label counts in a paragraph's lead:
      at the start of the `<P>`, right after a heading past the dash or space
      that ends it, or right after another lead label. The lead ends at the
-     first other text. Chosen: the owner's call above.
-  2. The same, but a heading must end in "—", or in "." plus a space. All
-     three 1024.41 cases fit; a heading ending any other way would fail the
-     parse instead of chaining.
+     first other text. Chosen.
+  2. The same, but a heading must end in "—", or in "." plus a space.
+
+  The chief of staff's note, not offered: all three 1024.41 cases above fit
+  both options. They differ only where a heading that doesn't end in a
+  period is followed by a space and a label: option 1 chains that label,
+  option 2 would not.
 - The lookahead:
   1. **Close it (recommended).** No lookahead: the stated rule, plus failing
-     on any sequence break, decides it. Chosen: the owner's call above.
+     on any sequence break, decides it. Chosen at 19:41, replaced at 20:43.
   2. Keep the row open for later sources.
-  3. Add lookahead now: where both readings can be placed, read the next
-     label before choosing.
+  3. Add lookahead now.
+
+  The chief of staff's note, not offered: option 3 would read the next
+  label where both readings can be placed, before choosing.
+
+As asked again by the chief of staff at 20:43, the option chosen, as
+offered:
+- **Look one label ahead (recommended).** "When (i)/(v)/(x) could be either
+  a letter or a roman, the parser looks at the next label: the next letter
+  means letter; the next roman, e.g. (ii), means roman. If there is no next
+  label or it's neither, the parse fails." Chosen.
 
 ## Decision
-1. A label counts only in a paragraph's lead: at the start of the `<P>`,
-   right after a heading past the dash or space that ends it, or right after
-   another lead label. The lead ends at the first other text; labels in
-   running text (cross-references) are never structural.
-2. There is no (i)/(v)/(x) lookahead. The rule (a letter only when the last
-   letter-level sibling directly precedes it) and failing on any skipped,
-   repeated, out-of-order or unplaceable label decide every case but one: a
-   lone roman (i) that is a section's last label, after a letter-level
-   sibling (h), would be read as the letter (i) without a later label to
-   fail on. That gap is recorded here and not handled.
+The owner decided:
+1. (19:41) A label counts only in a paragraph's lead: at the start of the
+   `<P>`, right after a heading past the dash or space that ends it, or
+   right after another lead label. The lead ends at the first other text;
+   labels in running text (cross-references) are never structural.
+2. (20:43, replacing "Close it") "When (i)/(v)/(x) could be either a letter
+   or a roman, the parser looks at the next label: the next letter means
+   letter; the next roman, e.g. (ii), means roman. If there is no next label
+   or it's neither, the parse fails."
 
-How it is carried out was the implementer's (an agent's) choice, not the
-owner's call:
+How it is carried out was the chief of staff's (an agent's) choice, not the
+owner's call. Each choice and its reason:
+- **When a label "could be either".** Only (i), (v) and (x) read both ways;
+  (c), (d), (l) and (m) are letters only. Each of the three is a letter
+  only when the last letter-level sibling directly precedes it, as R1a
+  says; it could be either only when the roman reading can be placed too
+  (a roman level could take it at that value). Otherwise its one placeable
+  reading is taken, and if neither can be placed the roman reading's
+  failure is reported. Why: R1a names only (i), (v) and (x), and its rule
+  already decides every other case; reading (c) as a roman gave wrong
+  failure reasons.
+- **What "the next letter means letter; the next roman means roman"
+  covers.** The next label in document order, in the same lead or the next
+  `<P>`'s, is tried after each reading, and the reading after which it can
+  be placed is taken. So a child counts as well as a letter or a roman: a
+  letter (i) followed by (1); a roman (i) followed by (A), or by the number
+  (2). If it can be placed after neither, or no label follows, the parse
+  fails at the ambiguous label, naming both readings. Why: those labels
+  decide it as surely as a letter or a roman, and the option's words don't
+  name them. No label can be placed after both readings in this order of
+  kinds (the reason is in `internal/parse/label.go`, `choose`), so that
+  case never arises.
 - **What a heading is.** The italic text right after a label and one space
   (`(b) <I>…</I>`). Why: it is how every heading in 1024.41 is written.
+- **The dash or space that ends a heading.** Exactly one "—" or one space
+  (U+0020), right after the heading's `</I>`. Why: the owner's rule says
+  "past the dash or space that ends it"; with no separator a label does not
+  chain.
+- **A label where the lead almost goes on fails.** A label after a heading
+  past any other run of characters that are not letters or digits (nothing,
+  an en dash, a hyphen, two spaces, a no-break space, ". ", a dash inside
+  the `<I>`), a label after a label past such a run (a space, say), and a
+  heading that begins with a label each fail as unplaceable, at the label.
+  Why: R1a never guesses, and reading such a label as running text would
+  drop a possible anchor without a word. (Reviewers on PR #8 suggested
+  keeping it as running text; that is not done, for this reason.)
+- **A label after another in one lead opens the level below it.** A
+  sibling or a higher level there ("(a)(b)", or "(a) <I>See</I> (b) of this
+  section") fails as unplaceable; the level below at another value than its
+  first fails as skipped, as any new level does. Why: in 1024.41 all 16
+  labels after another in a lead open the level below at its first value,
+  and the lead rule is what makes them structural.
+- **The italic level.** An italic label is exactly `(`, a number in
+  `<I>…</I>`, `)`. Italic parentheses, a label partly in italics and an
+  italic letter fail as unplaceable. Why: it is how every italic label in
+  1024.41 is written.
 - **Where the dash or space after a heading goes.** It stays at the end of
   the parent's own text, so the own texts of one `<P>`, joined, are exactly
   its character data (`(b) Receipt of a loss mitigation application—`).
-  Why: no character of the source is dropped or moved. Plan step 5 decides
-  what that leftover means for the operative-anchor test and for
-  multi-anchor joins.
+  Why: no character of the source is dropped or moved. Whether it counts in
+  the operative-anchor test and the per-node hash, and how a multi-anchor
+  cite joins across it or across a paragraph boundary, is plan step 5's
+  (spec "Carried forward").
+- **Each node records its `<P>`** (`para`, counted from 1, in the tree's
+  JSON form). Why: the tree alone then gives back each paragraph's text and
+  which anchors share a paragraph, which plan step 5's joins need.
+- **What else fails as malformed.** CDATA, a namespaced element, a section
+  with no N, no HEAD or no `<P>`, and character data outside HEAD, P and
+  CITA that is not XML whitespace (a no-break space or a byte-order mark,
+  say). Why: 1024.41's form holds none of them, and before this each one
+  passed without an error: an empty tree, a namespaced section read as
+  this form, stray text dropped, or, for CDATA, a lost label and a wrong
+  location.
 
 ## Spec changes
 - `docs/03-spec.md`:
-  - Decisions-table row 12 is added: "Where does a label count, and does
-    R1a need (i)/(v)/(x) lookahead? A label counts in a paragraph's lead: at
-    the start of the `<P>`, right after a heading past the dash or space that
-    ends it, or right after another lead label; the lead ends at the first
-    other text. No lookahead: the (i)/(v)/(x) rule plus failing on any
-    sequence break decides it; the one gap is a lone roman (i) that is a
-    section's last label."
+  - Decisions-table row 12 is added: "Where does a label count, and how is
+    an (i), (v) or (x) that could be either a letter or a roman decided? |
+    A label counts in a paragraph's lead: at the start of the `<P>`, right
+    after a heading past the dash or space that ends it, or right after
+    another lead label; the lead ends at the first other text. When
+    (i)/(v)/(x) could be either a letter or a roman, the parser looks at
+    the next label: the next letter means letter; the next roman, e.g.
+    (ii), means roman; if there is no next label or it's neither, the parse
+    fails."
   - R1a: "recognizes a label only at the start of a paragraph element, or
     right after the dash that ends a heading; labels inside running text
     (cross-references) are never structural" → "recognizes a label only in a
@@ -96,8 +175,18 @@ owner's call:
     heading past the dash or space that ends it, or right after another lead
     label; the lead ends at the first other text, and labels inside running
     text (cross-references) are never structural (decision 12)".
+  - R1a: "decides between letter and roman "(i)", "(v)" and "(x)" by
+    sequence: it is a letter only when the last letter-level sibling directly
+    precedes it ("(h)", "(u)", "(w)")" → the same, then "; when it could be
+    either, the next label decides: the reading after which the next label
+    can be placed, and with no next label, or one placed after neither
+    reading, the parse fails (decision 12)".
   - "Carried forward": the row "(i)/(v)/(x) lookahead in R1a | before
-    parsing any section where (h), (u) or (w) has children" is removed.
+    parsing any section where (h), (u) or (w) has children" is removed, and
+    a row is added: "Whether a heading's "—" or space left at the end of a
+    parent's own text counts in the operative-anchor test and in the
+    per-node hash, and how a multi-anchor cite joins own texts across a
+    heading separator or a paragraph boundary (decision 12) | plan, step 5".
   - Header "Amended: 2026-11-22 by ADRs 0007–0011" → "… by ADRs 0007–0012".
 - `docs/04-plan.md`:
   - Step 4: "**Label position:** a label counts only at the start of `<P>`
@@ -105,27 +194,55 @@ owner's call:
     a paragraph's lead: at the start of `<P>`, right after a heading past the
     dash or space that ends it, or right after another lead label; the lead
     ends at the first other text (ADR 0012)."
+  - Step 4: "**The (i)/(v)/(x) rule:** it's a letter only when the last
+    letter-level sibling directly precedes it." → "**The (i)/(v)/(x) rule:**
+    it's a letter only when the last letter-level sibling directly precedes
+    it; when it could be either, the next label decides, and with no next
+    label, or one placed after neither reading, the parse fails (ADR 0012)."
+  - Step 5 gains a bullet: "Decide whether a heading's "—" or space left at
+    the end of a parent's own text counts in the operative-anchor test and
+    the per-node hash, and how a multi-anchor cite joins own texts across a
+    heading separator or a paragraph boundary (spec "Carried forward"; ADR
+    0012)."
+  - Risks, the eCFR labels row's mitigation: "Deterministic parser; labels
+    recognized only by position; goldens written before the code, from the
+    XML; fail on any sequence break" → "Deterministic parser; labels
+    recognized only by position; an (i), (v) or (x) that could be either
+    decided by the next label; goldens written before the code, from the
+    XML; fail on any sequence break (ADR 0012)".
   - Header "Amended: 2026-11-22 by ADRs 0007, 0010 and 0011" → "… by ADRs
     0007, 0010, 0011 and 0012".
 - `stages/01-fetch-parse/CONTRACT.md`, Requirements, R1a: "Labels count only
-  at the start of a paragraph element or right after a heading dash;" →
-  "Labels count only in a paragraph's lead: at the start of a paragraph
-  element, right after a heading past the dash or space that ends it, or
-  right after another lead label (spec decision 12);".
-- No other lines. The plan's Risks row ("labels recognized only by
-  position") still holds. The intent and AGENTS.md say nothing about label
-  position or lookahead.
+  at the start of a paragraph element or right after a heading dash;
+  (i)/(v)/(x) resolved by sequence;" → "Labels count only in a paragraph's
+  lead: at the start of a paragraph element, right after a heading past the
+  dash or space that ends it, or right after another lead label; the lead
+  ends at the first other text (spec decision 12). (i)/(v)/(x) resolved by
+  sequence, and by the next label when it could be either;", with the item
+  rewrapped.
+- `docs/adr/README.md`, the index, gains the line "| [0012](0012-labels-count-in-the-paragraph-lead.md) | A label counts in a paragraph's lead; the next label decides (i)/(v)/(x) | Accepted |".
+- `internal/parse/doc.go`: the package doc this PR writes states the label
+  position and the (i)/(v)/(x) rule as decided here.
+- No other lines. The intent and AGENTS.md say nothing about label position
+  or the (i)/(v)/(x) rule.
 
 ## Consequences
 - 1024.41 parses with no override: 91 nodes from 75 `<P>`, with the
-  goldens (c)(2)(v)(A)(*1*), (c)(3)(i) and (c)(4)(ii)(A)(*1*) in place.
-- A later source whose headings end some other way still chains (option 2's
-  narrower test is not applied); a label there that breaks the sequence
-  still fails the parse.
-- The lone-roman-(i) gap stays. A source that holds it would parse
-  silently wrong at that label; no current source does.
-- Plan step 5 inherits the leftover dash or space at the end of a heading
-  parent's own text (see the Decision's last item).
+  goldens (c)(2)(v)(A)(*1*) and (c)(4)(ii)(B)(*2*), and the anchor (c)(3)(i),
+  in place. Its (i) at line 66 is read as the letter, because (j) follows.
+- The gap recorded at 19:41 is closed: an (i), (v) or (x) that both
+  readings can place and that ends a section fails, as does one whose next
+  label fits after neither; (h)(1)(i), (h)(1)(ii) parses.
+- A label after a heading that ends other than with one "—" or one space, a
+  label after a label past a space, and a sibling after a label in a lead
+  each fail the parse. A later source laid out that way needs a reviewed
+  override, if it is a source defect, or an ADR.
+- A sequence that is valid under these rules is read as that structure. If
+  a source leaves out a label and what remains is still a valid sequence,
+  the parse can't tell: (a) to (g), (1), (i) ending a section reads (i) as
+  the roman (g)(1)(i).
+- Plan step 5 inherits the dash or space at the end of a heading parent's
+  own text (spec "Carried forward").
 
 ## Requirement IDs
 R1a (deterministic parse: label position, the (i)/(v)/(x) rule); spec
@@ -133,9 +250,14 @@ R1a (deterministic parse: label position, the (i)/(v)/(x) rule); spec
 
 ## Links
 - PR #8 (https://github.com/Okja-Engineering/reg-corpus/pull/8), which
-  records this ADR, and its comment quoting the calls
-  (https://github.com/Okja-Engineering/reg-corpus/pull/8#issuecomment-7089352475).
-- Commits `7ec20c0` (goldens and corrupted fixtures, red) and `b06dfa2`
-  (the parser, green): `internal/parse/parse.go` (`leads`, `place`),
-  `internal/parse/doc.go`, `internal/parse/golden_test.go`,
-  `internal/parse/rules_test.go` (`TestLabelPosition`, `TestLetterOrRoman`).
+  records this ADR; its comments quoting the calls: 19:41
+  (https://github.com/Okja-Engineering/reg-corpus/pull/8#issuecomment-7089352475)
+  and 20:43
+  (https://github.com/Okja-Engineering/reg-corpus/pull/8#issuecomment-7090167770).
+- Commits `7ec20c0` (goldens and corrupted fixtures, red), `b06dfa2` (the
+  parser, green), `61646df` (the lookahead, lead, shape and malformed tests,
+  red) and `8f00eb5` (the parser that passes them, green):
+  `internal/parse/label.go` (`leads`, `choose`, `fit`),
+  `internal/parse/parse.go`, `internal/parse/doc.go`, and the tests
+  `internal/parse/lookahead_test.go`, `internal/parse/lead_test.go`,
+  `internal/parse/rules_test.go` and `internal/parse/malformed_test.go`.
