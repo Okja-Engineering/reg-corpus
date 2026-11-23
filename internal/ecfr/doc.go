@@ -66,8 +66,9 @@
 // its form is checked (internal/meta). Each citation, each given once, must
 // be cited in a citation note (<CITA>) of the raw XML meta.yaml describes
 // (citationNote reads each run of a note's text on its own, shorthand pages
-// too); that checks membership only, not that the page is the amendment
-// that produced the version. The values are read from the Federal Register
+// too), and raw XML that is not well-formed, which the strict parse refuses,
+// refuses the citations (exit 1); that checks membership only, not that the
+// page is the amendment that produced the version. The values are read from the Federal Register
 // and eCFR outside the tool (plan step 3's diff record, in its PR); meta set
 // checks only what L0 itself can check.
 //

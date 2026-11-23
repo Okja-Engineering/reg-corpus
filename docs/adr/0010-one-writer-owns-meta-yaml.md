@@ -54,9 +54,13 @@ owner's call. Each choice and its reason:
   file I/O. `internal/l0` is the writer: it reads, checks and replaces the
   file (`Update`), and it also stores raw XML and a new `meta.yaml` once
   (`StoreOnce`). Why: the schema is pure functions, tested as inverses
-  without a disk; the file work (real directories, raw XML's bytes, the
-  lock, built for darwin and linux only, and the replace) is shared with
-  storing raw XML, which is not part of the schema. Together they are still
+  without a disk; the file work is not. Storing raw XML (`fetch`, through
+  `Read`, `Stored` and `StoreOnce`) and changing `meta.yaml` (`Update`)
+  share the real-directory walk, the temporary file each writes first, and
+  the checks of the stored state and raw XML's bytes; `Update` alone takes
+  the lock, built for darwin and linux only, and replaces the file. That
+  work sits in the one package that also stores raw XML, which is not part
+  of the schema. Together they are still
   option 1's one writer: no command writes `meta.yaml` except through
   `internal/l0`, and `internal/l0` writes only what `internal/meta` renders.
 - **One stored-state check before any write.** Every writer of a

@@ -44,8 +44,9 @@ Exit 0: set, or already that value. Exit 1: refused by what is stored: no
 meta.yaml (run regcorpus fetch first), or one not in the spec's schema or
 naming another source; raw/ not holding exactly the raw file meta.yaml
 describes, with its bytes; a symlink or a file in place of meta.yaml, the
-raw file or a directory on the way; a citation the note doesn't cite.
-Nothing is written.
+raw file or a directory on the way; when setting citations, raw XML that
+is not well-formed (the strict parse refuses it), or a citation the note
+doesn't cite. Nothing is written.
 Exit 2: a usage error (no such section, any other field, a flag, a value not
 of its field's type, a citation given twice), no sources/ecfr/title-12/ (not
 the corpus root), a file that can't be read or written, or a platform
