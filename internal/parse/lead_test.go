@@ -111,14 +111,13 @@ func TestLeadEnds(t *testing.T) {
 // TestHeadingPosition: a heading is one <I> element after a label and
 // exactly one space outside the <I>. Italic text after a label past anything
 // else, or an <I> that begins with a space, fails at the heading's first
-// character. The heading's start tag is the only <I> start tag from the
-// label's end to the heading's end: any other, empty or not, before the
-// heading or right after it, fails at its start tag.
+// character. A second <I> right after the heading fails at its start tag,
+// and an empty <I> anywhere fails at its start tag, as the XML's form.
 func TestHeadingPosition(t *testing.T) {
 	const want = "malformed: a heading follows its label past one space; here "
 	const inside = "malformed: a heading follows its label past one space outside the <I>, not a space inside it"
 	const second = "malformed: a heading is one <I> element; here a second <I> follows it"
-	const before = "malformed: a heading is one <I> element; here another <I> comes before it"
+	const empty = "malformed: unexpected empty <I> in <P>"
 	for _, c := range []struct {
 		name, para, mark, want string
 	}{
@@ -131,11 +130,11 @@ func TestHeadingPosition(t *testing.T) {
 		{"a second space inside the <I>", "(a) <I> Head</I>—(1) text.", " Head", inside},
 		{"a second <I> holding a label", "(a) <I>Head</I><I>(1)</I> text.", "<I>(1)", second},
 		{"a second <I> holding words", "(a) <I>Head.</I><I>Sub.</I> text.", "<I>Sub", second},
-		{"an empty second <I>", "(a) <I>Head</I><I></I>—(1) text.", "<I></I>", second},
-		{"an empty second <I>, then a third", "(a) <I>Head</I><I></I><I>Sub</I> text.", "<I></I>", second},
-		{"an empty <I> right before the heading", "(a) <I></I><I>Head</I> text.", "<I></I>", before},
-		{"an empty <I> before the space", "(a)<I></I> <I>Head</I> text.", "<I></I>", before},
-		{"two empty <I> before the heading", "(a) <I></I><I></I><I>Head</I>—(1) text.", "<I></I><I></I>", before},
+		{"an empty second <I>", "(a) <I>Head</I><I></I>—(1) text.", "<I></I>", empty},
+		{"an empty second <I>, then a third", "(a) <I>Head</I><I></I><I>Sub</I> text.", "<I></I>", empty},
+		{"an empty <I> right before the heading", "(a) <I></I><I>Head</I> text.", "<I></I>", empty},
+		{"an empty <I> before the space", "(a)<I></I> <I>Head</I> text.", "<I></I>", empty},
+		{"two empty <I> before the heading", "(a) <I></I><I></I><I>Head</I>—(1) text.", "<I></I><I></I>", empty},
 		{"a space and a label inside the <I>", "(a) <I> (1) Head.</I> text.", " (1)", inside},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -188,7 +187,7 @@ func TestFirstFailure(t *testing.T) {
 		{"a label after a dash, then a second <I>", "(a) <I>Head—(1) Sub</I><I>x</I> text.", "(1)",
 			"unplaceable label (1): it follows a dash inside the heading of (a)"},
 		{"an empty <I>, then a label at the heading's start", "(a) <I></I><I>(1) Head</I> text.", "<I></I>",
-			"malformed: a heading is one <I> element; here another <I> comes before it"},
+			"malformed: unexpected empty <I> in <P>"},
 		{"no space before the heading, then a label in its run", "(a)<I>. (1) Head</I> text.", ". (1)",
 			"malformed: a heading follows its label past one space; here nothing separates them"},
 		{"a label in the heading's run, then no space after a dash", "(a) <I>“(1) Head—(2)</I> text.", "(1)",
