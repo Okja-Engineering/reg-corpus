@@ -13,14 +13,17 @@
 //     ends it), or right after another lead label ("(A)(<I>1</I>)"). A heading
 //     is the italic text right after a label and one space. The lead ends at
 //     the first text that is none of these; a label after that is running text
-//     (a cross-reference) and is never structural.
+//     (a cross-reference) and is never structural (ADR 0012, spec decision 12).
 //   - Depth comes from the label sequence: letter, number, lowercase roman,
 //     capital letter, italic number (a number in <I>). A stack of open levels
 //     holds each level's last sibling; a label of a kind is a child of the
 //     open level above it and closes the levels below it.
 //   - A lowercase label that is both a letter and a roman numeral ((i), (v),
 //     (x)) is a letter only when the last letter-level sibling directly
-//     precedes it ((h), (u), (w)); otherwise roman.
+//     precedes it ((h), (u), (w)); otherwise roman. There is no lookahead
+//     (ADR 0012): this rule and the sequence checks below decide it. The one
+//     gap: a lone roman (i) that is a section's last label, after (h), reads
+//     as the letter (i).
 //   - Each label must follow its last sibling by one, and a new level starts
 //     at its first label. Otherwise the parse fails with an *Error naming the
 //     reason (Skipped, Repeated, OutOfOrder, Unplaceable, Unlabeled for a <P>

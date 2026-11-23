@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007, 0010 and 0011
+- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012
 - **Spec:** `docs/03-spec.md`
 - **Appetite:** four weekends plus the following week as buffer; decision by 2026-12-20
 
@@ -84,7 +84,7 @@ VERSION  CHANGES.json             # after accept
    - a corrupted-sequence fixture that must fail
 
    Then the parser itself:
-   - **Label position:** a label counts only at the start of `<P>` or after a heading dash.
+   - **Label position:** a label counts only in a paragraph's lead: at the start of `<P>`, right after a heading past the dash or space that ends it, or right after another lead label; the lead ends at the first other text (ADR 0012).
    - **State machine:** a stack of levels, each holding its last sibling label.
    - **The (i)/(v)/(x) rule:** it's a letter only when the last letter-level sibling directly precedes it.
    - **Fail loudly:** exit non-zero with the XML location; fix source defects only through `overrides.yaml`.
