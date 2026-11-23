@@ -33,6 +33,7 @@ func TestLeadContinues(t *testing.T) {
 		{"(a) <I>Head (see (1)) more.</I> Text.", []string{"(a)"}},
 		{"(a) <I>Self-help (see (1)).</I> Text.", []string{"(a)"}},
 		{"(a) <I>Head.</I> <I> Id.</I> text.", []string{"(a)"}},
+		{"(a) <I>Pre‐ and post−closing review (general).</I> Text.", []string{"(a)"}},
 	} {
 		t.Run(c.para, func(t *testing.T) {
 			if got := paths(t, section(c.para)); !reflect.DeepEqual(got, c.want) {
@@ -46,6 +47,8 @@ func TestLeadContinues(t *testing.T) {
 // at that label's "(".
 func TestLeadEnds(t *testing.T) {
 	const afterHeading = `a label follows a heading only past one "—" or one space; here `
+	const inItalic = "it is in the italic text after (a), before any letter or digit, where a heading goes"
+	const afterDash = "it follows a dash inside the heading of (a)"
 	for _, c := range []struct {
 		name, para, mark, want string
 	}{
@@ -72,13 +75,31 @@ func TestLeadEnds(t *testing.T) {
 		{"label, dash, label", "(a)—(1) text.", "(1)",
 			`unplaceable label (1): a label follows another only with nothing between them, or past its heading; here "—" separates them`},
 		{"heading that is a label", "(a) <I>(1)</I> text.", "(1)",
-			"unplaceable label (1): it begins the italic text after (a), where a heading goes"},
+			"unplaceable label (1): " + inItalic},
 		{"heading that starts with a label", "(a) <I>(b) Head.</I> text.", "(b)",
-			"unplaceable label (b): it begins the italic text after (a), where a heading goes"},
+			"unplaceable label (b): " + inItalic},
+		{"heading that starts with a quoted label", "(a) <I>“(1) Head”</I> text.", "(1)",
+			"unplaceable label (1): " + inItalic},
+		{"heading that starts with a period and a label", "(a) <I>. (1) Head</I> text.", "(1)",
+			"unplaceable label (1): " + inItalic},
+		{"heading that starts with a space and a label", "(a) <I> (1) Head.</I> text.", "(1)",
+			"unplaceable label (1): " + inItalic},
+		{"heading that starts with a word in parentheses", "(a) <I>(see) Head.</I> text.", "(see)",
+			"unplaceable label (see): " + inItalic},
 		{"label in the heading after a dash", "(a) <I>Head—(1) Sub.</I> Text.", "(1)",
-			"unplaceable label (1): it follows a dash inside the heading of (a)"},
+			"unplaceable label (1): " + afterDash},
 		{"label in the heading after a spaced en dash", "(a) <I>Head – (1) Sub.</I> Text.", "(1)",
-			"unplaceable label (1): it follows a dash inside the heading of (a)"},
+			"unplaceable label (1): " + afterDash},
+		{"label in the heading after a hyphen (U+2010)", "(a) <I>Head‐(1) Sub.</I> Text.", "(1)",
+			"unplaceable label (1): " + afterDash},
+		{"label in the heading after a figure dash (U+2012)", "(a) <I>Head‒(1) Sub.</I> Text.", "(1)",
+			"unplaceable label (1): " + afterDash},
+		{"label in the heading after a horizontal bar (U+2015)", "(a) <I>Head―(1) Sub.</I> Text.", "(1)",
+			"unplaceable label (1): " + afterDash},
+		{"label in the heading after a minus sign (U+2212)", "(a) <I>Head−(1) Sub.</I> Text.", "(1)",
+			"unplaceable label (1): " + afterDash},
+		{"label in the heading after a dash, its parenthesis italic", "(a) <I>Head—(</I>1) text.", "(</I>",
+			"unplaceable label (1): " + afterDash},
 		{"italic parenthesis chained", "(a)<I>(</I>1) text.", "(</I>",
 			"unplaceable label (1): its parentheses are italic"},
 	} {
@@ -88,13 +109,14 @@ func TestLeadEnds(t *testing.T) {
 	}
 }
 
-// TestHeadingPosition: a heading is the <I> text after a label and exactly
-// one space outside the <I>. Italic text after a label past anything else,
-// or an <I> that begins with a space, fails at the heading's first
-// character.
+// TestHeadingPosition: a heading is one <I> element after a label and
+// exactly one space outside the <I>. Italic text after a label past anything
+// else, or an <I> that begins with a space, fails at the heading's first
+// character; a second <I> right after the heading fails at its start tag.
 func TestHeadingPosition(t *testing.T) {
 	const want = "malformed: a heading follows its label past one space; here "
 	const inside = "malformed: a heading follows its label past one space outside the <I>, not a space inside it"
+	const second = "malformed: a heading is one <I> element; here a second <I> follows it"
 	for _, c := range []struct {
 		name, para, mark, want string
 	}{
@@ -105,7 +127,9 @@ func TestHeadingPosition(t *testing.T) {
 		{"a dash", "(a)—<I>Head</I> text.", "Head", want + `"—" separates them`},
 		{"the space inside the <I>", "(a)<I> Head</I>—(1) text.", " Head", inside},
 		{"a second space inside the <I>", "(a) <I> Head</I>—(1) text.", " Head", inside},
-		{"a space and a label inside the <I>", "(a) <I> (1) Head.</I> text.", " (1)", inside},
+		{"a second <I> holding a label", "(a) <I>Head</I><I>(1)</I> text.", "<I>(1)", second},
+		{"a second <I> holding words", "(a) <I>Head.</I><I>Sub.</I> text.", "<I>Sub", second},
+		{"an empty second <I>", "(a) <I>Head</I><I></I>—(1) text.", "<I></I>", second},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", col(c.para, c.mark), c.want))
@@ -113,9 +137,10 @@ func TestHeadingPosition(t *testing.T) {
 	}
 }
 
-// TestBrokenLabel: a "(" in the run after a label or heading, before the
-// first letter or digit, that starts no label fails at the "(", as it does
-// at the start of a <P>.
+// TestBrokenLabel: a "(" that starts no label, in a run (the text up to the
+// first letter or digit after a label, after a heading, or after a dash
+// inside a heading, italic or not), fails at the "(", as it does at the
+// start of a <P>.
 func TestBrokenLabel(t *testing.T) {
 	const want = `unplaceable: a "(" here starts no label`
 	for _, c := range []struct {
@@ -131,6 +156,12 @@ func TestBrokenLabel(t *testing.T) {
 		{"a letter outside ASCII", "(a)(é) text.", 3},
 		{"a parenthesis in words past a heading", "(a) <I>Head</I>—(see (1)) text.", 18},
 		{"a parenthesis in words past a label", "(a) (see below) text.", 4},
+		{"a second parenthesis at a heading's start", "(a) <I>((1) Head</I> text.", 7},
+		{"a period in a label at a heading's start", "(a) <I>(1.) Head</I> text.", 7},
+		{"an italic parenthesis, then a broken label", "(a) <I>(</I>1.) text.", 7},
+		{"an italic parenthesis, then a space and a label", "(a) <I>(</I> (1) text.", 7},
+		{"a heading that begins with words in parentheses", "(a) <I>(see below) Head.</I> text.", 7},
+		{"a period in a label after a dash in the heading", "(a) <I>Head—(1.) Sub.</I> text.", 14},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.para[c.at] != '(' {
