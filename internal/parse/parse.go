@@ -284,7 +284,23 @@ type para struct {
 	text   string
 	italic []bool
 	raw    []int
-	start  int // the offset of its <P> start tag
+	opens  []open // its <I> start tags, in order
+	start  int    // the offset of its <P> start tag
+}
+
+// open is an <I> start tag: the index in the paragraph's text where its
+// element begins, and the tag's XML offset.
+type open struct{ at, offset int }
+
+// openAt reports the first <I> start tag at index i of the text, and its
+// offset. An empty <I> has one too.
+func (pa *para) openAt(i int) (int, bool) {
+	for _, o := range pa.opens {
+		if o.at == i {
+			return o.offset, true
+		}
+	}
+	return 0, false
 }
 
 // offset is the XML byte offset of the paragraph's text at index i, or of
@@ -323,6 +339,7 @@ func (p *parser) readPara(start int) (*para, error) {
 				return nil, p.fail(off, Malformed, "", "unexpected "+what(tok)+" in "+in)
 			}
 			italic = true
+			pa.opens = append(pa.opens, open{b.Len(), off})
 		case xml.EndElement: // </I>, or </P>: the decoder has checked it matches
 			if !italic {
 				pa.text = b.String()

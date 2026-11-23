@@ -47,13 +47,13 @@ func (p *parser) leads(pa *para, n int) ([]lead, error) {
 	var out []lead
 	for {
 		ld := lead{label: l, para: n, chained: len(out) > 0}
-		f, err := p.follow(pa, l.end, l.text, false)
+		f, err := p.follow(pa, l.end, l.text, afterLabel)
 		if err != nil {
 			return nil, err
 		}
 		if f.heading {
 			ld.heading = pa.text[f.start:f.end]
-			if f, err = p.follow(pa, f.end, l.text, true); err != nil {
+			if f, err = p.follow(pa, f.end, l.text, afterHeading); err != nil {
 				return nil, err
 			}
 		}
@@ -82,25 +82,35 @@ type next struct {
 	start, end     int
 }
 
+// after names what a run follows: a lead label, a heading, or a dash
+// inside a heading.
+type after int
+
+const (
+	afterLabel after = iota
+	afterHeading
+	afterDash
+)
+
 // follow decides what comes at pos, right after the lead label prev, or
 // after prev's heading. It is the one place where the lead goes on, ends,
-// or almost goes on and fails. The run is the text from pos up to the
-// first letter or digit. In order:
+// or almost goes on and fails. A run is the text up to the first letter or
+// digit, italic or not; paren decides every "(" in every run. In order:
 //  1. A chained label: right after the label, or past exactly one "—" or
 //     one space after its heading. A bad label shape there fails.
-//  2. A "(" in the run otherwise fails, at that "(": past the wrong
-//     separator if a label starts there, or as a broken label if none does.
-//  3. After a label, italic text in the run or right after it is the
-//     heading. Past anything but one space outside the <I>, or with a space
-//     first inside it, it fails. A heading that begins with a label, or
-//     holds a label after a dash, fails.
+//  2. Any other "(" in the run from pos fails (paren). After a label, that
+//     run also holds the start of any heading.
+//  3. After a label, the <I> element in the run or right after it is the
+//     heading. Past anything but one space outside the <I>, with a space
+//     first inside it, or with a second <I> right after it, it fails. A "("
+//     in the run after each dash inside it fails (paren).
 //  4. Otherwise the lead ends, and running text starts at the run's end:
 //     "(a) 2(1)" holds the running text "2(1)".
-func (p *parser) follow(pa *para, pos int, prev string, afterHeading bool) (next, error) {
+func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 	s := pa.text
 	run := pos + len(nonWord(s[pos:]))
 	seps := []string{""}
-	if afterHeading {
+	if w == afterHeading {
 		seps = []string{"—", " "}
 	}
 	for _, sep := range seps {
@@ -108,29 +118,23 @@ func (p *parser) follow(pa *para, pos int, prev string, afterHeading bool) (next
 			return next{chain: true, label: l}, err
 		}
 	}
+	if err := p.paren(pa, pos, run, w, prev); err != nil {
+		return next{}, err
+	}
+	if w == afterHeading {
+		return next{}, nil
+	}
 
 	h := -1
-	for i := pos; !afterHeading && i <= run && i < len(s); i++ {
+	for i := pos; i <= run && i < len(s); i++ {
 		if pa.italic[i] {
 			h = i
 			break
 		}
 	}
-	if q := strings.IndexByte(s[pos:run], '('); q >= 0 && (h < 0 || pos+q < h) {
-		l, ok, _ := p.labelAt(pa, pos+q)
-		if !ok {
-			return next{}, p.broken(pa, pos+q)
-		}
-		why := "a label follows another only with nothing between them, or past its heading; here "
-		if afterHeading {
-			why = `a label follows a heading only past one "—" or one space; here `
-		}
-		return next{}, p.fail(l.offset, Unplaceable, l.text, why+describe(s[pos:pos+q])+" separates them")
-	}
 	if h < 0 {
 		return next{}, nil
 	}
-
 	r, _ := utf8.DecodeRuneInString(s[h:])
 	switch {
 	case unicode.IsSpace(r):
@@ -138,21 +142,58 @@ func (p *parser) follow(pa *para, pos int, prev string, afterHeading bool) (next
 	case s[pos:h] != " ":
 		return next{}, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space; here "+describe(s[pos:h])+" separates them")
 	}
-	end := h
+	end := h + 1
 	for end < len(s) && pa.italic[end] {
+		if _, ok := pa.openAt(end); ok {
+			break
+		}
 		end++
 	}
-	for i := h; i < end; i++ {
-		l, ok, _ := p.labelAt(pa, i)
-		switch {
-		case !ok:
-		case i == h:
-			return next{}, p.fail(l.offset, Unplaceable, l.text, "it begins the italic text after "+prev+", where a heading goes")
-		case strings.ContainsAny(nonWordEnd(s[h:i]), "—–-"):
-			return next{}, p.fail(l.offset, Unplaceable, l.text, "it follows a dash inside the heading of "+prev)
+	if off, ok := pa.openAt(end); ok {
+		return next{}, p.fail(off, Malformed, "", "a heading is one <I> element; here a second <I> follows it")
+	}
+	for i, r := range s[h:end] {
+		if c := h + i + utf8.RuneLen(r); isDash(r) {
+			if err := p.paren(pa, c, c+len(nonWord(s[c:end])), afterDash, prev); err != nil {
+				return next{}, err
+			}
 		}
 	}
 	return next{heading: true, start: h, end: end}, nil
+}
+
+// paren is the one rule for a "(" in a run, the text s[a:b] after a lead
+// label, a heading or a dash inside a heading, up to the first letter or
+// digit (ADR 0012). The first "(" in it fails as Unplaceable: as a "(" that
+// starts no label, or as a label past the wrong separator, in the italic
+// text where a heading goes, or after the dash.
+func (p *parser) paren(pa *para, a, b int, w after, prev string) error {
+	q := strings.IndexByte(pa.text[a:b], '(')
+	if q < 0 {
+		return nil
+	}
+	i := a + q
+	l, ok, _ := p.labelAt(pa, i)
+	var why string
+	switch {
+	case !ok:
+		return p.broken(pa, i)
+	case w == afterDash:
+		why = "it follows a dash inside the heading of " + prev
+	case w == afterLabel && pa.italic[i]:
+		why = "it is in the italic text after " + prev + ", before any letter or digit, where a heading goes"
+	case w == afterLabel:
+		why = "a label follows another only with nothing between them, or past its heading; here " + describe(pa.text[a:i]) + " separates them"
+	default:
+		why = `a label follows a heading only past one "—" or one space; here ` + describe(pa.text[a:i]) + " separates them"
+	}
+	return p.fail(l.offset, Unplaceable, l.text, why)
+}
+
+// isDash reports a dash inside a heading: any Unicode dash punctuation (Pd)
+// or the minus sign U+2212.
+func isDash(r rune) bool {
+	return unicode.Is(unicode.Pd, r) || r == '\u2212'
 }
 
 // broken fails at a "(" where a label goes that starts no label.
@@ -168,19 +209,6 @@ func nonWord(s string) string {
 		}
 	}
 	return s
-}
-
-// nonWordEnd is the run at the end of s of anything but letters and digits.
-func nonWordEnd(s string) string {
-	i := len(s)
-	for i > 0 {
-		r, n := utf8.DecodeLastRuneInString(s[:i])
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			break
-		}
-		i -= n
-	}
-	return s[i:]
 }
 
 func describe(sep string) string {

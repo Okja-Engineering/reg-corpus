@@ -26,23 +26,33 @@
 //     structural. A label after another in one lead must open the level
 //     below it.
 //   - Where the lead almost goes on (ADR 0012), decided in one place,
-//     follow in label.go. The run is the text after a label, or after a
-//     heading, up to the first letter or digit. Each case:
+//     follow in label.go. A run is the text up to the first letter or
+//     digit, italic or not: after a label (so it holds the start of any
+//     heading), after a heading, and after each dash inside a heading. A
+//     dash there is any Unicode dash punctuation, Pd (in Go's Unicode 17.0.0
+//     tables: U+002D, U+058A, U+05BE, U+1400, U+1806, U+2010 to U+2015,
+//     U+2E17, U+2E1A, U+2E3A, U+2E3B, U+2E40, U+2E5D, U+301C, U+3030,
+//     U+30A0, U+FE31, U+FE32, U+FE58, U+FE63, U+FF0D, U+10D6E and
+//     U+10EAD), or the minus sign U+2212. Each case:
 //     1. A chained label: right after a label with nothing between, or
 //     right after a heading past exactly one "—" or one space.
-//     2. Any other "(" in the run fails as Unplaceable at that "(": past
-//     the wrong separator if a label starts there ("(a) (1)", or "–",
-//     ". " or two spaces after a heading), or, if none does, as a "(" that
-//     starts no label ("(1 )", "(1.)", "()", "(é)"). A "(" at the start of a
-//     <P> that starts no label fails the same way.
-//     3. A heading is the <I> text after a label and exactly one space
+//     2. One rule, paren in label.go, decides every other "(" in every
+//     run: the first fails as Unplaceable at that "(". If no label starts
+//     there, it is a "(" that starts no label ("(1 )", "(1.)", "()", "(é)",
+//     "(see below)"), as at the start of a <P>. If one does, it is a label
+//     past the wrong separator ("(a) (1)", or "–", ". " or two spaces after
+//     a heading), in the italic text where a heading goes, before its
+//     first letter or digit ("(a) <I>“(1) Head”</I>"), or after a dash
+//     inside a heading ("(a) <I>Head—(1) Sub.</I>"). So a heading that
+//     begins with a parenthesis fails ("(a) <I>(see below) Head.</I>"); a
+//     parenthesis later in its words, after its first letter or digit and
+//     not after a dash, is its text ("(see (1))").
+//     3. A heading is one <I> element after a label and exactly one space
 //     outside the <I>. Italic text in the run, or right after it, past
 //     anything else (nothing, two spaces, a no-break space, a quotation
 //     mark), or with a space first inside the <I>, fails as Malformed at
-//     its first italic character. A heading that begins with a label (an
-//     italic "(" too: "(a) <I>(</I>1)"), or holds a label after a dash
-//     ("—", "–" or "-"), fails as Unplaceable at that label. Any other
-//     parenthesis in a heading is its text ("(see (1))").
+//     its first italic character. A second <I> right after the heading,
+//     empty or not, fails as Malformed at its start tag.
 //     4. Otherwise the lead ends at the run's end, and what follows is
 //     running text: in "(a) 2(1) text." the digit ends the run, so "(1)"
 //     is running text.
@@ -70,7 +80,8 @@
 //     A line ends at LF, at CRLF or at a lone CR, as XML reads line ends.
 //     For a label, they are its "("; for a "(" that starts no label, that
 //     "("; for Unlabeled, the paragraph's first character, or its <P> tag if
-//     it is empty; for a misplaced heading, its first italic character; for
+//     it is empty; for a misplaced heading, its first italic character, and
+//     for a second <I> right after a heading, its start tag; for
 //     Malformed, the start of what is wrong: the element or token, the
 //     character reference to a surrogate, the first byte of stray text that
 //     is not whitespace, the <DIV8> tag for a missing N, HEAD or P, and for
