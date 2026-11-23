@@ -147,45 +147,61 @@ owner's call. Each choice and its reason:
   places the next label, so it is no guess, and the literal reading would
   reject a valid structure. The owner can overrule it; that case then
   fails instead.
-- **What a heading is.** The `<I>` text after a label and exactly one
-  space (U+0020) outside the `<I>` (`(b) <I>…</I>`). Why: it is how every
-  heading in 1024.41 is written.
+- **What a heading is.** One `<I>` element after a label and exactly one
+  space (U+0020) outside the `<I>` (`(b) <I>…</I>`). A second `<I>` right
+  after it, empty or not (`(a) <I>Head</I><I>(1)</I>`), fails as
+  malformed, at its start tag. Why: it is how every heading in 1024.41 is
+  written, and a second `<I>` read as part of the heading would hide what
+  it holds.
 - **The dash or space that ends a heading.** Exactly one "—" or one space
   (U+0020), right after the heading's `</I>`. Why: the owner's rule says
   "past the dash or space that ends it"; a label past no separator, or any
   other, fails (below).
-- **Where the lead almost goes on, it fails.** One function decides it
-  (`follow` in `internal/parse/label.go`), and the package doc names each
-  case. The run is the text after a label, or after a heading, up to the
-  first letter or digit. Each case:
+- **Where the lead almost goes on, it fails.** `follow` in
+  `internal/parse/label.go` decides it, one rule in it (`paren`) decides
+  every "(" there, and the package doc names each case. A run is the text
+  up to the first letter or digit, italic or not: after a label (so it
+  holds the start of any heading), after a heading, and after each dash
+  inside a heading. A dash there is any Unicode dash punctuation (Pd) or
+  the minus sign U+2212; the package doc lists them. Each case:
   1. A chained label: right after a label with nothing between, or right
      after a heading past exactly one "—" or one space. A bad label shape
      there fails.
-  2. Any other "(" in the run fails as unplaceable, at that "(". If a label
-     starts there, it is past the wrong separator: a space after a label
-     (`(a) (1)`), or after a heading nothing, an en dash, a hyphen, two
-     spaces, a no-break space or ". ". If none does, it is a "(" that starts
-     no label (`(1 )`, `(1.)`, `()`, `(é)`), which fails as a "(" at the
-     start of a `<P>` that starts no label does.
+  2. Every other "(" in a run fails as unplaceable, at the first one. If no
+     label starts there, it is a "(" that starts no label (`(1 )`, `(1.)`,
+     `()`, `(é)`, `(see below)`), which fails as one at the start of a
+     `<P>` does. If a label starts there, it is past the wrong separator (a
+     space after a label, `(a) (1)`; after a heading nothing, an en dash, a
+     hyphen, two spaces, a no-break space or ". "), in the italic text
+     where a heading goes, before its first letter or digit
+     (`(a) <I>“(1) Head”</I>`), or after a dash inside a heading
+     (`(a) <I>Head‒(1) Sub.</I>`). So a heading that begins with a
+     parenthesis fails (`(a) <I>(see below) Head.</I>`). A parenthesis
+     later in a heading's words, after its first letter or digit and not
+     after a dash, is its text (`(a) <I>Self-help (see (1)).</I>`).
   3. Italic text in the run, or right after it, past anything but one space
      outside the `<I>` (nothing, two spaces, a no-break space, a quotation
      mark), or with a space first inside the `<I>`
      (`(a)<I> Head</I>—(1)`), fails as malformed, at its first italic
-     character. A heading that begins with a label (an italic "(" too:
-     `(a) <I>(</I>1)`), or holds a label after a dash ("—", "–" or "-"),
-     fails as unplaceable at that label. Any other parenthesis in a heading
-     is its text (`(a) <I>Self-help (see (1)).</I>`).
+     character.
   4. Otherwise the lead ends at the run's end. A digit ends the run as a
      letter does: in `(a) 2(1) text.`, "(1)" is running text.
 
   Why: R1a never guesses, and reading such a label as running text would
   drop a possible anchor without a word. (Reviewers on PR #8 suggested
-  keeping it as running text; that is not done, for this reason.) A
-  misplaced heading fails as malformed, not unplaceable, because no label
-  is out of place there, only the markup around a heading. A "(" that
-  starts no label fails as unplaceable wherever a label goes, since it may
-  be a label the source broke. A digit ends the run because the owner's
-  rule ends the lead "at the first other text", and a digit is text.
+  keeping it as running text; that is not done, for this reason.) One rule
+  covers every run because checks at single spots leave gaps: at `5343ce8`,
+  `(a) <I>((1) Head</I>` and `(a) <I>“(1) Head”</I>` parsed with the label
+  in the heading, and `(a) <I>(</I> (1) text.` chained (1) under (a). A
+  heading that begins with a parenthesis fails even when it holds words,
+  since the rule can't tell words in parentheses from a broken label, and
+  R1a never guesses at a label position. Every dash counts inside a
+  heading, so that no dash lets a label through. A misplaced heading fails
+  as malformed, not unplaceable, because no label is out of place there,
+  only the markup around a heading. A "(" that starts no label fails as
+  unplaceable wherever a label goes, since it may be a label the source
+  broke. A digit ends the run because the owner's rule ends the lead "at
+  the first other text", and a digit is text.
 - **A label after another in one lead opens the level below it.** A
   sibling or a higher level there ("(a)(b)", or "(a) <I>See</I> (b) of this
   section") fails as unplaceable; the level below at another value than its
@@ -309,10 +325,11 @@ owner's call. Each choice and its reason:
   label fits after neither; (h)(1)(i), (h)(1)(ii) parses.
 - A label after a heading that ends other than with one "—" or one space, a
   label after a label past a space, a sibling after a label in a lead, a
-  heading placed other than past one space outside the `<I>`, a label
-  after a dash in a heading, and a "(" in a lead that starts no label each
-  fail the parse. A later source laid out that way needs a reviewed
-  override, if it is a source defect, or an ADR.
+  heading placed other than past one space outside the `<I>`, a heading
+  that begins with a "(" (words in parentheses too), a "(" after any dash
+  inside a heading, a second `<I>` right after a heading, and a "(" in a
+  lead that starts no label each fail the parse. A later source laid out
+  that way needs a reviewed override, if it is a source defect, or an ADR.
 - (h)(1)(i) followed by (i) parses as (h)(1)(i) and the letter (i), as do
   the same shapes under (u) and (w); if the owner overrules that choice,
   they fail.
@@ -336,9 +353,12 @@ R1a (deterministic parse: label position, the (i)/(v)/(x) rule); spec
 - Commits `7ec20c0` (goldens and corrupted fixtures, red), `b06dfa2` (the
   parser, green), `61646df` (the lookahead, lead, shape and malformed tests,
   red), `8f00eb5` (the parser that passes them, green), `fde0866` (the
-  near-lead, processing-instruction, surrogate and location tests, red) and
-  `c2edc86` (`follow` and the XML rules that pass them, green):
-  `internal/parse/label.go` (`leads`, `follow`, `choose`, `fit`),
+  near-lead, processing-instruction, surrogate and location tests, red),
+  `c2edc86` (`follow` and the XML rules that pass them, green), `08f4536`
+  (one rule over every "(" in every run, every dash, one `<I>` per
+  heading, red), `3c8a0a2` (`paren`, green) and `0b9e1f0` (a row from the
+  mutant pass): `internal/parse/label.go` (`leads`, `follow`, `paren`,
+  `choose`, `fit`),
   `internal/parse/parse.go`, `internal/parse/doc.go`, and the tests
   `internal/parse/lookahead_test.go`, `internal/parse/lead_test.go`,
   `internal/parse/rules_test.go` and `internal/parse/malformed_test.go`.
