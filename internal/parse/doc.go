@@ -21,10 +21,11 @@
 // WellFormed (wellformed.go) is the one check of an XML document's form, and
 // Parse runs it first. fetch (internal/ecfr) runs it on every body before
 // storing it, and meta set on the raw XML it reads citations from, so the
-// three refuse the same malformed XML and can't drift apart. What it refuses fails as Malformed with its message: XML that is
-// not well-formed, an XML declaration that breaks its grammar, a duplicate
-// attribute on any element (the DIV8's too), text or a second element
-// outside the root, and a declaration such as <!DOCTYPE>. Parse's own rules
+// three refuse the same malformed XML and can't drift apart. What it refuses
+// fails as Malformed with its message: XML that is not well-formed, an XML
+// declaration that breaks its grammar, a duplicate attribute on any element
+// (the DIV8's too), text or a second element outside the root, and a
+// declaration such as <!DOCTYPE>. Parse's own rules
 // above then apply. It lives here because fetch may import parse but parse
 // must not import internal/ecfr, which holds the network client, and a
 // package of its own isn't needed for one function. The root element is
