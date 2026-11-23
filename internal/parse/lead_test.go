@@ -193,6 +193,10 @@ func TestFirstFailure(t *testing.T) {
 			"malformed: a heading follows its label past one space; here nothing separates them"},
 		{"a label in the heading's run, then no space after a dash", "(a) <I>“(1) Head—(2)</I> text.", "(1)",
 			"unplaceable label (1): it is in the italic text after (a), before any letter or digit, where a heading goes"},
+		{"no space before the heading, then a label in its run on the next line", "(a)<I>.\n(1) Head</I> text.", ".\n",
+			"malformed: a heading follows its label past one space; here nothing separates them"},
+		{"a period before a heading that starts with a label: both at one place, the label", "(a).<I>(1) Head</I> text.", "(1)",
+			"unplaceable label (1): it is in the italic text after (a), before any letter or digit, where a heading goes"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", col(c.para, c.mark), c.want))

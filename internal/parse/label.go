@@ -139,9 +139,6 @@ func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 	}
 	end := h + 1
 	for end < len(s) && pa.italic[end] {
-		if pa.opensAt(end) {
-			break
-		}
 		end++
 	}
 	errs := []error{err}
