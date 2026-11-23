@@ -54,33 +54,50 @@ showed, and the parser at `b06dfa2` (no lookahead) confirms:
 So the chief of staff asked again, and the owner answered at 20:43.
 
 ## Options considered
-As asked by the chief of staff at 19:41:
+As asked by the chief of staff at 19:41, each option's text as offered:
 - The label rule:
-  1. **Paragraph lead (recommended).** A label counts in a paragraph's lead:
-     at the start of the `<P>`, right after a heading past the dash or space
-     that ends it, or right after another lead label. The lead ends at the
-     first other text. Chosen.
-  2. The same, but a heading must end in "—", or in "." plus a space.
+  1. **Paragraph lead (Recommended).** "A label counts in a paragraph's
+     lead: at the start of the <P>, right after a heading past the dash or
+     space that ends it, or right after another lead label. The lead ends at
+     the first other text, so labels in running text never count. This is
+     what's built and tested. It's recorded as ADR 0012 in this PR, amending
+     R1a." Chosen.
+  2. **Dash or period only.** "Same as the recommended rule, but a heading
+     must end in "—" or in "." plus a space, so a heading ending any other
+     way fails. It's stricter and fits today's XML. It needs a small code
+     change."
 
   The chief of staff's note, not offered: all three 1024.41 cases above fit
   both options. They differ only where a heading that doesn't end in a
   period is followed by a space and a label: option 1 chains that label,
-  option 2 would not.
+  option 2 would fail.
 - The lookahead:
-  1. **Close it (recommended).** No lookahead: the stated rule, plus failing
-     on any sequence break, decides it. Chosen at 19:41, replaced at 20:43.
-  2. Keep the row open for later sources.
-  3. Add lookahead now.
+  1. **Close it (Recommended).** "No lookahead. The stated rule plus failing
+     on any sequence break decides it. The spec's carried-forward row is
+     removed in ADR 0012, which also records the one gap." Chosen at 19:41,
+     replaced at 20:43.
+  2. **Keep it open.** "No lookahead for 1024.41, where (j) confirms the
+     reading. The item stays carried forward for Supplement I and later
+     sources."
+  3. **Add lookahead now.** "Before deciding (i), the parser also checks the
+     label that follows. It costs more code and tests now."
 
-  The chief of staff's note, not offered: option 3 would read the next
-  label where both readings can be placed, before choosing.
-
-As asked again by the chief of staff at 20:43, the option chosen, as
+As asked again by the chief of staff at 20:43, each option's text as
 offered:
-- **Look one label ahead (recommended).** "When (i)/(v)/(x) could be either
-  a letter or a roman, the parser looks at the next label: the next letter
-  means letter; the next roman, e.g. (ii), means roman. If there is no next
-  label or it's neither, the parse fails." Chosen.
+1. **Look one label ahead (Recommended).** "When (i)/(v)/(x) could be
+   either a letter or a roman, the parser looks at the next label: the next
+   letter means letter; the next roman, e.g. (ii), means roman. If there is
+   no next label or it's neither, the parse fails. This closes the silent
+   misread and parses the (h)(1)(i)(ii) shape. It's a small code change plus
+   tests in this PR, and ADR 0012 records it." Chosen.
+2. **Keep it closed.** "No code change. ADR 0012 and the spec's decisions
+   row 12 state the full gap: the silent misread at a section's last label,
+   and correct (h)(1)(i)(ii)-shaped sections that fail. These are decided
+   again if a later source hits them."
+3. **Fail on the silent case.** "No lookahead, but when an ambiguous label
+   ends a section while a deeper level is open, the parse fails instead of
+   reading a letter. That closes the silent misread, but correct
+   (h)(1)(i)(ii) shapes still fail."
 
 ## Decision
 The owner decided:
