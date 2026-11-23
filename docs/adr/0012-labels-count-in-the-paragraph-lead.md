@@ -148,13 +148,12 @@ owner's call. Each choice and its reason:
   reject a valid structure. The owner can overrule it; that case then
   fails instead.
 - **What a heading is.** One `<I>` element after a label and exactly one
-  space (U+0020) outside the `<I>` (`(b) <I>…</I>`). Its start tag is the
-  only `<I>` start tag from the label's end to the heading's end: any
-  other, empty or not, before the heading (`(a) <I></I><I>Head</I>`) or
-  right after it (`(a) <I>Head</I><I>(1)</I>`), fails as malformed, at
-  its start tag. Why: it is how every heading in 1024.41 is written, and
-  another `<I>` read with the heading, or passed over because it is empty,
-  would hide what is there.
+  space (U+0020) outside the `<I>` (`(b) <I>…</I>`). A second `<I>` right
+  after it (`(a) <I>Head</I><I>(1)</I>`) fails as malformed, at its start
+  tag; an empty `<I>` fails wherever it is (below), so none can sit
+  between a label and its heading. Why: it is how every heading in
+  1024.41 is written, and a second `<I>` read with the heading would hide
+  what it holds.
 - **The dash or space that ends a heading.** Exactly one "—" or one space
   (U+0020), right after the heading's `</I>`. Why: the owner's rule says
   "past the dash or space that ends it"; a label past no separator, or any
@@ -234,22 +233,30 @@ owner's call. Each choice and its reason:
 - **What else fails as malformed.** CDATA, a namespaced element, a section
   with no N, no HEAD or no `<P>`, a processing instruction other than one
   XML declaration at the very start of the file, a character reference to a
-  surrogate (U+D800 to U+DFFF), and character data outside HEAD, P and CITA
-  that is not XML whitespace (a no-break space or a byte-order mark, say).
-  Why: 1024.41's form holds none of them. The parser at `b06dfa2` already
-  failed a byte-order mark, a `<P>` before the HEAD or with no HEAD before
-  it, and a processing instruction inside the section or after it. It
-  passed the rest without an error: CDATA read as text (a label in it
-  counted, a "—" in it chained a label, and CDATA before a heading lost the
-  heading and the label after it), a namespaced section read as this form,
-  a section with no N read with an empty one, an empty section or one with
-  no `<P>` read as an empty tree, a no-break space between elements
-  dropped, a processing
-  instruction before the section (a second XML declaration, or one not at
-  the start) skipped, and a surrogate reference stored as U+FFFD.
+  surrogate (U+D800 to U+DFFF), an empty `<I>` (`<I></I>` or `<I/>`)
+  wherever it is, an attribute on `<HEAD>`, `<P>` or `<I>` or one other
+  than TYPE on `<CITA>` (the `<DIV8>`'s other attributes are not read),
+  and character data outside HEAD, P and CITA that is not XML whitespace
+  (a no-break space or a byte-order mark, say). Why: 1024.41's form holds
+  none of them; 1024.30 and 1024.31 hold no such attribute and no empty
+  `<I>` either. An empty `<I>` carries no text, and the parser, which works
+  on each paragraph's text, can't see one; refusing it everywhere removes
+  that blind spot instead of guarding each place it could sit. The parser
+  at `b06dfa2` already failed a byte-order mark, a `<P>` before the HEAD or
+  with no HEAD before it, and a processing instruction inside the section
+  or after it. It passed the rest without an error: CDATA read as text (a
+  label in it counted, a "—" in it chained a label, and CDATA before a
+  heading lost the heading and the label after it), a namespaced section
+  read as this form, a section with no N read with an empty one, an empty
+  section or one with no `<P>` read as an empty tree, a no-break space
+  between elements dropped, a processing instruction before the section (a
+  second XML declaration, or one not at the start) skipped, a surrogate
+  reference stored as U+FFFD, an empty `<I>` passed over
+  (`(a)<I></I>(1) text.` chained (1) under (a)), and attributes not read.
 - **Where an error is located.** A line ends at LF, at CRLF or at a lone
   CR, as XML reads line ends; an empty `<P>`, `<P></P>` or `<P/>`, is
-  located at its start tag. Why: at `b06dfa2` a file with lone-CR line ends
+  located at its start tag, as are an empty `<I>` and an element carrying
+  an attribute it may not. Why: at `b06dfa2` a file with lone-CR line ends
   was one line, and an empty `<P>` was located after its start tag.
 
 ## Spec changes
@@ -337,9 +344,10 @@ owner's call. Each choice and its reason:
   heading placed other than past one space outside the `<I>`, a heading
   that begins with a "(" (words in parentheses too), a "(" after any dash
   inside a heading before the next letter or digit
-  (`(a) <I>Head—Sub (1) x</I>` parses), another `<I>` start tag between a
-  label and the end of its heading, and a "(" in a lead that starts no
-  label each fail the parse. A later source laid out
+  (`(a) <I>Head—Sub (1) x</I>` parses), a second `<I>` right after a
+  heading, an empty `<I>` anywhere, an attribute on `<HEAD>`, `<P>` or
+  `<I>` or one other than TYPE on `<CITA>`, and a "(" in a lead that starts
+  no label each fail the parse. A later source laid out
   that way needs a reviewed override, if it is a source defect, or an ADR.
 - (h)(1)(i) followed by (i) parses as (h)(1)(i) and the letter (i), as do
   the same shapes under (u) and (w); if the owner overrules that choice,
@@ -370,8 +378,10 @@ R1a (deterministic parse: label position, the (i)/(v)/(x) rule); spec
   heading, red), `3c8a0a2` (`paren`, green), `0b9e1f0` (a row from the
   mutant pass), `eb5f021` (the heading's start tag as the only one, and
   the first failure in the XML, red), `4c7f5d9` (`oneElement` and
-  `earliest`, green) and `957a61d` (rows from the mutant pass, and a dead
-  stop removed): `internal/parse/label.go` (`leads`, `follow`, `paren`,
+  `earliest`, green), `957a61d` (rows from the mutant pass, and a dead
+  stop removed), `78c7693` (an empty `<I>` anywhere, and attributes, red),
+  `a2cff76` (the checks that pass them, green) and `de8036b` (a row from
+  the mutant pass): `internal/parse/label.go` (`leads`, `follow`, `paren`,
   `oneElement`, `choose`, `fit`),
   `internal/parse/parse.go`, `internal/parse/doc.go`, and the tests
   `internal/parse/lookahead_test.go`, `internal/parse/lead_test.go`,
