@@ -6,13 +6,15 @@
 // Built (plan step 4): Parse for a section of 1024.41's form: a <DIV8
 // TYPE="SECTION"> with an N attribute, holding one HEAD, then one or more P
 // elements, then at most one CITA, with <I> the only element inside a P, not
-// nested. Anything else fails as Malformed: another element, a second HEAD or
-// CITA, a P before the HEAD or after the CITA, no HEAD, no P, a comment, a
-// directive, CDATA, a namespaced element, a processing instruction other
-// than one XML declaration at the very start of the file, a character
-// reference to a surrogate (U+D800 to U+DFFF), and character data outside
-// HEAD, P and CITA that is not XML whitespace (space, tab, CR, LF), such as
-// a no-break space or a byte-order mark.
+// nested and not empty. HEAD, P and I carry no attribute and CITA none but
+// TYPE; the DIV8's other attributes are not read. Anything else fails as
+// Malformed: another element, a second HEAD or CITA, a P before the HEAD or
+// after the CITA, no HEAD, no P, an empty <I> (<I></I> or <I/>), another
+// attribute, a comment, a directive, CDATA, a namespaced element, a
+// processing instruction other than one XML declaration at the very start
+// of the file, a character reference to a surrogate (U+D800 to U+DFFF), and
+// character data outside HEAD, P and CITA that is not XML whitespace (space,
+// tab, CR, LF), such as a no-break space or a byte-order mark.
 //
 // Parse reads in three passes and reports one failure, from the first pass
 // that fails: the XML's form, the first fault the reader meets as it reads;
@@ -53,9 +55,8 @@
 //     outside the <I>. Italic text in the run, or right after it, past
 //     anything else (nothing, two spaces, a no-break space, a quotation
 //     mark), or with a space first inside the <I>, fails as Malformed at
-//     its first italic character. Its start tag is the only <I> start tag
-//     from the label's end to the heading's end: any other, empty or not,
-//     before the heading or right after it, fails as Malformed at that tag.
+//     its first italic character. A second <I> right after the heading
+//     fails as Malformed at its start tag.
 //     4. Otherwise the lead ends at the run's end, and what follows is
 //     running text: in "(a) 2(1) text." the digit ends the run, so "(1)"
 //     is running text.
@@ -84,8 +85,9 @@
 //     For a label, they are its "("; for a "(" that starts no label, that
 //     "("; for Unlabeled, the paragraph's first character, or its <P> tag if
 //     it is empty; for a misplaced heading, its first italic character, and
-//     for another <I> before or right after a heading, that <I>'s start tag;
-//     for Malformed, the start of what is wrong: the element or token, the
+//     for a second <I> right after a heading, its start tag; for Malformed,
+//     the start of what is wrong: the element or token (an element's start
+//     tag for an attribute it may not carry, an empty <I>'s start tag), the
 //     character reference to a surrogate, the first byte of stray text that
 //     is not whitespace, the <DIV8> tag for a missing N, HEAD or P, and for
 //     XML that is not well-formed, the start of the token the decoder was

@@ -71,6 +71,17 @@ func (p *parser) next() (xml.Token, int, error) {
 		if t.Name.Space != "" {
 			return nil, off, p.fail(off, Malformed, "", fmt.Sprintf("element <%s> has namespace %q", t.Name.Local, t.Name.Space))
 		}
+		if allowed, ok := attrs[t.Name.Local]; ok {
+			for _, a := range t.Attr {
+				if a.Name.Space != "" || a.Name.Local != allowed {
+					name := a.Name.Local
+					if a.Name.Space != "" {
+						name = a.Name.Space + ":" + name
+					}
+					return nil, off, p.fail(off, Malformed, "", fmt.Sprintf("unexpected attribute %q on <%s>", name, t.Name.Local))
+				}
+			}
+		}
 	}
 	switch tok.(type) {
 	case xml.CharData, xml.StartElement: // where a reference is decoded
@@ -80,6 +91,11 @@ func (p *parser) next() (xml.Token, int, error) {
 	}
 	return xml.CopyToken(tok), off, nil
 }
+
+// attrs is the one attribute each element of a section's content may carry,
+// "" for none. <DIV8> is not here: the section element's attributes are read
+// where it is.
+var attrs = map[string]string{"HEAD": "", "P": "", "I": "", "CITA": "TYPE"}
 
 // surrogate finds the first character reference in raw XML to a surrogate,
 // U+D800 to U+DFFF: its index and its text, or -1.
@@ -333,6 +349,9 @@ func (p *parser) readPara(start int) (*para, error) {
 			if !italic {
 				pa.text = b.String()
 				return pa, nil
+			}
+			if o := pa.opens[len(pa.opens)-1]; o.at == b.Len() {
+				return nil, p.fail(o.offset, Malformed, "", "unexpected empty <I> in <P>")
 			}
 			italic = false
 		default:

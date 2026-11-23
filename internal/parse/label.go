@@ -102,9 +102,8 @@ const (
 //     run also holds the start of any heading.
 //  3. After a label, the <I> element in the run or right after it is the
 //     heading. It fails past anything but one space outside the <I>, with a
-//     space first inside it, or with any other <I> start tag from pos to
-//     its end, empty or not, before it or right after it. A "(" in the run
-//     after each dash inside it fails (paren).
+//     space first inside it, or with a second <I> right after it. A "(" in
+//     the run after each dash inside it fails (paren).
 //  4. Otherwise the lead ends, and running text starts at the run's end:
 //     "(a) 2(1)" holds the running text "2(1)".
 //
@@ -149,7 +148,7 @@ func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 	case s[pos:h] != " ":
 		errs = append(errs, p.fail(pa.offset(h), Malformed, "", "a heading follows its label past one space; here "+describe(s[pos:h])+" separates them"))
 	}
-	errs = append(errs, p.oneElement(pa, pos, h, end))
+	errs = append(errs, p.oneElement(pa, h, end))
 	for i, r := range s[h:end] {
 		if c := h + i + utf8.RuneLen(r); isDash(r) {
 			if err := p.paren(pa, c, c+len(nonWord(s[c:end])), afterDash, prev); err != nil {
@@ -164,23 +163,14 @@ func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 	return next{heading: true, start: h, end: end}, nil
 }
 
-// oneElement fails unless the heading's start tag, the last one at h, is the
-// only <I> start tag from pos to end, the heading's end: any other, empty or
-// not, fails at its start tag.
-func (p *parser) oneElement(pa *para, pos, h, end int) error {
-	own := -1
-	for k, o := range pa.opens {
-		if o.at == h {
-			own = k
-		}
-	}
-	for k, o := range pa.opens {
-		if k != own && pos <= o.at && o.at <= end {
-			where := "a second <I> follows it"
-			if k < own {
-				where = "another <I> comes before it"
-			}
-			return p.fail(o.offset, Malformed, "", "a heading is one <I> element; here "+where)
+// oneElement fails at the first <I> start tag inside the italic text from
+// h to end other than the heading's own, at h: a second <I> right after the
+// heading. No <I> is empty (readPara), so none starts before the heading
+// past its label, and none at end.
+func (p *parser) oneElement(pa *para, h, end int) error {
+	for _, o := range pa.opens {
+		if h < o.at && o.at < end {
+			return p.fail(o.offset, Malformed, "", "a heading is one <I> element; here a second <I> follows it")
 		}
 	}
 	return nil
