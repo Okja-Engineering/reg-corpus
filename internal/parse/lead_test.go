@@ -130,6 +130,7 @@ func TestHeadingPosition(t *testing.T) {
 		{"a second space inside the <I>", "(a) <I> Head</I>—(1) text.", " Head", inside},
 		{"a second <I> holding a label", "(a) <I>Head</I><I>(1)</I> text.", "<I>(1)", second},
 		{"a second <I> holding words", "(a) <I>Head.</I><I>Sub.</I> text.", "<I>Sub", second},
+		{"a second <I>, then a third", "(a) <I>Head.</I><I>Sub.</I><I>More.</I> text.", "<I>Sub", second},
 		{"an empty second <I>", "(a) <I>Head</I><I></I>—(1) text.", "<I></I>", empty},
 		{"an empty second <I>, then a third", "(a) <I>Head</I><I></I><I>Sub</I> text.", "<I></I>", empty},
 		{"an empty <I> right before the heading", "(a) <I></I><I>Head</I> text.", "<I></I>", empty},
