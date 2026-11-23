@@ -15,6 +15,7 @@ type Tree struct {
 type Node struct {
 	Path     []string `json:"path"`              // label values from the top level down, e.g. ["b", "2", "i", "B"]
 	Kind     Kind     `json:"kind"`              // the level kind of the last label
+	Para     int      `json:"para"`              // the <P> its own text is in, counted from 1 in document order
 	Heading  string   `json:"heading,omitempty"` // the italic heading right after the label, if any
 	Text     string   `json:"text"`              // own text: label and heading included, children excluded, verbatim
 	Children []*Node  `json:"children,omitempty"`

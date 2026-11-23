@@ -1,0 +1,145 @@
+// The XML's form (R1a; plan step 4): anything a section of 1024.41's form
+// does not hold fails as Malformed, located at the start of what is wrong.
+// And locations count the XML's bytes, under each way text can be written.
+package parse_test
+
+import (
+	"strings"
+	"testing"
+)
+
+const decl = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" // line 1
+
+// doc is a document whose body starts on line 2.
+func doc(body string) []byte { return []byte(decl + body) }
+
+const (
+	div8 = `<DIV8 N="0.1" TYPE="SECTION">` // 29 bytes
+	head = "<HEAD>Head.</HEAD>"
+	para = "<P>(a) text.</P>"
+)
+
+func TestMalformed(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		data []byte
+		want string
+	}{
+		// Before the section element.
+		{"no section element", doc(""),
+			"parse: line 2, column 1: malformed: no <DIV8> section element"},
+		{"text before the section", doc("x" + div8 + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: text outside the section element"},
+		{"no-break space before the section", doc("\u00a0" + div8 + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: text outside the section element"},
+		{"byte-order mark", []byte("\xef\xbb\xbf" + decl + div8 + head + para + "</DIV8>"),
+			"parse: line 1, column 1: malformed: text outside the section element"},
+		{"comment before the section", doc("<!-- c -->" + div8 + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: unexpected comment before the section element"},
+		{"root not DIV8", doc(`<DIV9 N="0.1" TYPE="SECTION">` + head + para + "</DIV9>"),
+			`parse: line 2, column 1: malformed: the root element is not <DIV8 TYPE="SECTION">`},
+		{"DIV8 not a section", doc(`<DIV8 N="0.1" TYPE="PART">` + head + para + "</DIV8>"),
+			`parse: line 2, column 1: malformed: the root element is not <DIV8 TYPE="SECTION">`},
+		{"TYPE in a namespace", doc(`<DIV8 N="0.1" z:TYPE="SECTION">` + head + para + "</DIV8>"),
+			`parse: line 2, column 1: malformed: the root element is not <DIV8 TYPE="SECTION">`},
+		{"DIV8 in a namespace", doc(`<z:DIV8 N="0.1" TYPE="SECTION">` + head + para + "</z:DIV8>"),
+			`parse: line 2, column 1: malformed: element <DIV8> has namespace "z"`},
+		{"default namespace", doc(`<DIV8 xmlns="u" N="0.1" TYPE="SECTION">` + head + para + "</DIV8>"),
+			`parse: line 2, column 1: malformed: element <DIV8> has namespace "u"`},
+		{"no N", doc(`<DIV8 TYPE="SECTION">` + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: the section element has no N attribute"},
+		{"empty N", doc(`<DIV8 N="" TYPE="SECTION">` + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: the section element has no N attribute"},
+
+		// In the section element.
+		{"text in the section", doc(div8 + "x\n" + head + para + "</DIV8>"),
+			"parse: line 2, column 30: malformed: text directly in the section element"},
+		{"no-break space in the section", doc(div8 + head + para + "\u00a0" + para + "</DIV8>"),
+			"parse: line 2, column 64: malformed: text directly in the section element"},
+		{"empty section", doc(div8 + "\n</DIV8>"),
+			"parse: line 2, column 1: malformed: the section element has no <HEAD>"},
+		{"self-closing section", doc(`<DIV8 N="0.1" TYPE="SECTION"/>`),
+			"parse: line 2, column 1: malformed: the section element has no <HEAD>"},
+		{"no P", doc(div8 + "\n" + head + "\n</DIV8>"),
+			"parse: line 2, column 1: malformed: the section element has no <P>"},
+		{"no P, a CITA", doc(div8 + "\n" + head + "\n<CITA>[Cite]</CITA>\n</DIV8>"),
+			"parse: line 2, column 1: malformed: the section element has no <P>"},
+		{"two HEADs", doc(div8 + "\n" + head + "\n" + head + "\n" + para + "\n</DIV8>"),
+			"parse: line 4, column 1: malformed: unexpected <HEAD> in the section element"},
+		{"P before HEAD", doc(div8 + "\n" + para + "\n" + head + "\n</DIV8>"),
+			"parse: line 3, column 1: malformed: unexpected <P> in the section element"},
+		{"P after CITA", doc(div8 + "\n" + head + "\n" + para + "\n<CITA>[Cite]</CITA>\n<P>(b) text.</P>\n</DIV8>"),
+			"parse: line 6, column 1: malformed: unexpected <P> in the section element"},
+		{"two CITAs", doc(div8 + "\n" + head + "\n" + para + "\n<CITA>[Cite]</CITA>\n<CITA>[Cite]</CITA>\n</DIV8>"),
+			"parse: line 6, column 1: malformed: unexpected <CITA> in the section element"},
+		{"another element", doc(div8 + "\n" + head + "\n<FP>(a) text.</FP>\n</DIV8>"),
+			"parse: line 4, column 1: malformed: unexpected <FP> in the section element"},
+		{"comment in the section", doc(div8 + "\n" + head + "\n<!-- c -->\n" + para + "\n</DIV8>"),
+			"parse: line 4, column 1: malformed: unexpected comment in the section element"},
+
+		// After the section element.
+		{"text after the section", doc(div8 + head + para + "</DIV8>x"),
+			"parse: line 2, column 71: malformed: content after the section element"},
+		{"element after the section", doc(div8 + head + para + "</DIV8><P>(b) text.</P>"),
+			"parse: line 2, column 71: malformed: content after the section element"},
+
+		// In HEAD, CITA and P.
+		{"element in HEAD", doc(div8 + "\n<HEAD>Head <E>x</E></HEAD>\n" + para + "\n</DIV8>"),
+			"parse: line 3, column 12: malformed: unexpected <E> in <HEAD>"},
+		{"comment in HEAD", doc(div8 + "\n<HEAD>Head<!-- c --></HEAD>\n" + para + "\n</DIV8>"),
+			"parse: line 3, column 11: malformed: unexpected comment in <HEAD>"},
+		{"element in CITA", doc(div8 + "\n" + head + "\n" + para + "\n<CITA>[<I>Cite</I>]</CITA>\n</DIV8>"),
+			"parse: line 5, column 8: malformed: unexpected <I> in <CITA>"},
+		{"element in P", section("(a) text <E T=\"03\">x</E>."),
+			"parse: line 4, column 13: malformed: unexpected <E> in <P>"},
+		{"I in I", section("(a) <I>Head <I>x</I></I> text."),
+			"parse: line 4, column 16: malformed: unexpected <I> in <I>"},
+		{"comment in P", section("(a) text<!-- c -->."),
+			"parse: line 4, column 12: malformed: unexpected comment in <P>"},
+		{"I in a namespace", section("(a) <z:I>Head</z:I> text."),
+			`parse: line 4, column 8: malformed: element <I> has namespace "z"`},
+		{"CDATA in P", section("(a) <![CDATA[text]]>."),
+			"parse: line 4, column 8: malformed: unexpected CDATA section"},
+		{"CDATA in HEAD", doc(div8 + "\n<HEAD><![CDATA[Head.]]></HEAD>\n" + para + "\n</DIV8>"),
+			"parse: line 3, column 7: malformed: unexpected CDATA section"},
+		{"CDATA between paragraphs", doc(div8 + "\n" + head + "\n" + para + "<![CDATA[ ]]>\n</DIV8>"),
+			"parse: line 4, column 17: malformed: unexpected CDATA section"},
+
+		// Not well-formed: located at the start of the token the decoder
+		// was reading (for a truncated file, its end).
+		{"end tag mismatch", section("(a) text.</Q>"),
+			"parse: line 4, column 13: malformed: element <P> closed by </Q>"},
+		{"unknown entity", section("(a) text &bogus; text."),
+			"parse: line 4, column 4: malformed: invalid character entity &bogus;"},
+		{"truncated", doc(div8 + "\n" + head + "\n<P>(a) text."),
+			"parse: line 4, column 13: malformed: unexpected EOF"},
+	} {
+		t.Run(c.name, func(t *testing.T) { wantFail(t, c.data, c.want) })
+	}
+}
+
+// TestLocations: a location counts the XML's bytes, so an entity counts at
+// its written length and a CRLF at two bytes, while the decoded text holds
+// the character; an empty <P> is located at its </P>.
+func TestLocations(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"decimal entity", section("(a) <I>Head</I>&#8212;(1)(iii) text."),
+			"parse: line 4, column 29: skipped label (iii): the first roman label under (a)(1) is (i)"},
+		{"hex entity", section("(a) <I>Head</I>&#x2014;(1)(iii) text."),
+			"parse: line 4, column 30: skipped label (iii): the first roman label under (a)(1) is (i)"},
+		{"named entity", section("(a) <I>A &amp; B</I>—(1)(iii) text."),
+			"parse: line 4, column 30: skipped label (iii): the first roman label under (a)(1) is (i)"},
+		{"CRLF in a paragraph", section("(a) <I>Head\r\nHead</I>—(1)(iii) text."),
+			"parse: line 5, column 15: skipped label (iii): the first roman label under (a)(1) is (i)"},
+		{"CRLF line ends", []byte(strings.ReplaceAll(string(section("(a) text.", "(2) text.")), "\n", "\r\n")),
+			"parse: line 5, column 4: skipped label (2): the first number label under (a) is (1)"},
+		{"empty paragraph", section("(a) text.", ""),
+			"parse: line 5, column 4: unlabeled paragraph: the paragraph does not start with a label"},
+	} {
+		t.Run(c.name, func(t *testing.T) { wantFail(t, c.data, c.want) })
+	}
+}

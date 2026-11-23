@@ -90,7 +90,9 @@ var goldens = []golden{
 		"(2) Review of loss mitigation application submission—"},
 	{"(b)(2)(i)", parse.Roman, "Requirements.",
 		"(i) Requirements. If a servicer receives a loss mitigation application 45 days or more before a foreclosure sale, a servicer shall:"},
-	// The heading-dash chained label (b)(2)(i)(B).
+	// The spec's "heading-dash chained label" golden, (b)(2)(i)(B): its own
+	// <P> (line 8) under (b)(2)(i), which line 6 chains after (b)(2)'s
+	// heading dash.
 	{"(b)(2)(i)(B)", parse.Capital, "",
 		"(B) Notify the borrower in writing within 5 days (excluding legal public holidays, Saturdays, and Sundays) after receiving the loss mitigation application that the servicer acknowledges receipt of the loss mitigation application and that the servicer has determined that the loss mitigation application is either complete or incomplete. If a loss mitigation application is incomplete, the notice shall state the additional documents and information the borrower must submit to make the loss mitigation application complete and the applicable date pursuant to paragraph (b)(2)(ii) of this section. The notice to the borrower shall include a statement that the borrower should consider contacting servicers of any other mortgage loans secured by the same property to discuss available loss mitigation options."},
 	// (c)(2)(iv), whose text holds the cross-reference "paragraph (b)(2)(i)(B) of this section" twice.
@@ -274,25 +276,32 @@ var (
 	italRE = regexp.MustCompile(`</?I>`)
 )
 
-// TestOwnTextsPartitionEachParagraph: the own texts, joined in document
-// order, are exactly the character data of the <P> elements, joined: no
-// character is dropped, added or moved. The expected side is read with a
-// regexp, not the parser.
+// TestOwnTextsPartitionEachParagraph: each node records the <P> its own text
+// is in, and each <P>'s own texts, joined in document order, are exactly
+// its character data: no character is dropped, added or moved, and none
+// crosses into another <P>. So the tree alone gives back each paragraph.
+// The expected side is read with a regexp, not the parser.
 func TestOwnTextsPartitionEachParagraph(t *testing.T) {
-	raw := readRaw(t)
-	var want strings.Builder
-	for _, m := range paraRE.FindAllSubmatch(raw, -1) {
-		want.Write(italRE.ReplaceAll(m[1], nil))
+	var want []string
+	for _, m := range paraRE.FindAllSubmatch(readRaw(t), -1) {
+		want = append(want, string(italRE.ReplaceAll(m[1], nil)))
 	}
-	var got strings.Builder
+	got := make([]string, len(want))
+	last := 0
 	for _, n := range walk(parseRaw(t).Children) {
-		got.WriteString(n.Text)
+		if n.Para < 1 || n.Para > len(want) || n.Para < last || n.Para > last+1 {
+			t.Fatalf("node %s: para %d after para %d, of %d", pathString(n.Path), n.Para, last, len(want))
+		}
+		last = n.Para
+		got[n.Para-1] += n.Text
 	}
-	if got.String() != want.String() {
-		t.Errorf("joined own texts differ from the joined <P> character data")
+	if last != len(want) {
+		t.Fatalf("the last node is in <P> %d of %d", last, len(want))
 	}
-	if strings.ContainsAny(got.String(), "<>") {
-		t.Errorf("own text holds markup")
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("<P> %d: own texts\n%q\nwant\n%q", i+1, got[i], want[i])
+		}
 	}
 }
 

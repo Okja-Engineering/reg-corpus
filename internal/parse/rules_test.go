@@ -49,6 +49,34 @@ func wantError(t *testing.T, data []byte, reason parse.Reason, label string, lin
 	}
 }
 
+// wantFail asserts that Parse fails with a *parse.Error whose message is
+// want: its location, reason, label and detail.
+func wantFail(t *testing.T, data []byte, want string) {
+	t.Helper()
+	tree, err := parse.Parse(data)
+	var pe *parse.Error
+	if !errors.As(err, &pe) {
+		n := 0
+		if tree != nil {
+			n = len(walk(tree.Children))
+		}
+		t.Fatalf("Parse = %d nodes, error %v; want a *parse.Error\n%s", n, err, want)
+	}
+	if err.Error() != want {
+		t.Errorf("error =\n%s\nwant\n%s", err, want)
+	}
+}
+
+// col is the column of the first byte of mark in a paragraph p that
+// section puts on its own line: p's byte index plus 4, after "<P>".
+func col(p, mark string) int {
+	i := strings.Index(p, mark)
+	if i < 0 || strings.Count(p, mark) != 1 {
+		panic("mark " + mark + " is not in " + p + " exactly once")
+	}
+	return 4 + i
+}
+
 // TestLabelPosition: a label counts only at the start of a <P>, or right
 // after a heading (past the dash or space that ends it), or right after
 // another such label. A label anywhere in running text is text.
@@ -107,8 +135,10 @@ func TestUnlabeledParagraph(t *testing.T) {
 	wantError(t, section("(a) text.", "Text."), parse.Unlabeled, "", 5, 4)
 }
 
-// TestLetterOrRoman: (i), (v) and (x) are letters only right after (h), (u)
-// and (w) at the letter level; otherwise roman.
+// TestLetterOrRoman: (i), (v) and (x) read as letters only right after (h),
+// (u) and (w) at the letter level; otherwise roman. Here (h), (u) and (w)
+// each have a child (1), so the roman reading fits too, and the next label,
+// a letter, decides (TestLookahead has the rest).
 func TestLetterOrRoman(t *testing.T) {
 	var paras, want []string
 	for c := 'a'; c <= 'z'; c++ {
@@ -139,14 +169,8 @@ func TestLetterOrRoman(t *testing.T) {
 	if want := "(a)(1)(x)"; got[len(got)-1] != want {
 		t.Errorf("last path = %s, want %s", got[len(got)-1], want)
 	}
-	// (v) after (h): not right after (u), so roman, and a roman level starts at (i).
-	wantError(t, section("(a) text.", "(b) text.", "(c) text.", "(d) text.", "(e) text.", "(f) text.", "(g) text.", "(h) text.", "(v) text."),
-		parse.Unplaceable, "(v)", 12, 4)
-}
-
-// TestMalformed: elements other than those 1024.41 holds fail, with their location.
-func TestMalformed(t *testing.T) {
-	wantError(t, section("(a) text <E T=\"03\">x</E>."), parse.Malformed, "", 4, 13)
-	data := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DIV8 N=\"0.1\" TYPE=\"SECTION\">\n<HEAD>Head.</HEAD>\n<FP>(a) text.</FP>\n</DIV8>\n")
-	wantError(t, data, parse.Malformed, "", 4, 1)
+	// (v) after (h): not right after (u), so it reads only as a roman, and
+	// a roman sits under a number, of which none is open.
+	wantFail(t, section("(a) text.", "(b) text.", "(c) text.", "(d) text.", "(e) text.", "(f) text.", "(g) text.", "(h) text.", "(v) text."),
+		"parse: line 12, column 4: unplaceable label (v): roman labels sit under number labels; the open levels are (h)")
 }
