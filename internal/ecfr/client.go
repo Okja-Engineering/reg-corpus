@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/okja-engineering/reg-corpus/internal/meta"
 )
 
 // DefaultBaseURL is the eCFR versioner API (plan "Upstream calls"). It needs
@@ -24,18 +26,13 @@ const DefaultBaseURL = "https://www.ecfr.gov/api/versioner/v1"
 // userAgent is generic on purpose: no request carries personal details.
 const userAgent = "regcorpus"
 
-// Date is an eCFR date, YYYY-MM-DD. Values come from ParseDate.
-type Date string
+// Date is an eCFR date, YYYY-MM-DD: the one date type meta.yaml records
+// (internal/meta owns it). Values come from ParseDate.
+type Date = meta.Date
 
 // ParseDate returns s as a Date, or an error unless s is a real calendar date
 // written YYYY-MM-DD.
-func ParseDate(s string) (Date, error) {
-	t, err := time.Parse(time.DateOnly, s)
-	if err != nil || t.Format(time.DateOnly) != s {
-		return "", fmt.Errorf("%q is not YYYY-MM-DD", s)
-	}
-	return Date(s), nil
-}
+func ParseDate(s string) (Date, error) { return meta.ParseDate(s) }
 
 // Version is one entry of a source's eCFR version list: the date eCFR serves
 // it at (full/{date}), and whether that version removed the source.

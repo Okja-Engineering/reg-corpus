@@ -36,3 +36,5 @@ the sentences that now describe the past, and leaves them as written.
 | [0007](0007-ci-is-the-c6-gate.md) | CI is the C6 gate; the hook and the R11 guard are seatbelts | Accepted |
 | [0008](0008-no-arm-sees-key-yaml.md) | No eval arm sees `key.yaml`; only grading reads it | Accepted |
 | [0009](0009-adrs-are-part-of-the-spec.md) | ADRs are part of the spec | Accepted |
+| [0010](0010-one-writer-owns-meta-yaml.md) | One writer owns L0 `meta.yaml` | Accepted |
+| [0011](0011-fr-citation-is-the-amendment-page.md) | `version_fr_citations` cites the amendment page the stored XML cites; step 3 covers 1024.30 and 1024.31 | Accepted |

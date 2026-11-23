@@ -3,25 +3,9 @@ package ecfr
 import (
 	"net/url"
 	"path"
-)
 
-// Tier is a source's tier in meta.yaml (spec "L0 meta.yaml": law,
-// regulator_interpretation, investor_guide or standard). Only law is in the
-// table today; Supplement I (plan step 8) adds regulator_interpretation.
-type Tier string
-
-// TierLaw is the tier of the regulation's own sections.
-const TierLaw Tier = "law"
-
-// Role is a source's role in meta.yaml: inventoried, or cite-only (spec
-// "Definitions": records may cite it, but it is neither inventoried nor
-// extracted).
-type Role string
-
-// The roles the spec names.
-const (
-	RoleInventoried Role = "inventoried"
-	RoleCiteOnly    Role = "cite_only"
+	"github.com/okja-engineering/reg-corpus/internal/l0"
+	"github.com/okja-engineering/reg-corpus/internal/meta"
 )
 
 // Kind is how eCFR selects a source within part 1024: the query key of the
@@ -73,8 +57,8 @@ type Source struct {
 	Name       string // the command-line name, e.g. "1024.41"
 	Dir        string // slash path under sources/ecfr/title-12/
 	CFR        string // meta.yaml cfr, e.g. "12 CFR 1024.41"
-	Tier       Tier
-	Role       Role
+	Tier       meta.Tier
+	Role       meta.Role
 	Kind       Kind
 	Identifier string // eCFR's identifier for Kind, e.g. "1024.41"
 }
@@ -85,15 +69,15 @@ type Source struct {
 // with Identifier "Supplement I to Part 1024", Dir "supplement-i/41" and tier
 // regulator_interpretation; eCFR versions it whole.
 var sources = []Source{
-	section("1024.41", RoleInventoried),
-	section("1024.30", RoleCiteOnly),
-	section("1024.31", RoleCiteOnly),
+	section("1024.41", meta.RoleInventoried),
+	section("1024.30", meta.RoleCiteOnly),
+	section("1024.31", meta.RoleCiteOnly),
 }
 
-func section(id string, role Role) Source {
+func section(id string, role meta.Role) Source {
 	return Source{
 		Name: id, Dir: id, CFR: "12 CFR " + id,
-		Tier: TierLaw, Role: role, Kind: KindSection, Identifier: id,
+		Tier: meta.TierLaw, Role: role, Kind: KindSection, Identifier: id,
 	}
 }
 
@@ -123,6 +107,12 @@ func (s Source) query() url.Values {
 
 // dir is s's source directory, by slash path from the corpus root.
 func (s Source) dir() string { return path.Join(sourcesDir, s.Dir) }
+
+// stored is s as internal/l0 reads and writes it: its directory, and the
+// cfr, tier and role its meta.yaml must name.
+func (s Source) stored() l0.Source {
+	return l0.Source{Dir: s.dir(), CFR: s.CFR, Tier: s.Tier, Role: s.Role}
+}
 
 // root is the root element of s's full XML. A kind with no entry in kindRoots
 // has an empty name, which no element matches, so its XML is refused.
