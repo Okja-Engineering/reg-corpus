@@ -14,7 +14,9 @@
 // processing instruction other than one XML declaration at the very start
 // of the file, a character reference to a surrogate (U+D800 to U+DFFF), and
 // character data outside HEAD, P and CITA that is not XML whitespace (space,
-// tab, CR, LF), such as a no-break space or a byte-order mark.
+// tab, CR, LF), such as a no-break space or a byte-order mark. Inside the
+// section that is judged as decoded, so a character reference to whitespace
+// passes; outside it, as written (WellFormed), so one fails.
 //
 // WellFormed (wellformed.go) is the one check of an XML document's form, and
 // Parse runs it first. fetch (internal/ecfr) runs it on every body before

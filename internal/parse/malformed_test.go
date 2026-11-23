@@ -33,6 +33,10 @@ func TestMalformed(t *testing.T) {
 			`parse: line 2, column 1: malformed: text outside the root element: "\nx"`},
 		{"no-break space before the section", doc("\u00a0" + div8 + head + para + "</DIV8>"),
 			`parse: line 2, column 1: malformed: text outside the root element: "\n\u00a0"`},
+		// Outside the section, text is judged as written, so a character
+		// reference fails even when it stands for whitespace.
+		{"a character reference to a space before the section", doc("&#32;" + div8 + head + para + "</DIV8>"),
+			`parse: line 2, column 1: malformed: text outside the root element: "\n&#32;"`},
 		{"byte-order mark", []byte("\xef\xbb\xbf" + decl + div8 + head + para + "</DIV8>"),
 			"parse: line 1, column 1: malformed: text outside the section element"},
 		{"a duplicate attribute after a byte-order mark", []byte("\xef\xbb\xbf" + decl + `<DIV8 N="0.1" N="0.2" TYPE="SECTION">` + head + para + "</DIV8>"),
@@ -109,6 +113,8 @@ func TestMalformed(t *testing.T) {
 		// After the section element.
 		{"text after the section", doc(div8 + head + para + "</DIV8>x"),
 			`parse: line 2, column 71: malformed: text outside the root element: "x"`},
+		{"a character reference to a space after the section", doc(div8 + head + para + "</DIV8>&#32;"),
+			`parse: line 2, column 71: malformed: text outside the root element: "&#32;"`},
 		{"element after the section", doc(div8 + head + para + "</DIV8><P>(b) text.</P>"),
 			"parse: line 2, column 71: malformed: a second root element <P>"},
 		{"processing instruction after the section", doc(div8 + head + para + "</DIV8><?pi x?>"),
@@ -195,6 +201,12 @@ func TestWhitespaceBetweenElements(t *testing.T) {
 	data := []byte(decl + " \t\r\n" + div8 + "\t" + head + " \r\n\t" + para + "\t</DIV8>\t \r\n")
 	if got := paths(t, data); !reflect.DeepEqual(got, []string{"(a)"}) {
 		t.Errorf("paths = %v", got)
+	}
+	// Inside the section, whitespace is judged as decoded: a character
+	// reference to it passes, where outside the section it fails.
+	data = []byte(decl + div8 + "&#32;" + head + "&#x9;&#10;" + para + "&#13;</DIV8>")
+	if got := paths(t, data); !reflect.DeepEqual(got, []string{"(a)"}) {
+		t.Errorf("with character references, paths = %v", got)
 	}
 }
 
