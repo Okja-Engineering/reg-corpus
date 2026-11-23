@@ -388,6 +388,15 @@ func TestMetaHelpGivesTheExitCodes(t *testing.T) {
 				t.Errorf("%q: usage lacks %q", args, w)
 			}
 		}
+		// Exit 1 names each refusal by what is stored, raw XML the strict
+		// parse refuses too (TestCitationsComeOnlyFromWellFormedXML).
+		_, exit1, _ := strings.Cut(stdout, "Exit 1")
+		exit1, _, _ = strings.Cut(exit1, "Exit 2")
+		for _, w := range []string{"run regcorpus fetch first", "spec's schema", "another source", "raw/", "its bytes", "symlink", "well-formed", "doesn't cite"} {
+			if !strings.Contains(exit1, w) {
+				t.Errorf("%q: the Exit 1 list lacks %q", args, w)
+			}
+		}
 	}
 }
 
