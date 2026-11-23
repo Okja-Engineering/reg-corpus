@@ -168,9 +168,20 @@ func (p *parser) follow(pa *para, pos int, prev string, w after) (next, error) {
 // heading. No <I> is empty (readPara), so none starts before the heading
 // past its label, and none at end.
 func (p *parser) oneElement(pa *para, h, end int) error {
-	for _, o := range pa.opens {
-		if h < o.at && o.at < end {
-			return p.fail(o.offset, Malformed, "", "a heading is one <I> element; here a second <I> follows it")
+	if o := pa.opened(h, end); o != nil {
+		return p.fail(o.offset, Malformed, "", "a heading is one <I> element; here a second <I> follows it")
+	}
+	return nil
+}
+
+// opened is the first <I> start tag strictly inside the paragraph's text
+// from a to b, or nil. In italic text it is where a second <I> starts right
+// after another ends, which the italic flags, the same on both sides, don't
+// show.
+func (pa *para) opened(a, b int) *open {
+	for k, o := range pa.opens {
+		if a < o.at && o.at < b {
+			return &pa.opens[k]
 		}
 	}
 	return nil
@@ -250,8 +261,12 @@ func describe(sep string) string {
 
 // labelAt reads a label at index i of a paragraph's text: "(", ASCII
 // letters or digits, ")". ok reports that shape. err is set for a shape
-// with no reading: italic parentheses, a token partly italic, an italic
-// token that is not a number, or a token that is no label.
+// with no reading: italic parentheses, a token that is not one run of text
+// (partly italic, or in more than one <I> element), an italic token that
+// is not a number, or a token that is no label. A token is one run when its
+// italic flags agree and no <I> starts inside it: <I> elements don't nest
+// and none is empty, so each element boundary inside a token changes the
+// flag or starts an <I>.
 func (p *parser) labelAt(pa *para, i int) (l label, ok bool, err error) {
 	s := pa.text
 	if i >= len(s) || s[i] != '(' {
@@ -272,6 +287,8 @@ func (p *parser) labelAt(pa *para, i int) (l label, ok bool, err error) {
 		why = "its parentheses are italic"
 	case slices.Contains(pa.italic[i+1:j], !italic):
 		why = "part of the label is italic"
+	case pa.opened(i+1, j) != nil:
+		why = "the label is in more than one <I> element"
 	default:
 		l.readings, why = readings(s[i+1:j], italic)
 	}

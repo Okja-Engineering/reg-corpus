@@ -77,9 +77,11 @@
 //     4. Otherwise the lead ends at the run's end, and what follows is
 //     running text: in "(a) 2(1) text." the digit ends the run, so "(1)"
 //     is running text.
-//   - Label shape: "(", ASCII letters or digits, ")". Only an italic-level
-//     label has italics: its whole token, a number, is in <I>, as in
-//     "(<I>1</I>)". Italic parentheses, a partly italic token, an italic
+//   - Label shape: "(", ASCII letters or digits, ")". A label's token is one
+//     run of text: all in one <I> element or none of it in any. Only an
+//     italic-level label has italics: its whole token, a number, is in one
+//     <I>, as in "(<I>1</I>)". Italic parentheses, a partly italic token, a
+//     token in more than one <I> element ("(<I>1</I><I>2</I>)"), an italic
 //     letter, a number with a leading zero or too large for an int, and a
 //     roman numeral not written the standard way fail as Unplaceable.
 //   - Depth comes from the label sequence: letter, number, lowercase roman,
