@@ -28,12 +28,12 @@
 //     one XML document whose root element is the source's
 //     (<DIV8 TYPE="SECTION" N="<section>">). document() checks the form with
 //     parse.WellFormed, the one well-formedness check, which Parse also runs
-//     first and meta set runs on the raw XML it reads citations from (its doc
-//     says what it checks), and the root element itself.
+//     first and meta set runs on the raw XML it reads citations from
+//     (WellFormed's doc says what it checks), and the root element itself.
 //     WellFormed lives in internal/parse because fetch may import parse but
-//     parse must not import this package, which holds the network client.
-//     An HTTP error, malformed JSON or a bad body is an error naming the
-//     URL; nothing falls back.
+//     parse must not import this package, which holds the network client. An
+//     HTTP error, malformed JSON or a bad body is an error naming the URL;
+//     nothing falls back.
 //   - Every fetch first reads titles.json, and fetches no date after the one
 //     eCFR is up to date as of.
 //   - fetch stores the latest version's XML at

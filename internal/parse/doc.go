@@ -25,19 +25,17 @@
 // fails as Malformed with its message: XML that is not well-formed, an XML
 // declaration that breaks its grammar, a duplicate attribute on any element
 // (the DIV8's too), text or a second element outside the root, and a
-// declaration such as <!DOCTYPE>. Parse's own rules
-// above then apply. It lives here because fetch may import parse but parse
-// must not import internal/ecfr, which holds the network client, and a
-// package of its own isn't needed for one function. The root element is
-// left to the caller: fetch checks it is the section asked for, Parse that
-// it is a <DIV8 TYPE="SECTION"> with an N.
+// declaration such as <!DOCTYPE>. Parse's own rules above then apply. It lives
+// here because fetch may import parse but parse must not import internal/ecfr,
+// which holds the network client, and a package of its own isn't needed for
+// one function. The root element is left to the caller: fetch checks it is the
+// section asked for, Parse that it is a <DIV8 TYPE="SECTION"> with an N.
 //
 // Parse reads in three passes and reports one failure, from the first pass
-// that fails: the XML's form, WellFormed's and then the rules above, each
-// the first fault the reader meets as it reads;
-// then each paragraph's lead, the paragraphs in order, and within a lead the
-// failure that comes first in the XML; then each label's place in document
-// order.
+// that fails: the XML's form, WellFormed's and then the rules above, each the
+// first fault the reader meets as it reads; then each paragraph's lead, the
+// paragraphs in order, and within a lead the failure that comes first in the
+// XML; then each label's place in document order.
 //
 //   - Label position (ADR 0012, spec decision 12): a label counts only in a
 //     paragraph's lead: at the start of the <P>, right after a heading past
