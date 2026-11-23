@@ -32,6 +32,7 @@ func TestLeadContinues(t *testing.T) {
 		{"(a) <I>Loss mitigation (general).</I> Text (1) text.", []string{"(a)"}},
 		{"(a) <I>Head (see (1)) more.</I> Text.", []string{"(a)"}},
 		{"(a) <I>Self-help (see (1)).</I> Text.", []string{"(a)"}},
+		{"(a) <I>Head—Sub (1) x</I> y", []string{"(a)"}},
 		{"(a) <I>Head.</I> <I> Id.</I> text.", []string{"(a)"}},
 		{"(a) <I>Pre‐ and post−closing review (general).</I> Text.", []string{"(a)"}},
 	} {
@@ -82,8 +83,6 @@ func TestLeadEnds(t *testing.T) {
 			"unplaceable label (1): " + inItalic},
 		{"heading that starts with a period and a label", "(a) <I>. (1) Head</I> text.", "(1)",
 			"unplaceable label (1): " + inItalic},
-		{"heading that starts with a space and a label", "(a) <I> (1) Head.</I> text.", "(1)",
-			"unplaceable label (1): " + inItalic},
 		{"heading that starts with a word in parentheses", "(a) <I>(see) Head.</I> text.", "(see)",
 			"unplaceable label (see): " + inItalic},
 		{"label in the heading after a dash", "(a) <I>Head—(1) Sub.</I> Text.", "(1)",
@@ -112,11 +111,14 @@ func TestLeadEnds(t *testing.T) {
 // TestHeadingPosition: a heading is one <I> element after a label and
 // exactly one space outside the <I>. Italic text after a label past anything
 // else, or an <I> that begins with a space, fails at the heading's first
-// character; a second <I> right after the heading fails at its start tag.
+// character. The heading's start tag is the only <I> start tag from the
+// label's end to the heading's end: any other, empty or not, before the
+// heading or right after it, fails at its start tag.
 func TestHeadingPosition(t *testing.T) {
 	const want = "malformed: a heading follows its label past one space; here "
 	const inside = "malformed: a heading follows its label past one space outside the <I>, not a space inside it"
 	const second = "malformed: a heading is one <I> element; here a second <I> follows it"
+	const before = "malformed: a heading is one <I> element; here another <I> comes before it"
 	for _, c := range []struct {
 		name, para, mark, want string
 	}{
@@ -131,6 +133,10 @@ func TestHeadingPosition(t *testing.T) {
 		{"a second <I> holding words", "(a) <I>Head.</I><I>Sub.</I> text.", "<I>Sub", second},
 		{"an empty second <I>", "(a) <I>Head</I><I></I>—(1) text.", "<I></I>", second},
 		{"an empty second <I>, then a third", "(a) <I>Head</I><I></I><I>Sub</I> text.", "<I></I>", second},
+		{"an empty <I> right before the heading", "(a) <I></I><I>Head</I> text.", "<I></I>", before},
+		{"an empty <I> before the space", "(a)<I></I> <I>Head</I> text.", "<I></I>", before},
+		{"two empty <I> before the heading", "(a) <I></I><I></I><I>Head</I>—(1) text.", "<I></I><I></I>", before},
+		{"a space and a label inside the <I>", "(a) <I> (1) Head.</I> text.", " (1)", inside},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", col(c.para, c.mark), c.want))
@@ -169,6 +175,27 @@ func TestBrokenLabel(t *testing.T) {
 				t.Fatalf("index %d of %q is not a \"(\"", c.at, c.para)
 			}
 			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", 4+c.at, want))
+		})
+	}
+}
+
+// TestFirstFailure: where a lead holds more than one failure, Parse reports
+// the one that comes first in the XML.
+func TestFirstFailure(t *testing.T) {
+	for _, c := range []struct {
+		name, para, mark, want string
+	}{
+		{"a label after a dash, then a second <I>", "(a) <I>Head—(1) Sub</I><I>x</I> text.", "(1)",
+			"unplaceable label (1): it follows a dash inside the heading of (a)"},
+		{"an empty <I>, then a label at the heading's start", "(a) <I></I><I>(1) Head</I> text.", "<I></I>",
+			"malformed: a heading is one <I> element; here another <I> comes before it"},
+		{"no space before the heading, then a label in its run", "(a)<I>. (1) Head</I> text.", ". (1)",
+			"malformed: a heading follows its label past one space; here nothing separates them"},
+		{"a label in the heading's run, then no space after a dash", "(a) <I>“(1) Head—(2)</I> text.", "(1)",
+			"unplaceable label (1): it is in the italic text after (a), before any letter or digit, where a heading goes"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", col(c.para, c.mark), c.want))
 		})
 	}
 }
