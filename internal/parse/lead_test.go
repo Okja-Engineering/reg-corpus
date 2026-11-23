@@ -25,6 +25,7 @@ func TestLeadContinues(t *testing.T) {
 		{"(a) Text—(1) text.", []string{"(a)"}},
 		{"(a) <I>Head</I>—(see (1)) text.", []string{"(a)"}},
 		{"(a) <I>Head</I>—Text (1) text.", []string{"(a)"}},
+		{"(a) <I>Head</I>—", []string{"(a)"}},
 	} {
 		t.Run(c.para, func(t *testing.T) {
 			if got := paths(t, section(c.para)); !reflect.DeepEqual(got, c.want) {
@@ -124,6 +125,8 @@ func TestLabelShape(t *testing.T) {
 			"parse: line 5, column 4: unplaceable label (99999999999999999999): " + not},
 		{"roman not written the standard way", []string{"(a) text.", "(1) text.", "(i) text.", "(ii) text.", "(iii) text.", "(iiii) text."},
 			"parse: line 9, column 4: unplaceable label (iiii): " + not},
+		{"italic letter chained", []string{"(a)(<I>b</I>) text."},
+			"parse: line 4, column 7: unplaceable label (b): an italic label that is not a number"},
 		{"empty parentheses", []string{"(a) text.", "() text."},
 			"parse: line 5, column 4: unlabeled paragraph: the paragraph does not start with a label"},
 		{"no closing parenthesis", []string{"(a) text.", "(b text."},

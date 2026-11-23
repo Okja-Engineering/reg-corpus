@@ -99,6 +99,9 @@ func TestLookaheadFails(t *testing.T) {
 			"parse: line 13, column 4: unplaceable label (i): it could be (i) or (h)(1)(i), and the next label, (k), fits after neither"},
 		{"the next label is (B)", join(h, []string{"(1) text.", "(i) text.", "(B) text."}),
 			"parse: line 13, column 4: unplaceable label (i): it could be (i) or (h)(1)(i), and the next label, (B), fits after neither"},
+		// A chained next label must open the level below: (j) does that after neither reading.
+		{"the next label is chained", join(h, []string{"(1) text.", "(i)(j) text."}),
+			"parse: line 13, column 4: unplaceable label (i): it could be (i) or (h)(1)(i), and the next label, (j), fits after neither"},
 	} {
 		t.Run(c.name, func(t *testing.T) { wantFail(t, section(c.paras...), c.want) })
 	}

@@ -77,7 +77,8 @@ const (
 )
 
 // Error is a parse failure at a location in the XML. Line and Column are
-// 1-based; Column counts bytes.
+// 1-based; Column counts bytes. The package doc says what each reason's
+// location points at.
 type Error struct {
 	Line, Column int
 	Reason       Reason

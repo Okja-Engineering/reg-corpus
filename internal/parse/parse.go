@@ -6,36 +6,46 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"strings"
 )
 
-// Parse parses one eCFR section's XML into a Tree. It fails with an *Error
-// on any label it cannot place, and on any element or text a section of
-// 1024.41's form does not hold.
+// Parse parses one eCFR section's XML into a Tree. It reads in three passes
+// and fails with an *Error at the first failure of the first pass that
+// fails: the XML's form (Malformed), each paragraph's lead (Unlabeled, and
+// Unplaceable for a label's shape or position), then each label's place in
+// document order (Skipped, Repeated, OutOfOrder, Unplaceable).
 func Parse(data []byte) (*Tree, error) {
 	p := &parser{data: data, dec: xml.NewDecoder(bytes.NewReader(data))}
-	if err := p.section(); err != nil {
+	paras, err := p.section()
+	if err != nil {
+		return nil, err
+	}
+	var leads []lead
+	for i, pa := range paras {
+		ls, err := p.leads(pa, i+1)
+		if err != nil {
+			return nil, err
+		}
+		leads = append(leads, ls...)
+	}
+	if err := p.place(leads); err != nil {
 		return nil, err
 	}
 	return p.tree, nil
 }
 
 type parser struct {
-	data  []byte
-	dec   *xml.Decoder
-	tree  *Tree
-	stack []level // the open levels; stack[k] holds the last label of Kind k
-}
-
-type level struct {
-	node  *Node
-	value int
+	data []byte
+	dec  *xml.Decoder
+	tree *Tree
+	open levels // the open levels while labels are placed
 }
 
 // next returns the next token and the byte offset where it starts. Tokens
-// are contiguous, so a token starts where the one before it ended.
+// are contiguous, so a token starts where the one before it ended. A token
+// that is not well-formed fails at the start of the token being read. CDATA
+// and namespaced elements fail: 1024.41's form holds neither.
 func (p *parser) next() (xml.Token, int, error) {
 	off := int(p.dec.InputOffset())
 	tok, err := p.dec.Token()
@@ -43,11 +53,22 @@ func (p *parser) next() (xml.Token, int, error) {
 		return nil, off, err
 	}
 	if err != nil {
+		msg := err.Error()
 		var se *xml.SyntaxError
 		if errors.As(err, &se) {
-			return nil, off, p.fail(int(p.dec.InputOffset()), Malformed, "", se.Msg)
+			msg = se.Msg
 		}
-		return nil, off, p.fail(off, Malformed, "", err.Error())
+		return nil, off, p.fail(off, Malformed, "", msg)
+	}
+	switch t := tok.(type) {
+	case xml.CharData:
+		if bytes.HasPrefix(p.data[off:], []byte("<![CDATA[")) {
+			return nil, off, p.fail(off, Malformed, "", "unexpected CDATA section")
+		}
+	case xml.StartElement:
+		if t.Name.Space != "" {
+			return nil, off, p.fail(off, Malformed, "", fmt.Sprintf("element <%s> has namespace %q", t.Name.Local, t.Name.Space))
+		}
 	}
 	return xml.CopyToken(tok), off, nil
 }
@@ -59,72 +80,119 @@ func (p *parser) fail(off int, reason Reason, label, detail string) *Error {
 	return &Error{Line: line, Column: col, Reason: reason, Label: label, Detail: detail}
 }
 
-func blank(cd xml.CharData) bool { return len(bytes.TrimSpace(cd)) == 0 }
+// space fails unless character data that starts at off is only XML
+// whitespace (space, tab, CR, LF), located at its first other byte. A
+// no-break space or a byte-order mark is text.
+func (p *parser) space(cd xml.CharData, off int, detail string) error {
+	i := 0
+	for i < len(cd) && strings.IndexByte(" \t\r\n", cd[i]) >= 0 {
+		i++
+	}
+	if i == len(cd) {
+		return nil
+	}
+	raw := p.data[off:p.dec.InputOffset()]
+	return p.fail(off+rawOffsets(raw, len(cd))[i], Malformed, "", detail)
+}
+
+// what names a token other than character data or an end tag in a message.
+func what(tok xml.Token) string {
+	switch t := tok.(type) {
+	case xml.StartElement:
+		return "<" + t.Name.Local + ">"
+	case xml.Comment:
+		return "comment"
+	case xml.ProcInst:
+		return "processing instruction"
+	}
+	return "directive"
+}
 
 // section reads the one DIV8: a HEAD, the P elements, then at most one CITA.
-func (p *parser) section() error {
-	for p.tree == nil {
-		tok, off, err := p.next()
-		if err == io.EOF {
-			return p.fail(off, Malformed, "", "no <DIV8> section element")
-		} else if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.ProcInst:
-		case xml.CharData:
-			if !blank(t) {
-				return p.fail(off, Malformed, "", "text outside the section element")
-			}
-		case xml.StartElement:
-			if t.Name.Local != "DIV8" || attr(t, "TYPE") != "SECTION" {
-				return p.fail(off, Malformed, "", "the root element is not <DIV8 TYPE=\"SECTION\">")
-			}
-			p.tree = &Tree{Section: attr(t, "N")}
-		default:
-			return p.fail(off, Malformed, "", fmt.Sprintf("unexpected %T before the section element", tok))
-		}
+// It returns the P elements' content.
+func (p *parser) section() ([]*para, error) {
+	start, err := p.root()
+	if err != nil {
+		return nil, err
 	}
-
+	var paras []*para
 	var head, cita bool
 	for {
 		tok, off, err := p.next()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		switch t := tok.(type) {
 		case xml.CharData:
-			if !blank(t) {
-				return p.fail(off, Malformed, "", "text directly in the section element")
+			if err := p.space(t, off, "text directly in the section element"); err != nil {
+				return nil, err
 			}
 		case xml.EndElement: // </DIV8>: the decoder has checked it matches
-			return p.end()
+			switch {
+			case !head:
+				return nil, p.fail(start, Malformed, "", "the section element has no <HEAD>")
+			case len(paras) == 0:
+				return nil, p.fail(start, Malformed, "", "the section element has no <P>")
+			}
+			return paras, p.end()
 		case xml.StartElement:
 			switch {
 			case t.Name.Local == "HEAD" && !head:
 				head = true
 				if p.tree.Heading, err = p.text("HEAD"); err != nil {
-					return err
+					return nil, err
 				}
 			case t.Name.Local == "P" && head && !cita:
-				if err := p.paragraph(); err != nil {
-					return err
+				pa, err := p.readPara()
+				if err != nil {
+					return nil, err
 				}
+				paras = append(paras, pa)
 			case t.Name.Local == "CITA" && head && !cita:
 				cita = true
 				if p.tree.Citation, err = p.text("CITA"); err != nil {
-					return err
+					return nil, err
 				}
 			default:
-				return p.fail(off, Malformed, "", fmt.Sprintf("unexpected <%s> in the section element", t.Name.Local))
+				return nil, p.fail(off, Malformed, "", "unexpected "+what(tok)+" in the section element")
 			}
 		default:
-			return p.fail(off, Malformed, "", fmt.Sprintf("unexpected %T in the section element", tok))
+			return nil, p.fail(off, Malformed, "", "unexpected "+what(tok)+" in the section element")
 		}
 	}
 }
 
-// end checks that only blank text follows the section element.
+// root reads up to the section element, a <DIV8 TYPE="SECTION"> with an N,
+// and returns its offset.
+func (p *parser) root() (int, error) {
+	for {
+		tok, off, err := p.next()
+		if err == io.EOF {
+			return 0, p.fail(off, Malformed, "", "no <DIV8> section element")
+		} else if err != nil {
+			return 0, err
+		}
+		switch t := tok.(type) {
+		case xml.ProcInst:
+		case xml.CharData:
+			if err := p.space(t, off, "text outside the section element"); err != nil {
+				return 0, err
+			}
+		case xml.StartElement:
+			if t.Name.Local != "DIV8" || attr(t, "TYPE") != "SECTION" {
+				return 0, p.fail(off, Malformed, "", "the root element is not <DIV8 TYPE=\"SECTION\">")
+			}
+			if p.tree = (&Tree{Section: attr(t, "N")}); p.tree.Section == "" {
+				return 0, p.fail(off, Malformed, "", "the section element has no N attribute")
+			}
+			return off, nil
+		default:
+			return 0, p.fail(off, Malformed, "", "unexpected "+what(tok)+" before the section element")
+		}
+	}
+}
+
+// end checks that only XML whitespace follows the section element.
 func (p *parser) end() error {
 	for {
 		tok, off, err := p.next()
@@ -133,15 +201,20 @@ func (p *parser) end() error {
 		} else if err != nil {
 			return err
 		}
-		if cd, ok := tok.(xml.CharData); !ok || !blank(cd) {
+		cd, ok := tok.(xml.CharData)
+		if !ok {
 			return p.fail(off, Malformed, "", "content after the section element")
+		}
+		if err := p.space(cd, off, "content after the section element"); err != nil {
+			return err
 		}
 	}
 }
 
+// attr is the value of an attribute with no namespace, or "".
 func attr(t xml.StartElement, name string) string {
 	for _, a := range t.Attr {
-		if a.Name.Local == name {
+		if a.Name.Space == "" && a.Name.Local == name {
 			return a.Value
 		}
 	}
@@ -162,7 +235,7 @@ func (p *parser) text(name string) (string, error) {
 		case xml.EndElement:
 			return b.String(), nil
 		default:
-			return "", p.fail(off, Malformed, "", fmt.Sprintf("unexpected %T in <%s>", tok, name))
+			return "", p.fail(off, Malformed, "", fmt.Sprintf("unexpected %s in <%s>", what(tok), name))
 		}
 	}
 }
@@ -176,6 +249,14 @@ type para struct {
 	end    int // the offset of </P>
 }
 
+// offset is the XML byte offset of the paragraph's text at index i.
+func (pa *para) offset(i int) int {
+	if i < len(pa.raw) {
+		return pa.raw[i]
+	}
+	return pa.end
+}
+
 // readPara reads a <P>'s content: character data and <I> elements, not nested.
 func (p *parser) readPara() (*para, error) {
 	var b strings.Builder
@@ -186,27 +267,30 @@ func (p *parser) readPara() (*para, error) {
 		if err != nil {
 			return nil, err
 		}
+		in := "<P>"
+		if italic {
+			in = "<I>"
+		}
 		switch t := tok.(type) {
 		case xml.CharData:
 			b.Write(t)
-			end := int(p.dec.InputOffset())
-			for _, o := range rawOffsets(p.data[off:end], len(t)) {
+			for _, o := range rawOffsets(p.data[off:p.dec.InputOffset()], len(t)) {
 				pa.raw = append(pa.raw, off+o)
 				pa.italic = append(pa.italic, italic)
 			}
 		case xml.StartElement:
 			if t.Name.Local != "I" || italic {
-				return nil, p.fail(off, Malformed, "", fmt.Sprintf("unexpected <%s> in <P>", t.Name.Local))
+				return nil, p.fail(off, Malformed, "", "unexpected "+what(tok)+" in "+in)
 			}
 			italic = true
-		case xml.EndElement:
-			if t.Name.Local == "P" {
+		case xml.EndElement: // </I>, or </P>: the decoder has checked it matches
+			if !italic {
 				pa.text, pa.end = b.String(), off
 				return pa, nil
 			}
 			italic = false
 		default:
-			return nil, p.fail(off, Malformed, "", fmt.Sprintf("unexpected %T in <P>", tok))
+			return nil, p.fail(off, Malformed, "", "unexpected "+what(tok)+" in "+in)
 		}
 	}
 }
@@ -232,7 +316,7 @@ func rawOffsets(raw []byte, n int) []int {
 			j++
 		}
 	}
-	for len(out) < n { // not reached for well-formed XML; keeps the map total
+	for len(out) < n { // not reached for well-formed XML without CDATA; keeps the map total
 		out = append(out, len(raw))
 	}
 	return out
@@ -254,274 +338,4 @@ func entityLen(name string) int {
 		return len(string(rune(r)))
 	}
 	return 1 // amp, lt, gt, quot, apos
-}
-
-// lead is one label found in a paragraph's lead, with its heading if any.
-type lead struct {
-	start   int // index in the paragraph's text where the label starts
-	label   label
-	heading string
-}
-
-// paragraph reads one <P> and places each label of its lead.
-func (p *parser) paragraph() error {
-	pa, err := p.readPara()
-	if err != nil {
-		return err
-	}
-	leads, err := p.leads(pa)
-	if err != nil {
-		return err
-	}
-	for i, l := range leads {
-		end := len(pa.text)
-		if i+1 < len(leads) {
-			end = leads[i+1].start
-		}
-		n, err := p.place(l.label)
-		if err != nil {
-			return err
-		}
-		n.Heading, n.Text = l.heading, pa.text[l.start:end]
-	}
-	return nil
-}
-
-// leads finds the labels of a paragraph's lead. A label counts only where
-// the lead puts one: at the start of the paragraph, right after a heading
-// (past the dash or space that ends it), or right after another label. A
-// heading is the italic text right after a label and one space. The lead
-// ends at the first text that is none of these; any label after that is
-// running text.
-func (p *parser) leads(pa *para) ([]lead, error) {
-	var out []lead
-	for pos := 0; ; {
-		l, end, ok := labelAt(pa, pos)
-		if !ok && len(out) == 0 {
-			return nil, p.fail(pa.offset(0), Unlabeled, "", "the paragraph does not start with a label")
-		}
-		if !ok {
-			return out, nil
-		}
-		ld := lead{start: pos, label: l}
-		pos = end
-		if pos+1 < len(pa.text) && pa.text[pos] == ' ' && pa.italic[pos+1] {
-			h := pos + 1
-			for pos = h; pos < len(pa.text) && pa.italic[pos]; pos++ {
-			}
-			ld.heading = pa.text[h:pos]
-			pos += sepLen(pa.text[pos:])
-		}
-		out = append(out, ld)
-	}
-}
-
-// sepLen is the length of the dash or space that ends a heading at the
-// start of s, or 0.
-func sepLen(s string) int {
-	for _, sep := range []string{"—", " "} {
-		if strings.HasPrefix(s, sep) {
-			return len(sep)
-		}
-	}
-	return 0
-}
-
-// offset is the XML byte offset of the paragraph's text at index i.
-func (pa *para) offset(i int) int {
-	if i < len(pa.raw) {
-		return pa.raw[i]
-	}
-	return pa.end
-}
-
-// label is a label as the text shows it, with its readings. A lowercase
-// letter that is also a roman numeral ((i), (v), (x), ...) has both.
-type label struct {
-	text   string // e.g. "(C)", markup dropped
-	offset int    // XML byte offset of its "("
-	kind   Kind   // the one reading, or Roman when there are two
-	value  int
-	letter int    // the letter reading's value when there are two; else 0
-	err    string // why the label has no reading, if it has none
-}
-
-// labelAt reads a label's shape, "(" token ")", at index i: the token is
-// ASCII letters or digits, all italic or all not. ok reports the shape; a
-// shape with no reading has err set.
-func labelAt(pa *para, i int) (label, int, bool) {
-	s := pa.text
-	if i >= len(s) || s[i] != '(' {
-		return label{}, 0, false
-	}
-	j := i + 1
-	for j < len(s) && isAlnum(s[j]) {
-		j++
-	}
-	if j == i+1 || j >= len(s) || s[j] != ')' {
-		return label{}, 0, false
-	}
-	tok := s[i+1 : j]
-	l := label{text: s[i : j+1], offset: pa.offset(i)}
-	italic := pa.italic[i+1]
-	for k := i + 1; k < j; k++ {
-		if pa.italic[k] != italic {
-			l.err = "part of the label is italic"
-			return l, j + 1, true
-		}
-	}
-	l.kind, l.value, l.letter, l.err = read(tok, italic)
-	return l, j + 1, true
-}
-
-func isAlnum(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
-}
-
-// read gives a label token's kind and value.
-func read(tok string, italic bool) (kind Kind, value, letter int, err string) {
-	if n, ok := number(tok); ok {
-		if italic {
-			return Italic, n, 0, ""
-		}
-		return Number, n, 0, ""
-	}
-	if italic {
-		return 0, 0, 0, "an italic label that is not a number"
-	}
-	if len(tok) == 1 && tok[0] >= 'A' && tok[0] <= 'Z' {
-		return Capital, int(tok[0]-'A') + 1, 0, ""
-	}
-	if len(tok) == 1 && tok[0] >= 'a' && tok[0] <= 'z' {
-		letter = int(tok[0]-'a') + 1
-	}
-	if r, ok := roman(tok); ok {
-		return Roman, r, letter, ""
-	}
-	if letter > 0 {
-		return Letter, letter, 0, ""
-	}
-	return 0, 0, 0, "not a letter, number, roman numeral or capital letter"
-}
-
-func number(tok string) (int, bool) {
-	if tok == "" || tok[0] == '0' {
-		return 0, false
-	}
-	n := 0
-	for _, c := range []byte(tok) {
-		if c < '0' || c > '9' || n > 1e6 {
-			return 0, false
-		}
-		n = n*10 + int(c-'0')
-	}
-	return n, true
-}
-
-var romanDigits = []struct {
-	value int
-	text  string
-}{{1000, "m"}, {900, "cm"}, {500, "d"}, {400, "cd"}, {100, "c"}, {90, "xc"},
-	{50, "l"}, {40, "xl"}, {10, "x"}, {9, "ix"}, {5, "v"}, {4, "iv"}, {1, "i"}}
-
-func toRoman(n int) string {
-	var b strings.Builder
-	for _, d := range romanDigits {
-		for ; n >= d.value; n -= d.value {
-			b.WriteString(d.text)
-		}
-	}
-	return b.String()
-}
-
-// roman reads a lowercase roman numeral written the standard way.
-func roman(tok string) (int, bool) {
-	n, rest := 0, tok
-	for _, d := range romanDigits {
-		for strings.HasPrefix(rest, d.text) {
-			n, rest = n+d.value, rest[len(d.text):]
-		}
-	}
-	return n, n > 0 && rest == "" && toRoman(n) == tok
-}
-
-// labelText writes a value as a label of a kind, e.g. (Capital, 2) is "(B)".
-func labelText(k Kind, v int) string {
-	switch k {
-	case Letter:
-		return "(" + string(rune('a'+v-1)) + ")"
-	case Roman:
-		return "(" + toRoman(v) + ")"
-	case Capital:
-		return "(" + string(rune('A'+v-1)) + ")"
-	default:
-		return "(" + strconv.Itoa(v) + ")"
-	}
-}
-
-func (p *parser) path() string {
-	var b strings.Builder
-	for _, l := range p.stack {
-		b.WriteString(labelText(l.node.Kind, l.value))
-	}
-	return b.String()
-}
-
-// place puts a label on the stack of open levels and returns its new node.
-// Depth comes from the kind: a label of kind k is a child of the open level
-// k-1 and a sibling of the open level k, which closes the levels below it.
-func (p *parser) place(l label) (*Node, error) {
-	fail := func(r Reason, detail string) (*Node, error) {
-		return nil, p.fail(l.offset, r, l.text, detail)
-	}
-	if l.err != "" {
-		return fail(Unplaceable, l.err)
-	}
-	kind, value := l.kind, l.value
-	// A lowercase label that reads both ways is a letter only when the last
-	// letter-level sibling directly precedes it.
-	if l.letter > 0 && len(p.stack) > 0 && p.stack[0].value == l.letter-1 {
-		kind, value = Letter, l.letter
-	}
-	k := int(kind)
-	switch {
-	case k > len(p.stack):
-		open := "no level is open"
-		if len(p.stack) > 0 {
-			open = "the open levels are " + p.path()
-		}
-		return fail(Unplaceable, fmt.Sprintf("%s labels sit under %s labels; %s", kind, Kind(k-1), open))
-	case k == len(p.stack):
-		if value != 1 {
-			under := "at the top level"
-			if k > 0 {
-				under = "under " + p.path()
-			}
-			return fail(Skipped, fmt.Sprintf("the first %s label %s is %s", kind, under, labelText(kind, 1)))
-		}
-	default:
-		last := p.stack[k].value
-		p.stack = p.stack[:k+1]
-		switch {
-		case value == last+1:
-		case value == last:
-			return fail(Repeated, "it repeats "+p.path())
-		case value < last:
-			return fail(OutOfOrder, "it comes after "+p.path())
-		default:
-			return fail(Skipped, fmt.Sprintf("after %s the next %s label is %s", p.path(), kind, labelText(kind, last+1)))
-		}
-		p.stack = p.stack[:k]
-	}
-
-	n := &Node{Path: []string{strings.Trim(labelText(kind, value), "()")}, Kind: kind}
-	if k == 0 {
-		p.tree.Children = append(p.tree.Children, n)
-	} else {
-		parent := p.stack[k-1].node
-		n.Path = append(slices.Clone(parent.Path), n.Path...)
-		parent.Children = append(parent.Children, n)
-	}
-	p.stack = append(p.stack, level{node: n, value: value})
-	return n, nil
 }
