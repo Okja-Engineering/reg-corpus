@@ -4,6 +4,7 @@
 package parse_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,12 @@ func TestMalformed(t *testing.T) {
 			"parse: line 2, column 1: malformed: unexpected comment before the section element"},
 		{"directive before the section", doc("<!DOCTYPE DIV8>" + div8 + head + para + "</DIV8>"),
 			"parse: line 2, column 1: malformed: unexpected directive before the section element"},
+		{"second XML declaration", doc("<?xml version=\"1.0\"?>" + div8 + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: unexpected processing instruction before the section element"},
+		{"processing instruction before the section", doc("<?pi x?>" + div8 + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: unexpected processing instruction before the section element"},
+		{"XML declaration not at the start", []byte("\n" + decl + div8 + head + para + "</DIV8>"),
+			"parse: line 2, column 1: malformed: unexpected processing instruction before the section element"},
 		{"root not DIV8", doc(`<DIV9 N="0.1" TYPE="SECTION">` + head + para + "</DIV9>"),
 			`parse: line 2, column 1: malformed: the root element is not <DIV8 TYPE="SECTION">`},
 		{"DIV8 not a section", doc(`<DIV8 N="0.1" TYPE="PART">` + head + para + "</DIV8>"),
@@ -78,11 +85,19 @@ func TestMalformed(t *testing.T) {
 			"parse: line 4, column 1: malformed: unexpected <FP> in the section element"},
 		{"comment in the section", doc(div8 + "\n" + head + "\n<!-- c -->\n" + para + "\n</DIV8>"),
 			"parse: line 4, column 1: malformed: unexpected comment in the section element"},
+		{"processing instruction in the section", doc(div8 + "\n" + head + "\n<?pi x?>\n" + para + "\n</DIV8>"),
+			"parse: line 4, column 1: malformed: unexpected processing instruction in the section element"},
+		{"stray text after a character reference", doc(div8 + "&#32;x\n" + head + para + "</DIV8>"),
+			"parse: line 2, column 35: malformed: text directly in the section element"},
+		{"stray text after a CRLF", doc(div8 + "\r\n x\n" + head + para + "</DIV8>"),
+			"parse: line 3, column 2: malformed: text directly in the section element"},
 
 		// After the section element.
 		{"text after the section", doc(div8 + head + para + "</DIV8>x"),
 			"parse: line 2, column 71: malformed: content after the section element"},
 		{"element after the section", doc(div8 + head + para + "</DIV8><P>(b) text.</P>"),
+			"parse: line 2, column 71: malformed: content after the section element"},
+		{"processing instruction after the section", doc(div8 + head + para + "</DIV8><?pi x?>"),
 			"parse: line 2, column 71: malformed: content after the section element"},
 		{"not well-formed after the section", doc(div8 + head + para + "</DIV8><"),
 			"parse: line 2, column 71: malformed: unexpected EOF"},
@@ -106,6 +121,12 @@ func TestMalformed(t *testing.T) {
 			"parse: line 4, column 16: malformed: unexpected <E> in <I>"},
 		{"I in a namespace", section("(a) <z:I>Head</z:I> text."),
 			`parse: line 4, column 8: malformed: element <I> has namespace "z"`},
+		{"surrogate, hex", section("(a) text &#xD800; text."),
+			"parse: line 4, column 13: malformed: character reference &#xD800; is to a surrogate"},
+		{"surrogate, decimal", section("(a) text &#57343; text."),
+			"parse: line 4, column 13: malformed: character reference &#57343; is to a surrogate"},
+		{"surrogate in an attribute", doc(`<DIV8 N="&#xDC00;" TYPE="SECTION">` + head + para + "</DIV8>"),
+			"parse: line 2, column 10: malformed: character reference &#xDC00; is to a surrogate"},
 		{"CDATA in P", section("(a) <![CDATA[text]]>."),
 			"parse: line 4, column 8: malformed: unexpected CDATA section"},
 		{"CDATA in HEAD", doc(div8 + "\n<HEAD><![CDATA[Head.]]></HEAD>\n" + para + "\n</DIV8>"),
@@ -126,9 +147,19 @@ func TestMalformed(t *testing.T) {
 	}
 }
 
+// TestWhitespaceBetweenElements: space, tab, CR and LF between elements, and
+// before and after the section, are not text.
+func TestWhitespaceBetweenElements(t *testing.T) {
+	data := []byte(decl + " \t\r\n" + div8 + "\t" + head + " \r\n\t" + para + "\t</DIV8>\t \r\n")
+	if got := paths(t, data); !reflect.DeepEqual(got, []string{"(a)"}) {
+		t.Errorf("paths = %v", got)
+	}
+}
+
 // TestLocations: a location counts the XML's bytes, so an entity counts at
 // its written length and a CRLF at two bytes, while the decoded text holds
-// the character; an empty <P> is located at its </P>.
+// the character; a lone CR ends a line, as a LF does; an empty <P> is
+// located at its start tag.
 func TestLocations(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -148,7 +179,15 @@ func TestLocations(t *testing.T) {
 		{"CRLF line ends", []byte(strings.ReplaceAll(string(section("(a) text.", "(2) text.")), "\n", "\r\n")),
 			"parse: line 5, column 4: skipped label (2): the first number label under (a) is (1)"},
 		{"empty paragraph", section("(a) text.", ""),
-			"parse: line 5, column 4: unlabeled paragraph: the paragraph does not start with a label"},
+			"parse: line 5, column 1: unlabeled paragraph: the paragraph does not start with a label"},
+		{"self-closing paragraph", doc(div8 + "\n" + head + "\n" + para + "\n<P/>\n</DIV8>"),
+			"parse: line 5, column 1: unlabeled paragraph: the paragraph does not start with a label"},
+		{"CR line ends", []byte(strings.ReplaceAll(string(section("(a) text.", "(2) text.")), "\n", "\r")),
+			"parse: line 5, column 4: skipped label (2): the first number label under (a) is (1)"},
+		{"CR before a label", section("(a) <I>Head</I>\r(1) text."),
+			"parse: line 5, column 1: unplaceable label (1): a label follows a heading only past one \"—\" or one space; here \"\\n\" separates them"},
+		{"named entity before a label", section("(a) <I>A</I>—&amp;(1) text."),
+			"parse: line 4, column 24: unplaceable label (1): a label follows a heading only past one \"—\" or one space; here \"—&\" separates them"},
 	} {
 		t.Run(c.name, func(t *testing.T) { wantFail(t, c.data, c.want) })
 	}

@@ -10,8 +10,9 @@ import (
 )
 
 // TestLeadContinues: the lead goes on past a heading's one "—" or one
-// space, and from a label straight to the next. Anywhere else, text ends
-// it, and a label after that text is running text.
+// space, and from a label straight to the next. Where the run after a label
+// or heading holds no "(" and no misplaced heading, the first letter or
+// digit ends the lead, and a label after that is running text.
 func TestLeadContinues(t *testing.T) {
 	for _, c := range []struct {
 		para string
@@ -23,9 +24,13 @@ func TestLeadContinues(t *testing.T) {
 		{"(a) <I>Head</I>—(1)(i) <I>Head.</I> (A)(<I>1</I>) text.", []string{"(a)", "(a)(1)", "(a)(1)(i)", "(a)(1)(i)(A)", "(a)(1)(i)(A)(1)"}},
 		{"(a) <I>Head.</I> Text (1) text.", []string{"(a)"}},
 		{"(a) Text—(1) text.", []string{"(a)"}},
-		{"(a) <I>Head</I>—(see (1)) text.", []string{"(a)"}},
 		{"(a) <I>Head</I>—Text (1) text.", []string{"(a)"}},
 		{"(a) <I>Head</I>—", []string{"(a)"}},
+		{"(a) 2(1) text.", []string{"(a)"}},
+		{"(a) “Term” (1) text.", []string{"(a)"}},
+		{"(a) [Reserved]", []string{"(a)"}},
+		{"(a) <I>Loss mitigation (general).</I> Text (1) text.", []string{"(a)"}},
+		{"(a) <I>Head (see (1)) more.</I> Text.", []string{"(a)"}},
 	} {
 		t.Run(c.para, func(t *testing.T) {
 			if got := paths(t, section(c.para)); !reflect.DeepEqual(got, c.want) {
@@ -66,9 +71,68 @@ func TestLeadEnds(t *testing.T) {
 			"unplaceable label (1): it begins the italic text after (a), where a heading goes"},
 		{"heading that starts with a label", "(a) <I>(b) Head.</I> text.", "(b)",
 			"unplaceable label (b): it begins the italic text after (a), where a heading goes"},
+		{"label in the heading after a dash", "(a) <I>Head—(1) Sub.</I> Text.", "(1)",
+			"unplaceable label (1): it follows a dash inside the heading of (a)"},
+		{"label in the heading after a spaced en dash", "(a) <I>Head – (1) Sub.</I> Text.", "(1)",
+			"unplaceable label (1): it follows a dash inside the heading of (a)"},
+		{"italic parenthesis chained", "(a)<I>(</I>1) text.", "(</I>",
+			"unplaceable label (1): its parentheses are italic"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", col(c.para, c.mark), c.want))
+		})
+	}
+}
+
+// TestHeadingPosition: a heading is the <I> text after a label and exactly
+// one space outside the <I>. Italic text after a label past anything else,
+// or an <I> that begins with a space, fails at the heading's first
+// character.
+func TestHeadingPosition(t *testing.T) {
+	const want = "malformed: a heading follows its label past one space; here "
+	const inside = "malformed: a heading follows its label past one space outside the <I>, not a space inside it"
+	for _, c := range []struct {
+		name, para, mark, want string
+	}{
+		{"no space", "(a)<I>Head</I>—(1) text.", "Head", want + "nothing separates them"},
+		{"two spaces", "(a)  <I>Head</I>—(1) text.", "Head", want + `"  " separates them`},
+		{"no-break space", "(a)\u00a0<I>Head</I>—(1) text.", "Head", want + "\"\\u00a0\" separates them"},
+		{"a quotation mark", "(a) “<I>Term</I>” means.", "Term", want + `" “" separates them`},
+		{"a dash", "(a)—<I>Head</I> text.", "Head", want + `"—" separates them`},
+		{"the space inside the <I>", "(a)<I> Head</I>—(1) text.", " Head", inside},
+		{"a second space inside the <I>", "(a) <I> Head</I>—(1) text.", " Head", inside},
+		{"a space and a label inside the <I>", "(a) <I> (1) Head.</I> text.", " (1)", inside},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", col(c.para, c.mark), c.want))
+		})
+	}
+}
+
+// TestBrokenLabel: a "(" in the run after a label or heading, before the
+// first letter or digit, that starts no label fails at the "(", as it does
+// at the start of a <P>.
+func TestBrokenLabel(t *testing.T) {
+	const want = `unplaceable: a "(" here starts no label`
+	for _, c := range []struct {
+		name, para string
+		at         int // the "(" that fails, by its index in para
+	}{
+		{"a second parenthesis", "(a)((1) text.", 3},
+		{"two parentheses past a heading", "(a) <I>Head</I>— ((1) text.", 19},
+		{"empty parentheses, then a label", "(a) <I>Head</I>—()(1) text.", 18},
+		{"a space in the label", "(a)(1 ) text.", 3},
+		{"a period in the label", "(a) <I>Head</I>—(1.) text.", 18},
+		{"empty parentheses", "(a)() text.", 3},
+		{"a letter outside ASCII", "(a)(é) text.", 3},
+		{"a parenthesis in words past a heading", "(a) <I>Head</I>—(see (1)) text.", 18},
+		{"a parenthesis in words past a label", "(a) (see below) text.", 4},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.para[c.at] != '(' {
+				t.Fatalf("index %d of %q is not a \"(\"", c.at, c.para)
+			}
+			wantFail(t, section(c.para), fmt.Sprintf("parse: line 4, column %d: %s", 4+c.at, want))
 		})
 	}
 }
@@ -128,9 +192,17 @@ func TestLabelShape(t *testing.T) {
 		{"italic letter chained", []string{"(a)(<I>b</I>) text."},
 			"parse: line 4, column 7: unplaceable label (b): an italic label that is not a number"},
 		{"empty parentheses", []string{"(a) text.", "() text."},
-			"parse: line 5, column 4: unlabeled paragraph: the paragraph does not start with a label"},
+			"parse: line 5, column 4: unplaceable: a \"(\" here starts no label"},
 		{"no closing parenthesis", []string{"(a) text.", "(b text."},
-			"parse: line 5, column 4: unlabeled paragraph: the paragraph does not start with a label"},
+			"parse: line 5, column 4: unplaceable: a \"(\" here starts no label"},
+		{"italic opening parenthesis", []string{"(a) text.", "<I>(</I>1) text."},
+			"parse: line 5, column 7: unplaceable label (1): its parentheses are italic"},
+		{"two capitals", []string{"(a) text.", "(1) text.", "(i) text.", "(AB) text."},
+			"parse: line 7, column 4: unplaceable label (AB): " + not},
+		{"capital roman", []string{"(a) text.", "(1) text.", "(II) text."},
+			"parse: line 6, column 4: unplaceable label (II): " + not},
+		{"zero", []string{"(a) text.", "(0) text."},
+			"parse: line 5, column 4: unplaceable label (0): " + not},
 		{"space before the label", []string{"(a) text.", " (b) text."},
 			"parse: line 5, column 4: unlabeled paragraph: the paragraph does not start with a label"},
 		{"first label (i)", []string{"(i) text."},

@@ -69,6 +69,9 @@ func TestLookahead(t *testing.T) {
 			join(letterPaths('u'), []string{"(u)(1)", "(u)(1)(i)", "(v)", "(w)"})},
 		{"roman (x), then (xi)", join(letters('w'), []string{"(1) text."}, romans(10), []string{"(xi) text."}),
 			join(letterPaths('w'), []string{"(w)(1)", "(w)(1)(i)", "(w)(1)(ii)", "(w)(1)(iii)", "(w)(1)(iv)", "(w)(1)(v)", "(w)(1)(vi)", "(w)(1)(vii)", "(w)(1)(viii)", "(w)(1)(ix)", "(w)(1)(x)", "(w)(1)(xi)"})},
+		// Chained, the (i) can't be the letter, so no next label is needed.
+		{"chained (i) in the last <P>", join(letters('g'), []string{"(h) <I>Head</I>—(1)(i) text."}),
+			join(letterPaths('h'), []string{"(h)(1)", "(h)(1)(i)"})},
 		{"letter (x), then (y)", join(letters('w'), []string{"(1) text."}, romans(9), []string{"(x) text.", "(y) text."}),
 			join(letterPaths('w'), []string{"(w)(1)", "(w)(1)(i)", "(w)(1)(ii)", "(w)(1)(iii)", "(w)(1)(iv)", "(w)(1)(v)", "(w)(1)(vi)", "(w)(1)(vii)", "(w)(1)(viii)", "(w)(1)(ix)", "(x)", "(y)"})},
 	} {
