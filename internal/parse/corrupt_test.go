@@ -6,7 +6,9 @@ package parse_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/okja-engineering/reg-corpus/internal/parse"
@@ -58,6 +60,9 @@ func TestCorruptedSequences(t *testing.T) {
 			if pe.Reason != c.reason || pe.Label != c.label || pe.Line != c.line || pe.Column != c.column {
 				t.Errorf("error = %s %s at %d:%d (%v), want %s %s at %d:%d",
 					pe.Reason, pe.Label, pe.Line, pe.Column, err, c.reason, c.label, c.line, c.column)
+			}
+			if want := fmt.Sprintf("line %d, column %d: %s label %s: ", c.line, c.column, c.reason, c.label); !strings.Contains(err.Error(), want) {
+				t.Errorf("message %q does not hold %q", err, want)
 			}
 		})
 	}

@@ -68,8 +68,22 @@ func TestLabelPosition(t *testing.T) {
 // italic (1); any other is a skip, also mid-paragraph.
 func TestNewLevelStartsAtFirst(t *testing.T) {
 	wantError(t, section("(a) text.", "(2) text."), parse.Skipped, "(2)", 5, 4)
-	wantError(t, section("(a) <I>Head</I>—(ii) text."), parse.Skipped, "(ii)", 4, 22)
+	wantError(t, section("(a) <I>Head</I>—(1)(iii) text."), parse.Skipped, "(iii)", 4, 25)
 	wantError(t, section("(b) text."), parse.Skipped, "(b)", 4, 4)
+}
+
+// TestLocationCountsRawBytes: a location is in the XML's bytes, so an
+// entity before a label (here the heading dash written as &#8212;) counts
+// at its written length, and the decoded text holds the character.
+func TestLocationCountsRawBytes(t *testing.T) {
+	wantError(t, section("(a) <I>Head</I>&#8212;(1)(iii) text."), parse.Skipped, "(iii)", 4, 29)
+	tree, err := parse.Parse(section("(a) <I>H &amp; H</I>&#x2014;(1) text."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := tree.Children[0]; a.Heading != "H & H" || a.Text != "(a) H & H—" || len(a.Children) != 1 {
+		t.Errorf("(a) = heading %q, text %q, %d children", a.Heading, a.Text, len(a.Children))
+	}
 }
 
 // TestSiblingSequence: each label follows its last sibling by one.

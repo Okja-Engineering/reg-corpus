@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -256,7 +257,7 @@ func TestTreeShape(t *testing.T) {
 	var check func(parent []string, nodes []*parse.Node)
 	check = func(parent []string, nodes []*parse.Node) {
 		for _, n := range nodes {
-			if len(n.Path) != len(parent)+1 || !reflect.DeepEqual(n.Path[:len(parent)], parent) {
+			if len(n.Path) != len(parent)+1 || !slices.Equal(n.Path[:len(parent)], parent) {
 				t.Errorf("node %s sits under %s", pathString(n.Path), pathString(parent))
 			}
 			if want := kinds[len(n.Path)-1]; n.Kind != want {

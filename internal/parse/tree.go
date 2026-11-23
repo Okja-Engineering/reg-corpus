@@ -43,6 +43,25 @@ func (k Kind) String() string {
 	return kindNames[k]
 }
 
+// MarshalText writes a Kind by its name; an unknown Kind is an error.
+func (k Kind) MarshalText() ([]byte, error) {
+	if k < 0 || int(k) >= len(kindNames) {
+		return nil, fmt.Errorf("parse: unknown kind %d", int(k))
+	}
+	return []byte(kindNames[k]), nil
+}
+
+// UnmarshalText reads a Kind by its name; an unknown name is an error.
+func (k *Kind) UnmarshalText(b []byte) error {
+	for i, name := range kindNames {
+		if string(b) == name {
+			*k = Kind(i)
+			return nil
+		}
+	}
+	return fmt.Errorf("parse: unknown kind %q", b)
+}
+
 // Reason names why a parse failed.
 type Reason string
 
