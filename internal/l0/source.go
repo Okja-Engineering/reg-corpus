@@ -31,10 +31,10 @@ func (s Source) Identity() meta.Meta {
 }
 
 // The names of the files a source's directory holds beside raw/ (spec
-// "Granularity"). Read matches them exactly: a name that differs from one
-// only in case is refused, since a case-insensitive filesystem (APFS, the
-// default on macOS) would read and write it as that file while git records
-// another name.
+// "Granularity"). Read matches them exactly (exactly, as RealDirs matches
+// directories): a name that differs from one only in case is refused,
+// since a case-insensitive filesystem (APFS, the default on macOS) would
+// read and write it as that file while git records another name.
 const (
 	metaName      = "meta.yaml"
 	treeName      = "tree.json"
@@ -87,12 +87,13 @@ type State struct {
 }
 
 // Read reads s's directory under root: its entries, the entries of raw/ and
-// meta.yaml, through real directories only (RealDirs). It finds meta.yaml,
-// tree.json, text.md and overrides.yaml by exact name among the directory's
-// entries, as Stored finds the raw file, and an entry whose name differs
-// from one of them only in case ("TREE.JSON") is a *Conflict: a
-// case-insensitive filesystem would read and write it as that file while git
-// records another name. A meta.yaml that isn't a regular file in the spec's
+// meta.yaml, through real directories only, each by its exact name
+// (RealDirs). It finds meta.yaml, tree.json, text.md and overrides.yaml by
+// exact name among the directory's entries, as Stored finds the raw file,
+// and an entry whose name differs from one of them only in case
+// ("TREE.JSON"), whatever it is, is a *Conflict: a case-insensitive
+// filesystem would read and write it as that file while git records
+// another name. A meta.yaml that isn't a regular file in the spec's
 // schema (meta.Parse) is a *Conflict: no command replaces one it can't read.
 // A directory or file it can't read is an error as is (exit 2).
 func Read(root string, s Source) (State, error) {
@@ -104,15 +105,13 @@ func Read(root string, s Source) (State, error) {
 		return State{}, err
 	}
 	st := State{files: map[string]fs.DirEntry{}}
-	for _, e := range ents {
-		for _, name := range []string{metaName, treeName, textName, overridesName} {
-			switch {
-			case e.Name() == name:
-				st.files[name] = e
-			case strings.EqualFold(e.Name(), name):
-				return State{}, Conflictf("%s is named %s in another case; a case-insensitive filesystem would read and write it as %s while git records %s, so nothing is written (R1)",
-					path.Join(s.Dir, e.Name()), name, path.Join(s.Dir, name), e.Name())
-			}
+	for _, name := range []string{metaName, treeName, textName, overridesName} {
+		e, err := exactly(ents, s.Dir, name)
+		if err != nil {
+			return State{}, err
+		}
+		if e != nil {
+			st.files[name] = e
 		}
 	}
 	if st.Raw, err = readDir(root, s.RawDir()); err != nil {
@@ -209,13 +208,14 @@ type Wrote struct{ Tree, Text, Meta bool }
 // s's derived files: it is how every command that changes an existing
 // meta.yaml writes it, and the only writer of tree.json and text.md. It
 // first checks that s's directory and every directory on the way are real
-// ones (RealDirs), so the lock opens nothing else. Then, holding s's lock
-// (one Update per source at a time, across processes) from before it reads
-// until the last file is replaced, it reads s's directory (Read, which
-// checks the way again), checks it (Stored), and lets set change the fields
-// its command owns, given the raw XML that check read, and return s's
-// derived files or nil. Before writing anything it checks each derived file:
-// missing, or a regular file (anything else is a *Conflict). Then it
+// ones, by exact name (RealDirs), so the lock opens nothing else. Then,
+// holding s's lock (one Update per source at a time, across processes) from
+// before it reads until the last file is replaced, it reads s's directory
+// (Read, which checks the way again), checks it (Stored), and lets set
+// change the fields its command owns, given the raw XML that check read,
+// and return s's derived files or nil. Before writing anything it checks
+// each derived file: missing, or a regular file (anything else is a
+// *Conflict); one it can't read is an error, not a difference. Then it
 // replaces, in turn, tree.json, text.md and meta.yaml (what meta.Marshal
 // writes), each only when its bytes differ, each whole (a temporary file
 // renamed over it). So raw XML is never written here, meta.yaml is only
@@ -224,9 +224,10 @@ type Wrote struct{ Tree, Text, Meta bool }
 //
 // It returns that meta.yaml and which files it replaced. Every *Conflict is
 // found before the first write, so a *Conflict means nothing was written. An
-// error while writing is never a *Conflict, and the files replaced before
-// it are in Wrote; a re-run writes the rest. A missing source directory has
-// no meta.yaml: a *Conflict, as Stored gives for one.
+// error while writing is never a *Conflict, names the file it was writing,
+// and the files replaced before it are in Wrote; a re-run writes the rest.
+// A missing source directory has no meta.yaml: a *Conflict, as Stored gives
+// for one.
 func Update(root string, s Source, set func(m *meta.Meta, raw []byte) (*Derived, error)) (b []byte, w Wrote, err error) {
 	if err := RealDirs(root, s.Dir); err != nil {
 		return nil, w, err

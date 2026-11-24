@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 	"github.com/okja-engineering/reg-corpus/internal/parse"
@@ -73,25 +74,30 @@ const lineBreaks = "\r\n\u0085\u2028\u2029"
 // as Join joins them, with nothing between), then the CITA, if any, each
 // after a blank line. Every text is verbatim: no anchor IDs, no markup but
 // the "# " that starts the heading line, no normalization. The file is
-// UTF-8 with LF line ends, and ends with one LF: the CITA's own, or one
-// added when its text has none.
+// UTF-8 with LF line ends, and ends with exactly one LF: the CITA's own, or
+// one added when its text has none. A tree with no CITA (an empty one
+// reads alike) shows none.
 //
-// So that each text stays one line, as it reads, TextMD refuses rather
-// than rewrites (an error naming where): a line break (CR, LF, U+0085,
-// U+2028 or U+2029) in the HEAD or in any node's own text, and in the CITA
-// anywhere but one LF at its end.
+// So that each text stays one line of its own, as it reads, TextMD refuses
+// rather than rewrites (an error naming where) a HEAD, a node's own text,
+// or a CITA past its one ending LF, that holds a line break (CR, LF,
+// U+0085, U+2028 or U+2029) or holds nothing but White_Space, which would
+// show as an empty line. Its tree may be one read back from tree.json, not
+// only one the parser made.
 func TextMD(t *parse.Tree) ([]byte, error) {
 	doc := NewDocument(t)
-	if err := oneLine(t.Section+" HEAD", t.Heading); err != nil {
+	if err := shown(t.Section+" HEAD", t.Heading); err != nil {
 		return nil, err
 	}
 	for _, n := range doc.nodes {
-		if err := oneLine(ID(t.Section, n.Path), n.Text); err != nil {
+		if err := shown(ID(t.Section, n.Path), n.Text); err != nil {
 			return nil, err
 		}
 	}
-	if err := oneLine(t.Section+" CITA", strings.TrimSuffix(t.Citation, "\n")); err != nil {
-		return nil, err
+	if t.Citation != "" {
+		if err := shown(t.Section+" CITA", strings.TrimSuffix(t.Citation, "\n")); err != nil {
+			return nil, err
+		}
 	}
 	var b strings.Builder
 	b.WriteString("# " + t.Heading + "\n")
@@ -107,11 +113,15 @@ func TextMD(t *parse.Tree) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// oneLine is an error when text, at where, holds a line break.
-func oneLine(where, text string) error {
+// shown is an error when text, at where, can't be shown as one line of
+// text.md as it reads: it holds a line break, or nothing but White_Space.
+func shown(where, text string) error {
 	if i := strings.IndexAny(text, lineBreaks); i >= 0 {
 		r := []rune(text[i:])[0]
 		return fmt.Errorf("anchors: %s holds a line break, %U, at byte %d; text.md holds each text on one line, verbatim, so it is refused, not rewritten", where, r, i)
+	}
+	if strings.TrimFunc(text, func(r rune) bool { return unicode.Is(unicode.White_Space, r) }) == "" {
+		return fmt.Errorf("anchors: %s is %q, nothing but White_Space; text.md would show it as an empty line, so it is refused, not rewritten", where, text)
 	}
 	return nil
 }

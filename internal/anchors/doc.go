@@ -21,10 +21,13 @@
 //     1024-41-c-2-v-A-1.
 //   - Operative: a node's own text minus its label, the one space before
 //     its heading, the heading, and the one dash or space that ends the
-//     heading is not empty (the owner's F1 call). What is left after the
-//     heading is read normalized, so an em or en dash, a no-break space or a
-//     run of spaces is that one separator, and the verdict follows what the
-//     node's hash covers. 75 of 1024.41's 91 nodes are operative.
+//     heading is not empty (the owner's F1 call). It is decided on the whole
+//     own text normalized as one string, past the normalized label, space
+//     and heading, so an em or en dash, a no-break space or a run of
+//     White_Space is that one separator, and a heading's own trailing
+//     White_Space is the heading's one space. Same path, same heading and
+//     same normalized own text give the same verdict. 75 of 1024.41's 91
+//     nodes are operative.
 //   - Document: a tree's nodes in document order, each before its children,
 //     the one notion of document order and of anchors consecutive in it.
 //     Runs splits a cite into runs of consecutive anchors; Join gives one
@@ -40,12 +43,13 @@
 //     HTML escaping, a trailing LF); text.md is the section as it reads
 //     (TextMD: "# " and the HEAD, each <P>'s text, the CITA, each after a
 //     blank line, verbatim, with no markup but the "# " that starts the
-//     heading line; the chief of staff's F5 choice, T1), and a line break
-//     inside the HEAD, a <P> or the CITA (but one LF ending the CITA) is
-//     refused, not rewritten; sha256_text is Hash of the HEAD, one space and
-//     the whole document joined as one run (SectionText; the owner's F3
-//     call, the CITA left out), normalized as one string. The same raw bytes
-//     give the same bytes out.
+//     heading line; the chief of staff's F5 choice, T1, ending with exactly
+//     one LF), and a HEAD, a node's own text or a CITA that holds a line
+//     break (but one LF ending the CITA), or nothing but White_Space (an
+//     empty line), is refused, not rewritten; sha256_text is Hash of the
+//     HEAD, one space and the whole document joined as one run (SectionText;
+//     the owner's F3 call, the CITA left out), normalized as one string. The
+//     same raw bytes give the same bytes out.
 //   - Write (write.go): `regcorpus parse` (internal/ecfr, parsecmd.go) calls
 //     it with a source from the source table. Through l0.Update, under the
 //     source's lock and after the stored-state check (ADR 0010), it builds
@@ -55,7 +59,7 @@
 //     nothing written) what Update refuses; a source with an overrides.yaml,
 //     since applying overrides isn't built (R1a); and raw XML that Build
 //     refuses, with the parser's location or where text.md would break a
-//     line.
+//     line or show an empty one.
 //
 // Operative and ID understand regulation paragraphs only, whose own text
 // starts with a parenthesized label. Supplement I's comment numbering

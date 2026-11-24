@@ -58,7 +58,7 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 	}
 	tmp, err := writeTemp(dir, body)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("storing %s: %w", p, err)
 	}
 	defer os.Remove(tmp)
 	return link(tmp, full, p, body)
@@ -71,12 +71,21 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 // the source's lock, for meta.yaml and the source's derived files; raw XML
 // is stored once (StoreOnce). Every directory on the way to p must still be
 // a real one (RealDirs): Update checked that before writing anything, so if
-// it no longer holds, the way changed while files were being written, an
-// earlier one may be written, and the error is not a *Conflict (which means
-// nothing was written).
+// it no longer holds, the way changed while files were being written, and
+// an earlier file may be written. Every error names p ("writing p: ..."),
+// not only the temporary file, and is never a *Conflict (which means
+// nothing was written), not even RealDirs'.
 func replace(root, p string, body []byte) error {
-	if err := RealDirs(root, path.Dir(p)); err != nil {
+	if err := replaceAt(root, p, body); err != nil {
 		return fmt.Errorf("writing %s: %v", p, err)
+	}
+	return nil
+}
+
+// replaceAt is replace, its errors as they come.
+func replaceAt(root, p string, body []byte) error {
+	if err := RealDirs(root, path.Dir(p)); err != nil {
+		return err
 	}
 	full := filepath.Join(root, filepath.FromSlash(p))
 	tmp, err := writeTemp(filepath.Dir(full), body)
@@ -130,33 +139,63 @@ func link(tmp, full, p string, body []byte) (stored bool, err error) {
 	return false, compare(p, have, body)
 }
 
-// RealDirs returns a *Conflict when an entry on slash path dir under
-// root, dir itself included, is anything but a real directory: a symlink
-// (even to a directory) or a file. L0 is read and written only through real
-// directories, so nothing stored lands outside the root or behind a link git
-// can't see through. A missing entry ends the walk: what StoreOnce creates
-// there is real. dir must name a directory below root: a slash path with no
-// "." or ".." element, no empty one and no leading or trailing slash
-// (fs.ValidPath, root itself excluded); any other is an error, so no path
-// leaves the root.
+// RealDirs is the one check of the way to an L0 file. It returns a
+// *Conflict when an entry on slash path dir under root, dir itself
+// included, is anything but a real directory (a symlink, even to a
+// directory, or a file), or when an entry beside one differs from its name
+// only in case (exactly). L0 is read and written only through real
+// directories, so nothing stored lands outside the root or behind a link
+// git can't see through, and only by the names git records. Each element
+// is found by exact name among its parent's entries (ReadDir), as Read
+// finds a source's files. A missing entry ends the walk: what StoreOnce
+// creates there is real and named as asked. dir must name a
+// directory below root: a slash path with no "." or ".." element, no empty
+// one and no leading or trailing slash (fs.ValidPath, root itself
+// excluded); any other is an error, so no path leaves the root. A
+// directory on the way that can't be read is an error as is.
 func RealDirs(root, dir string) error {
 	if !fs.ValidPath(dir) || dir == "." {
 		return fmt.Errorf("l0: %q is not a slash path to a directory below the corpus root", dir)
 	}
-	p := ""
+	parent := ""
 	for _, name := range strings.Split(dir, "/") {
-		p = path.Join(p, name)
-		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p)))
+		ents, err := readDir(root, parent)
+		if err != nil {
+			return err
+		}
+		e, err := exactly(ents, parent, name)
 		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			return nil
 		case err != nil:
 			return err
-		case !info.IsDir():
-			return Conflictf("%s is not a real directory (it is a symlink or a file); regcorpus reads and writes L0 only through real directories under the corpus root, and changes nothing (R1)", p)
+		case e == nil:
+			return nil
+		case !e.IsDir():
+			return Conflictf("%s is not a real directory (it is a symlink or a file); regcorpus reads and writes L0 only through real directories under the corpus root (R1)", path.Join(parent, name))
 		}
+		parent = path.Join(parent, name)
 	}
 	return nil
+}
+
+// exactly is the entry of ents, the entries of slash path dir, named
+// exactly name, or nil when there is none. An entry whose name differs from
+// name only in case (strings.EqualFold: "TREE.JSON", "RAW", or "ſources",
+// whose U+017F folds to "s") is a *Conflict, whatever it is (a file, a
+// directory, a symlink), on every filesystem: a case-insensitive one (APFS,
+// the default on macOS) would read and write it as name while git records
+// the other.
+func exactly(ents []fs.DirEntry, dir, name string) (fs.DirEntry, error) {
+	var found fs.DirEntry
+	for _, e := range ents {
+		switch {
+		case e.Name() == name:
+			found = e
+		case strings.EqualFold(e.Name(), name):
+			return nil, Conflictf("%s is named %s in another case; a case-insensitive filesystem would read and write it as %s while git records %s (R1)",
+				path.Join(dir, e.Name()), name, path.Join(dir, name), e.Name())
+		}
+	}
+	return found, nil
 }
 
 // compare returns nil when the stored bytes have (at slash path p) equal

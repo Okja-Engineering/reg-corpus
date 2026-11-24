@@ -27,13 +27,14 @@ type Written struct {
 //
 // Refused (an *l0.Conflict, with nothing written): what Update refuses
 // (Stored's check, a name like meta.yaml, tree.json, text.md or
-// overrides.yaml in another case, anything but a regular file where
-// tree.json or text.md goes); an overrides.yaml in s's directory, whatever
-// it is, since applying overrides isn't built (R1a), and parsing without
-// one would drop a reviewed fix; and raw XML that Build refuses, named with
-// the raw file and Build's error (the parser's location, or where text.md
-// would break a line). An error while writing returns, in Written, the
-// files replaced before it; a re-run writes the rest.
+// overrides.yaml, or like a directory on the way, in another case, anything
+// but a regular file where tree.json or text.md goes); an overrides.yaml in
+// s's directory, whatever it is, since applying overrides isn't built
+// (R1a), and parsing without one would drop a reviewed fix; and raw XML
+// that Build refuses, named with the raw file and Build's error (the
+// parser's location, or where text.md would break a line or show an empty
+// one). An error while writing returns, in Written, the files replaced
+// before it, and names the file it was writing; a re-run writes the rest.
 func Write(root string, s l0.Source) (Written, error) {
 	var sum meta.SHA256
 	_, w, err := l0.Update(root, s, func(m *meta.Meta, raw []byte) (*l0.Derived, error) {

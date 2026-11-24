@@ -37,14 +37,16 @@ reads nothing from the network.
 Exit 0: written, or already so. Exit 1: refused, with nothing written for
 that section: its goldens aren't in (1024.30, 1024.31); the check above
 fails (no meta.yaml: run regcorpus fetch first); the raw XML doesn't parse
-(the message gives the parser's line and column) or holds a line break
-inside its HEAD or a paragraph, or in its citation note before the last
-character, which text.md can't show as it reads; the source directory holds
-an overrides.yaml (applying overrides isn't built yet, R1a); a symlink, a
+(the message gives the parser's line and column), or holds a section
+heading, a paragraph or a citation note that text.md can't show as it
+reads, on one line of its own: one with a line break in it (in the
+citation note, anywhere but one LF ending it), or one that shows as an
+empty line (nothing but whitespace); the source directory holds an
+overrides.yaml (applying overrides isn't built yet, R1a); a symlink, a
 directory or another non-regular file is where tree.json, text.md,
 meta.yaml or the raw file goes, or where a directory on the way should be;
-or a name differs from tree.json, text.md, meta.yaml or overrides.yaml only
-in case.
+or a name differs only in case from meta.yaml, tree.json, text.md or
+overrides.yaml, or from a directory on the way.
 Exit 2: a usage error (no section, an unknown one, a flag), no
 sources/ecfr/title-12/ (not the corpus root), a file that can't be read or
 written, or a platform without the lock (darwin and linux have it). A
@@ -55,9 +57,9 @@ the larger code wins (2 over 1).
 `
 
 // ParseMain runs `regcorpus parse` with args (excluding the command name) in
-// the current directory and returns the exit code: 0 ok, 1 refused, with
-// nothing written, 2 usage or a file it can't read or write; the larger code
-// when sections fail differently.
+// the current directory and returns the exit code: 0 ok, 1 a section
+// refused, with nothing written for that section, 2 usage or a file it
+// can't read or write; the larger code when sections fail differently.
 func ParseMain(args []string, stdout, stderr io.Writer) int {
 	return parseMain(".", args, stdout, stderr)
 }

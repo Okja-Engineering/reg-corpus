@@ -20,23 +20,39 @@ func ID(section string, path []string) string {
 // Operative reports whether n is an operative anchor (spec "Definitions";
 // ADR 0013, the owner's F1 call): n's own text minus its label, the one
 // space before its heading, the heading, and the one dash or space that
-// ends the heading is not empty. What is left after the heading is read as
-// normalized text (Normalize), and one "-" or one space at its start is
-// that separator: an em or en dash, a space, a no-break space or a run of
-// White_Space, as the parser leaves at the end of a lead-in's own text
-// (ADR 0012). So the verdict follows what the node's hash covers: two nodes
-// with the same path, heading and normalized own text get the same one.
-// Nothing else is taken away: two dashes after a heading leave one, and a
-// space after a label with no heading is text. An error means n's own text
-// does not start with its label, and its heading if it has one, as every
-// node the parser makes does, or is not valid UTF-8.
+// ends the heading is not empty. It is decided on n's whole own text
+// normalized as one string (Normalize, N6), the text n's hash covers: past
+// the normalized label, and the one space and the heading if n has one,
+// one "-" or else one space is that separator (an em or en dash, a space, a
+// no-break space or any run of White_Space, as the parser leaves at the end
+// of a lead-in's own text; ADR 0012). Where the heading itself ends in
+// White_Space, that run and any White_Space after it are one space, the
+// heading's own, so one "-" after it is still the separator: "(a) Head —"
+// and "(a) Head—" with the heading "Head " are both heading-only. So two
+// nodes with the same path, the same heading and the same normalized own
+// text get the same verdict. Nothing else is taken away: two dashes after a
+// heading leave one, a space after a label with no heading is text, and
+// text that NFC joins with the heading's last character (a combining mark)
+// is text. An error means n's own text does not start with its label, and
+// one space and its heading if it has one, as every node the parser makes
+// does, or is not valid UTF-8.
 func Operative(n *parse.Node) (bool, error) {
-	rest, err := pastHeading(n)
+	l, err := lead(n)
 	if err != nil {
 		return false, err
 	}
-	if rest, err = Normalize(rest); err != nil {
+	var text string
+	if text, err = Normalize(n.Text); err == nil {
+		l, err = Normalize(l)
+	}
+	if err != nil {
 		return false, fmt.Errorf("anchors: node %s: %w", strings.Join(n.Path, "-"), err)
+	}
+	rest, ok := strings.CutPrefix(text, l)
+	if !ok {
+		// NFC joined what follows the heading with its last character, which
+		// only a character no separator is (a combining mark, say) can do.
+		return true, nil
 	}
 	if n.Heading != "" {
 		if r, ok := strings.CutPrefix(rest, "-"); ok {
@@ -48,26 +64,24 @@ func Operative(n *parse.Node) (bool, error) {
 	return rest != "", nil
 }
 
-// pastHeading is n's own text, verbatim, past its label and, if n has a
-// heading, past the one space before it and the heading. It cuts the raw
-// text, as the parser built it: normalizing first could join the heading's
-// last character with a combining mark after it.
-func pastHeading(n *parse.Node) (string, error) {
+// lead is the start of n's own text, verbatim, that the operative test
+// takes away before the separator: its label and, if n has a heading, one
+// space and the heading. An error means n's own text doesn't start so.
+func lead(n *parse.Node) (string, error) {
 	if len(n.Path) == 0 {
 		return "", fmt.Errorf("anchors: a node with no label path, own text %q", n.Text)
 	}
 	label := "(" + n.Path[len(n.Path)-1] + ")"
-	rest, ok := strings.CutPrefix(n.Text, label)
-	if !ok {
+	if !strings.HasPrefix(n.Text, label) {
 		return "", fmt.Errorf("anchors: node %s: own text %q does not start with its label %s", strings.Join(n.Path, "-"), n.Text, label)
 	}
 	if n.Heading == "" {
-		return rest, nil
+		return label, nil
 	}
-	if rest, ok = strings.CutPrefix(rest, " "+n.Heading); !ok {
+	if !strings.HasPrefix(n.Text, label+" "+n.Heading) {
 		return "", fmt.Errorf("anchors: node %s: own text %q does not hold its heading %q one space after its label", strings.Join(n.Path, "-"), n.Text, n.Heading)
 	}
-	return rest, nil
+	return label + " " + n.Heading, nil
 }
 
 // Document is one parsed section's anchors in document order: the order

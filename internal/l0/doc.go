@@ -7,17 +7,20 @@
 // imports only internal/meta.
 //
 //   - Every directory on the way must be a real one below the root, not a
-//     symlink or a file, reached with no "." or ".." (RealDirs). StoreOnce
-//     stores a file that is not there yet, by hard link, and never
-//     overwrites one: fetch stores raw XML so, and a source's first
-//     meta.yaml. An existing meta.yaml changes only through Update.
+//     symlink or a file, reached with no "." or ".." and found by its exact
+//     name among its parent's entries; one that differs from its name only
+//     in case ("RAW", "TITLE-12") is refused (RealDirs, the one check of
+//     the way). StoreOnce stores a file that is not there yet, by hard link,
+//     and never overwrites one: fetch stores raw XML so, and a source's
+//     first meta.yaml. An existing meta.yaml changes only through Update.
 //   - Read reads a source's directory once: its entries, the entries of raw/
 //     and its meta.yaml, parsed by internal/meta. It finds meta.yaml,
-//     tree.json, text.md and overrides.yaml by exact name, and refuses a
-//     name that differs from one only in case. Stored is the check every
-//     writer of a meta.yaml makes before writing anything: the meta.yaml
-//     names the source as the source table does (cfr, tier, role, source,
-//     official; Source.Identity), and raw/ holds exactly
+//     tree.json, text.md and overrides.yaml by exact name, as RealDirs
+//     finds directories, and refuses a name that differs from one only in
+//     case, whatever it is. Stored is the check every writer of a meta.yaml
+//     makes before writing anything: the meta.yaml names the source as the
+//     source table does (cfr, tier, role, source, official;
+//     Source.Identity), and raw/ holds exactly
 //     raw/<source_version_date>.xml, a regular file with sha256_raw's bytes.
 //   - Update is how an existing meta.yaml is changed, and the only writer of
 //     a source's derived files (tree.json, text.md): under the source's lock
@@ -27,12 +30,13 @@
 //     checked, then checks that each derived file is missing or a regular
 //     file before writing any, and replaces each file whose bytes differ
 //     whole (a temporary file renamed over it), so no update is lost and no
-//     reader sees half a file. No other function replaces a file: no caller
-//     names a path to write, so raw XML is never overwritten, meta.yaml is
-//     only what internal/meta renders, and a derived file is only the
-//     source's own. A refusal (*Conflict) is found before the first write;
-//     an error while writing is not one, and Update reports the files it
-//     replaced before it.
+//     reader sees half a file. No exported function replaces a file at a
+//     path its caller names: StoreOnce, given a path, stores a file that is
+//     not there and never replaces one, so raw XML is never overwritten,
+//     meta.yaml is only what internal/meta renders, and a derived file is
+//     only the source's own. A refusal (*Conflict) is found before the
+//     first write; an error while writing is not one, names the file it was
+//     writing, and Update reports the files it replaced before it.
 //
 // The source table (cfr, tier, role per source) is unexported, in
 // internal/ecfr (sources.go); a caller passes each Source from it. fetch,
