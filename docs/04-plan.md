@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012
+- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012; 2026-11-24 by ADR 0013
 - **Spec:** `docs/03-spec.md`
 - **Appetite:** four weekends plus the following week as buffer; decision by 2026-12-20
 
@@ -27,12 +27,12 @@ go.mod
 Makefile                          # setup, build (CORPUS_REF, LOOKUP_ONLY), test, check, negative, levels, release
 .githooks/pre-commit              # per-commit C6 (a seatbelt)
 .github/workflows/c6.yml          # the C6 gate (ADR 0007): .github/c6.sh runs C6 with the checker .githooks/build-checker.sh builds
-cmd/regcorpus/main.go             # fetch, meta, check, inventory, verify, upgrade, release, show, text, topics, version
-internal/ecfr/                    # versioner client; full/{date} XML; fetch and meta set
+cmd/regcorpus/main.go             # fetch, meta, parse, check, inventory, verify, upgrade, release, show, text, topics, version
+internal/ecfr/                    # versioner client; full/{date} XML; fetch, meta set and parse
 internal/meta/                    # meta.yaml schema: strict parse and render (ADR 0010)
-internal/l0/                      # stored L0 files: store once, the stored-state check, meta.yaml updates (ADR 0010)
+internal/l0/                      # stored L0 files: store once, the stored-state check, meta.yaml updates (ADR 0010), derived files (ADR 0013)
 internal/parse/                   # deterministic label state machine: XML → tree.json (R1a)
-internal/anchors/                 # tree → anchors, text.md, normalization, per-node hashes
+internal/anchors/                 # tree → anchors, text.md, normalization, per-node hashes, the operative test, joins (ADR 0013)
 internal/lookup/                  # show, text, topics
 internal/registry/                # record, anchor-rule, inventory types; schema validation
 internal/verify/                  # interactive verification; verify.log
@@ -88,11 +88,12 @@ VERSION  CHANGES.json             # after accept
    - **State machine:** a stack of levels, each holding its last sibling label.
    - **The (i)/(v)/(x) rule:** it's a letter only when the last letter-level sibling directly precedes it; when it could be either, the next label decides, and with no next label, or one placed after neither reading, the parse fails (ADR 0012).
    - **Fail loudly:** exit non-zero with the XML location; fix source defects only through `overrides.yaml`.
-5. `internal/anchors`:
-   - Generate `text.md` from the tree.
+5. `internal/anchors` and `regcorpus parse`, offline from the stored raw XML (ADR 0013):
+   - Generate `text.md` from the tree: the section as it reads, verbatim.
    - Normalize the text, and write a per-node `sha256` of normalized own text into `tree.json`.
    - Set `sha256_text` in `meta.yaml` through `internal/l0`, keeping the other fields (ADR 0010).
-   - Decide whether a heading's "—" or space left at the end of a parent's own text counts in the operative-anchor test and the per-node hash, and how a multi-anchor cite joins own texts across a heading separator or a paragraph boundary (spec "Carried forward"; ADR 0012).
+   - A heading's "—" or space left at the end of a parent's own text doesn't count in the operative-anchor test and does count in the per-node hash; a multi-anchor cite joins own texts with nothing inside a `<P>` and one space between `<P>`s (spec decision 13).
+   - Write 1024.41's files; 1024.30's and 1024.31's are step 9's.
 6. `regcorpus fetch --verify`: compare the version date, tree and `sha256_text`, recording `sha256_raw` as information only. Then compare the normalized text to the govinfo CFR 2026 edition and set `verified_on`. Add `regcorpus fetch --latest` (R1b).
 7. `regcorpus text <anchor>`.
 

@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007–0012
+- **Amended:** 2026-11-22 by ADRs 0007–0012; 2026-11-24 by ADR 0013
 - **Intent:** `docs/01-intent.md` (accepted 2026-11-21)
 
 ## Decisions on the intent's open questions
@@ -23,11 +23,12 @@ Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no
 | 10 | Who writes an L0 source's `meta.yaml`? | One shared writer, standard library only: it reads, checks and rewrites the file in spec order, and each plan step sets only its own fields through it, keeping the rest. `internal/l0` is the writer and `internal/meta` owns the schema (two packages: the chief of staff's choice). [ADR 0010](adr/0010-one-writer-owns-meta-yaml.md) |
 | 11 | Which page does `version_fr_citations` record, and for which sources does plan step 3 set the version fields? | For 1024.41, 1024.30 and 1024.31: the amendment page, as the citation note (`<CITA>`) of the stored raw XML cites it, and plan step 3 sets both version fields for all three. Supplement I is open until plan step 8. [ADR 0011](adr/0011-fr-citation-is-the-amendment-page.md) |
 | 12 | Where does a label count, and how is an (i), (v) or (x) that could be either a letter or a roman decided? | A label counts in a paragraph's lead: at the start of the `<P>`, right after a heading past the dash or space that ends it, or right after another lead label; the lead ends at the first other text. When (i)/(v)/(x) could be either a letter or a roman, the parser looks at the next label: the next letter means letter; the next roman, e.g. (ii), means roman; if there is no next label or it's neither, the parse fails (as carried out: the reading after which the next label can be placed is taken, so the same letter again, as in (h)(1)(i) then (i), means roman; with no next label, or one placed after neither reading, the parse fails; the chief of staff's choice). [ADR 0012](adr/0012-labels-count-in-the-paragraph-lead.md) |
+| 13 | How is text normalized, which anchors are operative, how does a multi-anchor cite join, and what do the hashes cover? | Normalized text is NFC, then the curly quotes U+2018, U+2019, U+201C and U+201D mapped to ASCII and the en and em dashes to `-`, then every run of Unicode White_Space collapsed to one space, never trimmed. An anchor is operative when its own text, minus its label, the one space before its heading, the heading, and the one "—" or space that ends the heading, is non-empty. A multi-anchor cite joins own texts in document order with nothing between two in one `<P>` and one space between `<P>`s, and is normalized after joining. A node's `sha256` covers its whole normalized own text, a heading's separator included; `sha256_text` covers the normalized section heading, one space and every anchor joined, not the citation note (the owner's calls; the normalization detail, `text.md`'s form, and the offline `regcorpus parse` that writes `tree.json`, `text.md` and `sha256_text`: the chief of staff's choices). [ADR 0013](adr/0013-cites-join-as-the-document-reads.md) |
 
 ## Definitions
 - **Anchor:** a stable ID for one labeled unit of L0 text: a regulation paragraph at any depth (`1024-41-b-2-i-B`), one official comment (`1024-41-b-2-i-interp-1`), or a definition (`1024-31-day`).
 - **Own text:** an anchor's text excluding its children, with its label and heading.
-- **Operative anchor:** an anchor whose own text, minus label and heading, is non-empty. Leaves and lead-ins both count; e.g. `1024-41-b-2-i`, whose lead-in holds the 45-day condition. Coverage (R3) is checked at operative anchors.
+- **Operative anchor:** an anchor whose own text, minus its label, the one space before its heading, the heading, and the one "—" or space that ends the heading, is non-empty (decision 13). Leaves and lead-ins both count; e.g. `1024-41-b-2-i`, whose lead-in holds the 45-day condition. Coverage (R3) is checked at operative anchors.
 - **Conditional lead-in:** an operative anchor with children whose own text contains "if", "unless", "except", "provided that" or "notwithstanding".
 - **Record:** one L1 entry, either `kind: obligation` or `kind: anchor_rule` (a rule that changes how other records apply, e.g. facial completeness).
 - **Cited field:** a field that restates the rule and must carry `cite` and `text`:
@@ -36,13 +37,13 @@ Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no
   - each entry in `conditions`, `exceptions`, `contents` and `release_conditions`
 
   Label fields (`title`, `summary`, `duty_holder`, `modality`) are not checked against the text.
-- **Normalized text:**
-  - Unicode NFC
-  - every whitespace run (including U+00A0) collapsed to one space
-  - curly quotes mapped to ASCII; en and em dashes mapped to `-`
+- **Normalized text** (decision 13), in this order:
+  - Unicode NFC (not NFKC)
+  - curly quotes mapped to ASCII (U+2018 and U+2019 to `'`, U+201C and U+201D to `"`); en and em dashes (U+2013, U+2014) mapped to `-`; no other character is mapped
+  - every run of Unicode White_Space (including U+00A0) collapsed to one space, never trimmed
 
-  C6 matches `text` against normalized own text. Each `tree.json` node carries the `sha256` of its normalized own text, and `sha256_text` hashes the whole normalized source.
-- **Multi-anchor cite:** `cite` may be a list. The anchors' own texts are joined with one space in document order, and a quote may cross a join only between anchors that are consecutive in the document.
+  C6 matches `text` against normalized own text. Each `tree.json` node carries the `sha256` of its whole normalized own text, a heading's separator included, and `sha256_text` hashes the normalized source: the section heading, one space, then every anchor's own text joined as a multi-anchor cite joins them, without the citation note.
+- **Multi-anchor cite:** `cite` may be a list. The anchors' own texts are joined in document order, with nothing between two in one paragraph (`<P>`) and one space between paragraphs, so the join reads as the document does; it is normalized after joining (decision 13). A quote may cross a join only between anchors that are consecutive in the document.
 - **Quote:** every `text` is at least 4 words.
 - **Cite-only source:** an L0 source that records may cite, but which is neither inventoried nor extracted (1024.30, 1024.31).
 - **Tier and effective date:** set per L0 source. Every cite inherits both from its anchor's source; records carry neither of their own.
@@ -397,7 +398,6 @@ Records are derived from cites, so each entry carries only a `reviewed` sign-off
 | Item | When |
 |---|---|
 | eCFR lists 1024.41 versions on both 2025-05-16 (publication of FR 2025-08643) and 2025-07-15 (its effective date). The same pattern appears in 2021 (2021-06-30 published, 2021-08-31 effective), which suggests eCFR also records a version on the publication date. Diff the point-in-time XML locally, then set `version_fr_citations` and `version_effective_date`. | plan, step 3 |
-| Whether a heading's "—" or space left at the end of a parent's own text counts in the operative-anchor test and in the per-node hash, and how a multi-anchor cite joins own texts across a heading separator or a paragraph boundary (decision 12) | plan, step 5 |
 | Rules for `second-reviewed`, and who grants it | phase 2 |
 | A Federal Register watch for future-effective rules | phase 2 |
 | Investor-guide tier records | phase 2+ |
