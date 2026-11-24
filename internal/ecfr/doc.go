@@ -51,8 +51,10 @@
 //     request for sources/ecfr/title-12/). A name that differs only in case
 //     from a directory's on the way ("RAW", "TITLE-12"), or from meta.yaml,
 //     tree.json, text.md or overrides.yaml in a source's directory (l0.Read),
-//     exits 1 too: a case-insensitive filesystem would store under a name git
-//     doesn't record. A root without sources/ecfr/title-12/ is not the
+//     or from the file fetch stores ("2025-07-15.XML", --date's under .cache/
+//     too; l0.StoreOnce), exits 1 too, with nothing stored: a
+//     case-insensitive filesystem would store under, or report as unchanged,
+//     a name git doesn't record. A root without sources/ecfr/title-12/ is not the
 //     corpus root (exit 2).
 //   - Beside it, when missing, fetch writes meta.yaml's fetch-owned fields in
 //     the spec's order: cfr, tier, role, source, official, source_version_date,

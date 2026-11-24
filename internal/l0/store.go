@@ -39,9 +39,21 @@ const TempPattern = ".fetch-*"
 // fails if anything is at p, so a file is never overwritten, never seen
 // half-written, and never left short by a crash. So the corpus needs a
 // filesystem with hard links (not FAT or exFAT); there is no fallback. Every
-// directory on the way to p must be a real one (RealDirs).
+// directory on the way to p must be a real one (RealDirs), and the file is
+// found by exact name among its directory's entries (exactly): an entry
+// whose name differs from p's only in case ("2025-07-15.XML"), whatever it
+// is, is a *Conflict and nothing is stored, so what StoreOnce reports
+// storing, or finding with the same bytes, is the name git records.
 func StoreOnce(root, p string, body []byte) (stored bool, err error) {
-	if err := RealDirs(root, path.Dir(p)); err != nil {
+	dir := path.Dir(p)
+	if err := RealDirs(root, dir); err != nil {
+		return false, err
+	}
+	ents, err := readDir(root, dir)
+	if err != nil {
+		return false, err
+	}
+	if _, err := exactly(ents, dir, path.Base(p)); err != nil {
 		return false, err
 	}
 	full := filepath.Join(root, filepath.FromSlash(p))
@@ -52,11 +64,11 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 	if !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
-	dir := filepath.Dir(full)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	fullDir := filepath.Dir(full)
+	if err := os.MkdirAll(fullDir, 0o755); err != nil {
 		return false, err
 	}
-	tmp, err := writeTemp(dir, body)
+	tmp, err := writeTemp(fullDir, body)
 	if err != nil {
 		return false, fmt.Errorf("storing %s: %w", p, err)
 	}

@@ -12,7 +12,10 @@
 //     in case ("RAW", "TITLE-12") is refused (RealDirs, the one check of
 //     the way). StoreOnce stores a file that is not there yet, by hard link,
 //     and never overwrites one: fetch stores raw XML so, and a source's
-//     first meta.yaml. An existing meta.yaml changes only through Update.
+//     first meta.yaml. It finds that file by exact name too, and refuses a
+//     name that differs from it only in case ("2025-07-15.XML"), whatever it
+//     is, so what it stores or finds unchanged is the name git records. An
+//     existing meta.yaml changes only through Update.
 //   - Read reads a source's directory once: its entries, the entries of raw/
 //     and its meta.yaml, parsed by internal/meta. It finds meta.yaml,
 //     tree.json, text.md and overrides.yaml by exact name, as RealDirs
