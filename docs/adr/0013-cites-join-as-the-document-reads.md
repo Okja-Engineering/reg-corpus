@@ -157,10 +157,10 @@ owner's call. Each choice and its reason:
   its goldens are plan step 9's, and stage 01 says `make test` passing says
   nothing about R1a for a source until its goldens exist; 1024.31 doesn't
   parse yet (step 9); Supplement I has no raw XML yet (step 8).
-- **`regcorpus parse <section> ...`, a command the plan's list lacks
-  (F7).** Offline, from the corpus root: it reads the stored raw XML and,
-  through `l0.Update` under the source's lock and after the stored-state
-  check (ADR 0010), writes `tree.json` and `text.md` and sets
+- **`regcorpus parse <section> ...`, which this ADR adds to the plan's
+  command list (F7).** Offline, from the corpus root: it reads the stored
+  raw XML and, through `l0.Update` under the source's lock and after the
+  stored-state check (ADR 0010), writes `tree.json` and `text.md` and sets
   `sha256_text`. A re-run that would write the same bytes changes nothing.
   A parse failure exits 1 with the parser's line and column, an
   `overrides.yaml` exits 1 (applying overrides isn't built yet, R1a), a
@@ -183,18 +183,60 @@ owner's call. Each choice and its reason:
 - **`Operative` and `Join` are exported and tested now (F10),** before
   their first callers (C6, `inventory --init`, `units.yaml`), so the
   owner's F1 and F2 calls are fixed in tests, not in prose.
-- **Exact names (PR #9's first review).** A source's `meta.yaml`,
-  `tree.json`, `text.md` and `overrides.yaml` are found by exact name among
-  its directory's entries, and a name that differs from one only in case is
-  refused (exit 1). Why: on a case-insensitive filesystem (APFS) a
-  `TREE.JSON` would be read and written as `tree.json` while git records
-  the other name.
-- **What `text.md` can't hold is refused (PR #9's first review).** A line
-  break (CR, LF, U+0085, U+2028 or U+2029) inside the section heading, a
-  node's own text or the citation note, but for one LF ending the note,
-  refuses the source (exit 1), rather than being rewritten: `text.md` holds
-  each text on one line, verbatim. None of the three stored raw XML files
-  holds one (a test reads them).
+- **The separator is read on the normalized own text (PR #9's reviews).**
+  Within the owner's F1 words, "the one dash or space that ends a
+  heading": the verdict is decided on the node's whole own text normalized
+  as one string, the text its hash covers. Past the normalized label, and
+  the one space and the heading if it has one, one `-` or else one space is
+  the separator, so an em or en dash, a space, a no-break space or a run of
+  White_Space is it. So two nodes with the same path, the same heading and
+  the same normalized own text get the same verdict. The first review read
+  what follows the heading normalized on its own; the second made it the
+  whole own text, since normalizing the heading and the rest apart gave a
+  heading that ends in White_Space two verdicts for one hash.
+- **A cite joins by runs (PR #9's first review).** `Join` takes the
+  document and the cited anchors and gives one string per longest run of
+  anchors consecutive in document order, in document order, and refuses an
+  empty cite, a nil anchor, one not in the document and one given twice,
+  each with a named error; `text.md` and `sha256_text` join the whole
+  document as one run. So a quote can't cross a join between anchors that
+  aren't consecutive (spec "Multi-anchor cite"): `[k-1, k-1-ii]` is two
+  runs, `[k-1-i, k-1-ii]` one. Document order and adjacency are one
+  exported notion, so plan step 13 needs no second copy.
+- **`l0.Update` is the only writer of a source's files (PR #9's first
+  review).** A derived file is written only under the source's lock, from
+  the raw XML `Stored` checked, and only as the source's own `tree.json` or
+  `text.md`. No exported function replaces a file at a path its caller
+  names (`StoreOnce`, given a path, stores a file that isn't there and
+  never replaces one), so raw XML is never overwritten and `meta.yaml` is
+  only what `internal/meta` renders. Every refusal (exit 1) is found before
+  the first write, so exit 1 means nothing was written for that section.
+  An error while writing is not a refusal: `Update` returns the files it
+  replaced before it, the error names the file it was writing (the second
+  review), `regcorpus parse` prints them and exits 2, and a re-run writes
+  the rest. An `overrides.yaml` of any kind (a file, an empty file, a
+  directory, a symlink) refuses.
+- **`regcorpus parse` writes only sources whose goldens are in (PR #9's
+  first review).** Today it writes 1024.41's files and refuses 1024.30 and
+  1024.31 (exit 1, "goldens are plan step 9's", nothing written).
+- **Exact names (PR #9's reviews).** A source's `meta.yaml`, `tree.json`,
+  `text.md` and `overrides.yaml` (the first review), and every directory on
+  the way to them, from `sources/` down and under `.cache/` (the second),
+  are found by exact name among their parent's entries; an entry whose name
+  differs from one only in case (Unicode simple case folding, so `ſ`,
+  U+017F, which APFS folds to `s`, too), whatever it is, is refused (exit
+  1). `l0.RealDirs` is the one check of the way, for `fetch`, `StoreOnce`,
+  `Read` and `Update`. Why: on a case-insensitive filesystem (APFS) a
+  `TREE.JSON` would be read and written as `tree.json`, and a `RAW/` as
+  `raw/`, while git records the other name.
+- **What `text.md` can't hold is refused (PR #9's reviews).** A section
+  heading, a node's own text or a citation note (past one LF ending it)
+  that holds a line break (CR, LF, U+0085, U+2028 or U+2029; the first
+  review) or nothing but White_Space (the second), which would show as an
+  empty line, refuses the source (exit 1), rather than being rewritten:
+  `text.md` holds each text on one line of its own, verbatim, and ends with
+  exactly one LF. None of the three stored raw XML files holds one (a test
+  reads them).
 - **Invalid UTF-8 is refused (PR #9's first review).** `Normalize` and
   `Hash` return an error for text that isn't valid UTF-8, rather than read
   a bad byte as U+FFFD, so two different byte strings never hash alike
@@ -202,85 +244,72 @@ owner's call. Each choice and its reason:
   exported for steps 6 and 13.
 
 Made while carrying it out, by the implementing agent, within the choices
-above; each confirmed by the chief of staff (agent), the separator, the
-join, the sources and the writer as PR #9's first review revised them:
-- **The separator is one `-` or one space once normalized.** What follows
-  the heading is read as normalized text, and one `-` or one space at its
-  start is the separator: an em or en dash, a space, a no-break space or a
-  run of White_Space. So two nodes with the same path, heading and
-  normalized own text, which hash alike, get the same verdict. Nothing else
-  is taken away: two dashes after a heading leave one, a dash and a space
-  leave the space, and a node with no heading whose own text is its label
-  and a space, "(a) ", is operative. The label and heading are cut from the
-  raw own text before the rest is normalized, since a combining mark right
-  after a heading would join its last letter once normalized. None of
-  these is in 1024.41.
-- **`Join` knows the document.** `Document`, built from a tree, holds its
-  nodes in document order, each before its children: the one notion of
-  that order and of anchors consecutive in it. `Runs` splits a cite into
-  the longest runs of anchors consecutive in that order, and `Join` gives
-  one string per run, both in document order whatever order the cite gives
-  them in; within a run, nothing between own texts in one `<P>` and one
-  space between `<P>`s. So a quote is matched within one run's string and
-  can't cross a join between anchors that aren't consecutive (spec
-  "Multi-anchor cite"): `[k-1, k-1-ii]` is two runs, `[k-1-i, k-1-ii]` one.
-  An empty cite, a nil anchor, one not in the document (by identity: a
-  node of another tree at the same path is not in it) and one given twice
-  are refused, each with its named error. `text.md` and `sha256_text` join
-  the whole document as one run.
+and rulings above; each confirmed by the chief of staff (agent):
+- **`Document`, `Runs` and `Join`.** `Document`, built from a tree
+  (`NewDocument`, `Nodes`), holds its nodes in document order, each before
+  its children: the one notion of that order and of anchors consecutive in
+  it. `Runs` splits a cite into its runs and `Join` gives one string per
+  run, both in document order whatever order the cite gives them in. A node
+  is in the document by identity: a node of another tree at the same path
+  is not. The refusals are `ErrEmptyCite`, `ErrNilAnchor`,
+  `ErrForeignAnchor` and `ErrRepeatedAnchor`.
+- **`Update` writes the bytes its set returns.** The command's set returns
+  the derived files' bytes, and `Update`, under the source's lock, first
+  checks that `tree.json` and `text.md` are each missing or a regular file
+  (one it can't read is an error, never read as differing), then replaces
+  `tree.json`, `text.md` and `meta.yaml` (what `meta.Marshal` renders) in
+  turn, each only when its bytes differ. No writable handle is handed out.
+- **`l0.RealDirs` refuses a path with a "." or ".." element, an empty one
+  or a slash at either end,** for every caller (`fetch`, `StoreOnce`,
+  `Read`, `Update`).
+- **The source table's `Goldens`** names, for a source without its
+  goldens, the plan step that adds them: plan step 9 for 1024.30 and
+  1024.31. Sections are named, never defaulted: no section exits 2.
 - **`Operative` returns an error** for a node whose own text doesn't start
-  with its label, and its heading if it has one, or isn't valid UTF-8,
-  rather than guess.
-- **`regcorpus parse` writes only sources whose goldens are in.** The
-  source table names, for a source without them, the plan step that adds
-  them, and `parse` refuses it (exit 1, "goldens are plan step 9's",
-  nothing written): today it writes 1024.41's files and refuses 1024.30
-  and 1024.31. Sections are named, never defaulted: no section exits 2.
-- **`l0.Update` is the only writer of a source's files.** The command's
-  set returns the derived files' bytes, built from the raw XML `Stored`
-  checked, and `Update`, under the source's lock, first checks that
-  `tree.json` and `text.md` are each missing or a regular file, then
-  replaces `tree.json`, `text.md` and `meta.yaml` (what `meta.Marshal`
-  renders) in turn, each only when its bytes differ. No exported function
-  replaces a file at a path its caller names, so raw XML is never
-  overwritten, `meta.yaml` is only what `internal/meta` renders, and a
-  derived file is only the source's own; a source directory with a "." or
-  ".." element, an empty one or a slash at either end is refused. Every
-  refusal (exit 1) is found before the first write, so exit 1 means
-  nothing was written. An error while writing is not a refusal: `Update`
-  returns the files it replaced before it, `regcorpus parse` prints them
-  and exits 2, and a re-run writes the rest. An `overrides.yaml` of any
-  kind (a file, an empty file, a directory, a symlink) refuses.
+  with its label, and one space and its heading if it has one, or isn't
+  valid UTF-8, rather than guess.
 - **`text.md`'s last LF** is the citation note's own (its character data
   ends in one in 1024.41), or one added when it has none.
 
+Made in PR #9's second review, by the implementing agent, within its
+rulings, for the chief of staff to confirm or redirect:
+- **The space that ends a heading that itself ends in White_Space.**
+  Normalized as one string, the heading's trailing White_Space and any
+  White_Space after it are one space, and that space is the heading's own:
+  one `-` after it is still the separator. So with the heading "Head "
+  (its space inside the `<I>`), the own text "(a) Head —" is
+  heading-only, and so is "(a) Head  —", with a space or a no-break space
+  after the heading's, which normalizes alike; with the heading "Head",
+  "(a) Head —" leaves "-", and is operative, while "(a) Head—" is
+  heading-only. Text that NFC joins with the heading's last character (a
+  combining mark) is text. Nothing else is taken away: two dashes after a
+  heading leave one, a dash and a space leave the space, and "(a) ", a
+  node with no heading, is operative. None of these is in 1024.41.
+- **The class of empty lines.** A section heading, a node's own text and a
+  citation note are each refused when empty or nothing but White_Space,
+  the citation note past its one LF; an empty `<CITA></CITA>` reads as no
+  citation note, and shows no line.
+- **A case variant beside the exact name is refused too,** on a
+  case-sensitive filesystem, as `Read` refuses one for a source's files, so
+  the check is tested on every filesystem. The refusal's message, and
+  RealDirs' for a symlink or a file, no longer says nothing was written:
+  `replace` wraps them as a write error after an earlier file may be
+  written.
+
 ## Spec changes
 - `docs/03-spec.md`:
-  - Decisions-table row 13 is added: "| 13 | How is text normalized, which
-    anchors are operative, how does a multi-anchor cite join, and what do
-    the hashes cover? | Normalized text is NFC, then the curly quotes
-    U+2018, U+2019, U+201C and U+201D mapped to ASCII and the en and em
-    dashes to `-`, then every run of Unicode White_Space collapsed to one
-    space, never trimmed. An anchor is operative when its own text, minus
-    its label, the one space before its heading, the heading, and the one
-    dash or space that ends the heading (one `-` or one space once
-    normalized), is non-empty. A multi-anchor cite joins own texts in
-    document order with nothing between two in one `<P>` and one space
-    between `<P>`s, and is normalized after joining. A node's `sha256`
-    covers its whole normalized own text, a heading's separator included;
-    `sha256_text` covers the section heading, one space and every anchor
-    joined, normalized as one string, not the citation note; for the
-    Supplement I 41() slice it is open until plan step 8 (the owner's calls;
-    the normalization detail, the separator read normalized, `text.md`'s
-    form, and the offline `regcorpus parse` that writes `tree.json`,
-    `text.md` and `sha256_text`: the chief of staff's choices). [ADR
-    0013](adr/0013-cites-join-as-the-document-reads.md) |"
+  - Decisions-table row 13 is added, this line exactly (its link is
+    relative to `docs/`):
+
+    ```
+    | 13 | How is text normalized, which anchors are operative, how does a multi-anchor cite join, and what do the hashes cover? | Normalized text is NFC, then the curly quotes U+2018, U+2019, U+201C and U+201D mapped to ASCII and the en and em dashes to `-`, then every run of Unicode White_Space collapsed to one space, never trimmed. An anchor is operative when its own text, minus its label, the one space before its heading, the heading, and the one dash or space that ends the heading (one `-` or one space, read on the whole own text normalized as one string), is non-empty. A multi-anchor cite joins own texts in document order with nothing between two in one `<P>` and one space between `<P>`s, and is normalized after joining. A node's `sha256` covers its whole normalized own text, a heading's separator included; `sha256_text` covers the section heading, one space and every anchor joined, normalized as one string, not the citation note; for the Supplement I 41() slice it is open until plan step 8 (the owner's calls; the normalization detail, the separator read normalized, `text.md`'s form, and the offline `regcorpus parse` that writes `tree.json`, `text.md` and `sha256_text`: the chief of staff's choices). [ADR 0013](adr/0013-cites-join-as-the-document-reads.md) |
+    ```
   - Definitions, "Operative anchor": "an anchor whose own text, minus label
     and heading, is non-empty." → "an anchor whose own text, minus its
     label, the one space before its heading, the heading, and the one dash
-    or space that ends the heading, is non-empty; what follows the heading
-    is read as normalized text, where that separator is one `-` or one
-    space (decision 13)."
+    or space that ends the heading, is non-empty; it is read on the whole
+    own text normalized as one string, where that separator is one `-` or
+    one space after the normalized heading (decision 13)."
   - Definitions, "Normalized text": "- **Normalized text:**" → "-
     **Normalized text** (decision 13), in this order:"; its items "Unicode
     NFC", "every whitespace run (including U+00A0) collapsed to one space"
@@ -356,6 +385,19 @@ join, the sources and the writer as PR #9's first review revised them:
     derives every file from the committed raw XML; a person reviews its
     output in the PR diff."
 - `docs/adr/README.md`, the index, gains the line "| [0013](0013-cites-join-as-the-document-reads.md) | A cite joins as the document reads; a heading's separator is not operative text | Accepted |".
+- `docs/adr/0010-one-writer-owns-meta-yaml.md` gains, after its "Decided
+  by" line, this header line exactly (docs/adr/README.md, Flow: an ADR that
+  changes what an older one says amends its header):
+
+  ```
+  - **Amended:** 2026-11-24 by ADR 0013, which made plan step 5's choice this left open. The Decision's "Step 5's writer, `internal/anchors`, needs a source too: whether the table is exported or moved is step 5's choice." describes the plan before step 5: the table stays unexported in `internal/ecfr`, whose `regcorpus parse` passes each `l0.Source` to `internal/anchors`.
+  ```
+- `docs/adr/0012-labels-count-in-the-paragraph-lead.md` gains, after its
+  "Decided by" line, this header line exactly:
+
+  ```
+  - **Amended:** 2026-11-24 by ADR 0013, which settled what this carried forward to plan step 5. The Decision's "Whether it counts in the operative-anchor test and the per-node hash, and how a multi-anchor cite joins across it or across a paragraph boundary, is plan step 5's (spec "Carried forward")." and the Consequences line "Plan step 5 inherits the dash or space at the end of a heading parent's own text (spec "Carried forward")." describe the spec before step 5: the separator doesn't count in the operative-anchor test and does count in the per-node hash, a multi-anchor cite joins own texts with nothing between two in one `<P>` and one space between `<P>`s (spec decision 13), and the "Carried forward" row is removed.
+  ```
 - Package docs: `internal/anchors/doc.go` states what is built; the
   sentences of `internal/parse/doc.go`, `internal/l0/doc.go`,
   `internal/meta/doc.go` and `internal/ecfr/doc.go` that left the
@@ -418,21 +460,29 @@ quotes are matched under); decisions 6 (CLI only) and 13.
   and `Join` by run; `Update` the only writer, `Derive` and `Replace`
   gone; exact names; the separator read normalized; the refusals; the
   sources parse writes; green), `ae69a02` (escapes for invisible characters
-  in Go source), and the commit that revises this ADR, the spec and the
-  stage 01 contract.
+  in Go source), `8e03279` (this ADR, the spec and the stage 01 contract
+  revised); and from PR #9's second review, `88678e4` (the tests, red),
+  `446aaf0` (the operative verdict on the normalized whole own text, exact
+  names for directories, errors naming their file, no empty line in
+  `text.md`; green), and the commit that revises this ADR, the spec and
+  ADRs 0010 and 0012.
 - Files: `internal/anchors/normalize.go` (`Normalize`, `Hash`),
   `internal/anchors/anchors.go` (`ID`, `Operative`, `Document`, `Runs`,
   `Join`), `internal/anchors/build.go` (`Build`, `EncodeTree`, `TextMD`,
   `SectionText`, `SHA256Text`), `internal/anchors/write.go` (`Write`),
   `internal/anchors/testdata/oracle.py`, `internal/l0/source.go` (`Read`,
-  `Update`), `internal/l0/store.go` (`RealDirs`, `replace`),
+  `Update`), `internal/l0/store.go` (`RealDirs`, `StoreOnce`, `replace`),
   `internal/ecfr/parsecmd.go`, `internal/ecfr/sources.go`,
-  `internal/ecfr/metaset.go`, `internal/parse/tree.go`,
-  `cmd/regcorpus/main.go`, `.gitignore`,
+  `internal/ecfr/metaset.go`, `internal/ecfr/fetch.go`,
+  `internal/parse/tree.go`, `cmd/regcorpus/main.go`, `.gitignore`,
   `sources/ecfr/title-12/1024.41/{tree.json,text.md,meta.yaml}`, the
-  package docs named above, and the tests `internal/anchors/*_test.go`,
-  `internal/l0/update_test.go`, `internal/l0/update_darwin_test.go`,
-  `internal/l0/store_test.go`, `internal/ecfr/parsecmd_test.go` and
-  `internal/ecfr/parsecmd_darwin_test.go`.
+  package docs named above, `docs/adr/0010-one-writer-owns-meta-yaml.md`
+  and `docs/adr/0012-labels-count-in-the-paragraph-lead.md`, and the tests
+  `internal/anchors/*_test.go`, `internal/l0/update_test.go`,
+  `internal/l0/update_unix_test.go`, `internal/l0/update_darwin_test.go`,
+  `internal/l0/store_test.go`, `internal/ecfr/parsecmd_test.go`,
+  `internal/ecfr/parsecmd_darwin_test.go`, `internal/ecfr/store_unix_test.go`,
+  `internal/ecfr/names_test.go`, `internal/parse/tree_test.go` and
+  `cmd/regcorpus/main_test.go`.
 - ADR 0012, "Where the dash or space after a heading goes"; ADR 0010, "Where
   the source table lives".

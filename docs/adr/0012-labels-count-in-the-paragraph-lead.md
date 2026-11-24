@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Decided by:** the owner, in chat (answers to the chief of staff's questions), recorded on PR #8: (1) 2026-11-22 19:41 CST, "Paragraph lead (Recommended)"; (2) 2026-11-22 20:43 CST, "Look one label ahead (Recommended)", which replaced the 19:41 answer "Close it (Recommended)" to the lookahead question
+- **Amended:** 2026-11-24 by ADR 0013, which settled what this carried forward to plan step 5. The Decision's "Whether it counts in the operative-anchor test and the per-node hash, and how a multi-anchor cite joins across it or across a paragraph boundary, is plan step 5's (spec "Carried forward")." and the Consequences line "Plan step 5 inherits the dash or space at the end of a heading parent's own text (spec "Carried forward")." describe the spec before step 5: the separator doesn't count in the operative-anchor test and does count in the per-node hash, a multi-anchor cite joins own texts with nothing between two in one `<P>` and one space between `<P>`s (spec decision 13), and the "Carried forward" row is removed.
 
 ## Context
 R1a said where a label counts:
