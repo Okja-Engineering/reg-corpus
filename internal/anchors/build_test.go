@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/okja-engineering/reg-corpus/internal/anchors"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
@@ -241,6 +242,7 @@ func TestTextMDRefusesALineBreakInsideAText(t *testing.T) {
 		{"LS in a heading", section("", "(a) <I>One\u2028two.</I> Text."), "0-1-a"},
 		{"PS in a child's text", section("", "(a) <I>Head</I>—(1) One\u2029two."), "0-1-a-1"},
 		{"LF in the HEAD", sectionHead("§ 0.1&#10;Head.", "", "(a) Text."), "0.1 HEAD"},
+		{"LF ending the HEAD", sectionHead("§ 0.1 Head.&#10;", "", "(a) Text."), "0.1 HEAD"},
 		{"two LFs ending the CITA", section("[Cite]\n\n", "(a) Text."), "0.1 CITA"},
 		{"an LF inside the CITA", section("[A]\n[B]", "(a) Text."), "0.1 CITA"},
 		{"CR LF ending the CITA", section("[Cite]&#13;\n", "(a) Text."), "0.1 CITA"},
@@ -259,15 +261,99 @@ func TestTextMDRefusesALineBreakInsideAText(t *testing.T) {
 	}
 }
 
+// TestTextMDShowsNoEmptyLine: text.md ends with exactly one LF and no part
+// of it (the HEAD, a node's own text, the CITA past its one ending LF) is
+// shown as an empty line: one that is empty or holds only White_Space is
+// refused, naming where it is, never dropped or rewritten. An empty <P> the
+// parser refuses itself; a tree read back from tree.json is checked as
+// TextMD reads it.
+func TestTextMDShowsNoEmptyLine(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		data  []byte
+		where string
+	}{
+		{"a CITA that is one LF", section("\n", "(a) Text."), "0.1 CITA"},
+		{"a CITA of spaces", section("   ", "(a) Text."), "0.1 CITA"},
+		{"a CITA of a no-break space and its LF", section("\u00a0\n", "(a) Text."), "0.1 CITA"},
+		{"an empty HEAD", sectionHead("", "", "(a) Text."), "0.1 HEAD"},
+		{"a HEAD of spaces", sectionHead("  ", "", "(a) Text."), "0.1 HEAD"},
+		{"a HEAD of an em space", sectionHead("\u2003", "", "(a) Text."), "0.1 HEAD"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := anchors.Build(tc.data)
+			if err == nil || d != nil || !strings.Contains(err.Error(), tc.where+" ") {
+				t.Errorf("Build: %v (derived %t); want an error naming %s", err, d != nil, tc.where)
+			}
+			if got, err := anchors.TextMD(parseXML(t, tc.data)); err == nil {
+				t.Errorf("TextMD = %q, nil; want an error", got)
+			}
+		})
+	}
+	if _, err := parse.Parse(section("", "(a) Text.", "")); err == nil {
+		t.Errorf("an empty <P> parses")
+	}
+	for _, text := range []string{"", " ", "\u00a0\u2003"} {
+		tree := &parse.Tree{Section: "0.1", Heading: "\u00a7 0.1 Head.", Children: []*parse.Node{
+			{Kind: parse.Letter, Path: []string{"a"}, Para: 1, Text: "(a) Text."},
+			{Kind: parse.Letter, Path: []string{"b"}, Para: 2, Text: text},
+		}}
+		if got, err := anchors.TextMD(tree); err == nil || !strings.Contains(err.Error(), "0-1-b ") {
+			t.Errorf("TextMD with a node's own text %+q = %q, %v; want an error naming 0-1-b", text, got, err)
+		}
+	}
+	for _, tc := range []struct{ name, cita string }{{"a CITA ending in LF", "[Cite]\n"}, {"a CITA with no LF", "[Cite]"}, {"no CITA", ""}} {
+		d, err := anchors.Build(section(tc.cita, "(a) <I>Head</I>\u2014(1) Text.", "(b) Last."))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		shownLines(t, tc.name, string(d.TextMD))
+	}
+	shownLines(t, text41, string(readRepo(t, text41)))
+}
+
+// shownLines checks text.md's shape: "# " and the HEAD, then each part
+// after one blank line, every part holding more than White_Space, and one
+// LF at the end.
+func shownLines(t *testing.T, name, md string) {
+	t.Helper()
+	body, ok := strings.CutSuffix(md, "\n")
+	if !ok || strings.HasSuffix(body, "\n") {
+		t.Errorf("%s: text.md doesn't end with exactly one LF: %q", name, md)
+		return
+	}
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		switch {
+		case i == 0 && (!strings.HasPrefix(l, "# ") || blank(l[2:])):
+			t.Errorf("%s: line 1 %q is not \"# \" and a heading", name, l)
+		case i%2 == 1 && l != "":
+			t.Errorf("%s: line %d %q, want the blank line between parts", name, i+1, l)
+		case i > 0 && i%2 == 0 && blank(l):
+			t.Errorf("%s: line %d %q shows as an empty line", name, i+1, l)
+		}
+	}
+	if len(lines)%2 == 0 {
+		t.Errorf("%s: text.md ends with a blank line", name)
+	}
+}
+
+// blank reports whether s holds nothing but White_Space.
+func blank(s string) bool {
+	return strings.TrimFunc(s, func(r rune) bool { return unicode.Is(unicode.White_Space, r) }) == ""
+}
+
 // TestStoredRawsHoldNoLineBreakInsideAText: none of the three stored raw
-// XML files holds what TextMD refuses, read from the XML's character data
-// itself (encoding/xml), not through the parser, so 1024.31, which doesn't
-// parse yet, is checked too.
+// XML files holds what TextMD refuses: a line break, or a part that would
+// show as an empty line, read from each HEAD's, <P>'s and CITA's character
+// data itself (encoding/xml), not through the parser, so 1024.31, which
+// doesn't parse yet, is checked too.
 func TestStoredRawsHoldNoLineBreakInsideAText(t *testing.T) {
 	for _, raw := range []string{raw41, raw30, raw31} {
 		dec := xml.NewDecoder(bytes.NewReader(readRepo(t, raw)))
+		type part struct{ el, text string }
+		var parts []part
 		var stack []string
-		texts := map[string]string{}
 		for {
 			tok, err := dec.Token()
 			if err == io.EOF {
@@ -279,26 +365,35 @@ func TestStoredRawsHoldNoLineBreakInsideAText(t *testing.T) {
 			switch tok := tok.(type) {
 			case xml.StartElement:
 				stack = append(stack, tok.Name.Local)
+				if el := tok.Name.Local; el == "HEAD" || el == "P" || el == "CITA" {
+					parts = append(parts, part{el, ""})
+				}
 			case xml.EndElement:
 				stack = stack[:len(stack)-1]
 			case xml.CharData:
 				for _, el := range stack {
 					if el == "HEAD" || el == "P" || el == "CITA" {
-						texts[el] += string(tok)
+						parts[len(parts)-1].text += string(tok)
 					}
 				}
 			}
 		}
-		if texts["HEAD"] == "" || texts["P"] == "" || texts["CITA"] == "" {
-			t.Fatalf("%s: read no HEAD, P or CITA text", raw)
-		}
-		for el, s := range texts {
-			if el == "CITA" {
+		seen := map[string]bool{}
+		for _, p := range parts {
+			seen[p.el] = true
+			s := p.text
+			if p.el == "CITA" {
 				s = strings.TrimSuffix(s, "\n")
 			}
 			if i := strings.IndexAny(s, "\r\n\u0085\u2028\u2029"); i >= 0 {
-				t.Errorf("%s: a line break in %s at byte %d", raw, el, i)
+				t.Errorf("%s: a line break in %s at byte %d", raw, p.el, i)
 			}
+			if blank(s) {
+				t.Errorf("%s: a %s that would show as an empty line: %q", raw, p.el, p.text)
+			}
+		}
+		if !seen["HEAD"] || !seen["P"] || !seen["CITA"] {
+			t.Fatalf("%s: read no HEAD, P or CITA", raw)
 		}
 	}
 }

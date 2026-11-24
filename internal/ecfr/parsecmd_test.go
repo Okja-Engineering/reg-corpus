@@ -217,17 +217,20 @@ func TestParseUsage(t *testing.T) {
 }
 
 // TestParseUsageGivesExitCodes: -h names every exit code (AGENTS.md: each
-// command's -h gives them), which sources parse writes, and what a failure
-// part-way leaves.
+// command's -h gives them), which sources parse writes, what a failure
+// part-way leaves, that exit 1 writes nothing for that section, and what
+// text.md can't hold: a line break but one LF ending the citation note, and
+// a part that would show as an empty line.
 func TestParseUsageGivesExitCodes(t *testing.T) {
 	_, stdout, _ := parseAt(t, corpusRoot(t), "-h")
+	usage := strings.Join(strings.Fields(stdout), " ")
 	for _, want := range []string{
 		"Exit 0:", "Exit 1:", "Exit 2:", "offline", "overrides.yaml", "1024.41, 1024.30 or 1024.31",
-		"today 1024.41's", "plan step 9's", "only\nin case", "a re-run writes the rest",
-		`no
-              markup but the "# " that starts its heading line`,
+		"today 1024.41's", "plan step 9's", "a re-run writes the rest", "nothing written for that section",
+		`no markup but the "# " that starts its heading line`,
+		"anywhere but one LF ending it", "shows as an empty line",
 	} {
-		if !strings.Contains(stdout, want) {
+		if !strings.Contains(usage, want) {
 			t.Errorf("usage lacks %q:\n%s", want, stdout)
 		}
 	}

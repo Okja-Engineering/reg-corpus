@@ -4,9 +4,11 @@ package anchors_test
 
 import (
 	"errors"
+	"math/rand/v2"
 	"reflect"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/okja-engineering/reg-corpus/internal/anchors"
 	"github.com/okja-engineering/reg-corpus/internal/parse"
@@ -114,6 +116,19 @@ func TestOperativeRule(t *testing.T) {
 		{"a heading, then two dashes: only one is the separator", "(a) <I>Head</I>——", "a", true},
 		{"a heading, then a dash and a space: only the dash is the separator", "(a) <I>Head</I>— ", "a", true},
 		{"a heading, then a combining mark: text, and no error", "(a) <I>Note</I>\u0301 text.", "a", true},
+		{"a heading, then a combining mark alone: text, not a separator", "(a) <I>Note</I>\u0301", "a", true},
+		// A heading that ends in White_Space: normalized as one string with
+		// what follows, that run is one space, the heading's own, and one
+		// dash after it is still the one separator.
+		{"a heading ending in a space, then its dash", "(a) <I>Head </I>\u2014", "a", false},
+		{"a heading ending in a space, then a space and its dash", "(a) <I>Head </I> \u2014", "a", false},
+		{"a heading ending in a space, then two spaces and its dash", "(a) <I>Head </I>  \u2014", "a", false},
+		{"a heading ending in a space, then a no-break space and its dash", "(a) <I>Head </I>\u00a0\u2014", "a", false},
+		{"a heading ending in a space, then a space and a hyphen", "(a) <I>Head </I> -", "a", false},
+		{"a heading ending in a no-break space, then a space and its dash", "(a) <I>Head\u00a0</I> \u2014", "a", false},
+		{"a heading ending in a space, then a space alone", "(a) <I>Head </I> ", "a", false},
+		{"a heading ending in a space, then text", "(a) <I>Head </I> Text.", "a", true},
+		{"a heading ending in a space, then two dashes", "(a) <I>Head </I> \u2014\u2014", "a", true},
 		{"no heading, text", "(a) Text.", "a", true},
 		{"no heading, a space alone: only a heading's separator is taken away", "(a) ", "a", true},
 		{"an italic label alone", "(a)(1)(i)(A)(<I>1</I>) Text.", "a-1-i-A", false},
@@ -152,6 +167,69 @@ func TestOperativeFollowsTheHash(t *testing.T) {
 			}
 			if op, err := anchors.Operative(n); err != nil || op {
 				t.Errorf("separator %+q: Operative = %v, %v; want false, as for %+q", sep, op, err, group[0])
+			}
+		}
+	}
+}
+
+// TestOperativeIsAFunctionOfTheNormalizedText (ADR 0013): two nodes with the
+// same path, the same heading and the same normalized own text get the same
+// verdict, over every own text of up to two characters past the heading,
+// and a sample of longer ones, drawn from all 25 White_Space characters,
+// the dashes, a letter and characters NFC composes with a heading's last
+// letter; and under headings that end in each White_Space character. A
+// node's text is in the form the parser makes: its label, then one space
+// and its heading if it has one.
+func TestOperativeIsAFunctionOfTheNormalizedText(t *testing.T) {
+	var white []string
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		if unicode.Is(unicode.White_Space, r) {
+			white = append(white, string(r))
+		}
+	}
+	if len(white) != 25 {
+		t.Fatalf("%d White_Space characters; want 25", len(white))
+	}
+	// The dashes; a letter; U+0301 and U+0327, which NFC composes with an e
+	// before them; U+00E9, the composed e with an acute.
+	alphabet := append([]string{"-", "\U00002013", "\U00002014", "x", "e", "\U00000301", "\U000000E9", "\U00000327"}, white...)
+	headings := []string{"", "Head", "Note", "Not\U000000E9", "Note\U00000301"}
+	for _, w := range white {
+		headings = append(headings, "Head"+w, w+"Head")
+	}
+	rests := []string{""}
+	for _, a := range alphabet {
+		rests = append(rests, a)
+		for _, b := range alphabet {
+			rests = append(rests, a+b)
+		}
+	}
+	rng := rand.New(rand.NewPCG(13, 41))
+	for range 20000 {
+		var b strings.Builder
+		for range 3 + rng.IntN(4) {
+			b.WriteString(alphabet[rng.IntN(len(alphabet))])
+		}
+		rests = append(rests, b.String())
+	}
+	type key struct{ heading, norm string }
+	verdicts := map[key]bool{}
+	example := map[key]string{}
+	for _, h := range headings {
+		for _, rest := range rests {
+			n := &parse.Node{Path: []string{"a"}, Heading: h, Text: "(a)" + rest}
+			if h != "" {
+				n.Text = "(a) " + h + rest
+			}
+			op, err := anchors.Operative(n)
+			if err != nil {
+				t.Fatalf("Operative(%+q, heading %+q): %v", n.Text, h, err)
+			}
+			k := key{h, normalize(t, n.Text)}
+			if v, ok := verdicts[k]; !ok {
+				verdicts[k], example[k] = op, n.Text
+			} else if v != op {
+				t.Fatalf("heading %+q: Operative(%+q) = %v, but Operative(%+q) = %v; both normalize to %+q", h, n.Text, op, example[k], v, k.norm)
 			}
 		}
 	}
@@ -331,6 +409,7 @@ func TestJoinRefuses(t *testing.T) {
 		{"1024.30's (a) beside 1024.41's", []*parse.Node{n["a"], n30["a"]}, anchors.ErrForeignAnchor},
 		{"(b) from another parse", []*parse.Node{other["b"], n["b-1"]}, anchors.ErrForeignAnchor},
 		{"(b) twice", []*parse.Node{n["b"], n["b-1"], n["b"]}, anchors.ErrRepeatedAnchor},
+		{"(b) twice, after (a)", []*parse.Node{n["a"], n["b"], n["b"]}, anchors.ErrRepeatedAnchor},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got, err := doc.Join(tc.cite); !errors.Is(err, tc.want) {

@@ -4,6 +4,7 @@
 package anchors_test
 
 import (
+	"strings"
 	"testing"
 	"unicode"
 	"unicode/utf8"
@@ -150,14 +151,19 @@ func TestHashIsOfNormalizedText(t *testing.T) {
 // Normalize and Hash, never read as U+FFFD, so it can't normalize or hash
 // as text holding U+FFFD does; that text itself is valid.
 func TestInvalidUTF8IsRefused(t *testing.T) {
-	for _, in := range []string{
-		"a\xffb",         // a byte that starts no encoding
-		"a\xc3",          // a truncated encoding
-		"\xc0\xaf",       // an overlong encoding of "/"
-		"x\xed\xa0\x80y", // an encoded surrogate, U+D800
+	for _, tc := range []struct {
+		in string
+		at string // the byte offset the error gives
+	}{
+		{"a\xffb", "byte 1"},                   // a byte that starts no encoding
+		{"ab\xc3", "byte 2"},                   // a truncated encoding
+		{"\xc0\xaf", "byte 0"},                 // an overlong encoding of "/"
+		{"x\xed\xa0\x80y", "byte 1"},           // an encoded surrogate, U+D800
+		{"\U000000E9\U00002014\xff", "byte 5"}, // after two multi-byte characters
 	} {
-		if got, err := anchors.Normalize(in); err == nil {
-			t.Errorf("Normalize(%+q) = %+q, nil; want an error", in, got)
+		in := tc.in
+		if got, err := anchors.Normalize(in); err == nil || !strings.Contains(err.Error(), "("+tc.at+")") {
+			t.Errorf("Normalize(%+q) = %+q, %v; want an error at %s", in, got, err, tc.at)
 		}
 		if got, err := anchors.Hash(in); err == nil {
 			t.Errorf("Hash(%+q) = %s, nil; want an error", in, got)

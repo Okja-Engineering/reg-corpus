@@ -210,19 +210,42 @@ func TestUpdateRefusesBeforeWritingAnything(t *testing.T) {
 
 // TestReadMatchesNamesExactly: a name that differs from meta.yaml,
 // tree.json, text.md or overrides.yaml only in case is refused, by its
-// name as the directory lists it, on a case-insensitive filesystem (where
-// it would be read and written as that file) and a case-sensitive one
-// alike; and Update then writes nothing.
+// name as the directory lists it, whatever it is (a file, a directory, a
+// symlink), on a case-insensitive filesystem (where it would be read and
+// written as that file) and a case-sensitive one alike; and Update then
+// writes nothing. Case is Unicode's: APFS folds "ſ" (U+017F) to "s", so
+// "tree.jſon" is tree.json there.
 func TestReadMatchesNamesExactly(t *testing.T) {
-	for _, name := range []string{"TREE.JSON", "Text.md", "Overrides.YAML", "META.YAML"} {
+	for _, tc := range []struct {
+		name string
+		make func(t *testing.T, root, p string, metaYAML []byte)
+	}{
+		{"TREE.JSON", file},
+		{"Text.md", file},
+		{"Overrides.YAML", file},
+		{"META.YAML", nil},
+		{"tree.j\U0000017Fon", file},
+		{"Tree.json", func(t *testing.T, _, p string, _ []byte) {
+			if err := os.Mkdir(p, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"TEXT.MD", func(t *testing.T, _, p string, _ []byte) {
+			if err := os.Symlink("elsewhere", p); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		name := tc.name
 		t.Run(name, func(t *testing.T) {
 			root, metaYAML := storedSource(t)
-			if name == "META.YAML" {
-				if err := os.Rename(filepath.Join(root, filepath.FromSlash(testSrc.MetaPath())), filepath.Join(root, filepath.FromSlash(testSrc.Dir), name)); err != nil {
+			p := filepath.Join(root, filepath.FromSlash(testSrc.Dir), name)
+			if tc.make == nil {
+				if err := os.Rename(filepath.Join(root, filepath.FromSlash(testSrc.MetaPath())), p); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				putFile(t, root, testSrc.Dir+"/"+name, string(metaYAML))
+				tc.make(t, root, p, metaYAML)
 			}
 			before := snapshot(t, root)
 			_, err := Read(root, testSrc)
@@ -237,6 +260,133 @@ func TestReadMatchesNamesExactly(t *testing.T) {
 				t.Errorf("changed %q", got)
 			}
 		})
+	}
+}
+
+// file writes metaYAML's bytes at p, a regular file.
+func file(t *testing.T, _, p string, metaYAML []byte) {
+	t.Helper()
+	if err := os.WriteFile(p, metaYAML, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRealDirsMatchesNamesExactly: every directory on the way to a source's
+// files is matched by exact name too, sources/ and the source's directory
+// and raw/ alike. One that differs from its name only in case, renamed so
+// on a case-insensitive filesystem and a case-sensitive one alike, or an
+// empty one made where raw/ is missing, is refused (a *Conflict naming it
+// as the directory lists it) by RealDirs, Read, Update and StoreOnce, and
+// nothing is written: a case-insensitive filesystem would reach it by the
+// name git doesn't record.
+func TestRealDirsMatchesNamesExactly(t *testing.T) {
+	for _, tc := range []struct {
+		name, from, to string // rename from to to, slash paths under root
+		mkdir          bool   // remove from, then make to empty
+	}{
+		{"SOURCES", "sources", "SOURCES", false},
+		{"long s", "sources", "\U0000017Fources", false},
+		{"the source's directory", "sources/s", "sources/S", false},
+		{"RAW", "sources/s/raw", "sources/s/RAW", false},
+		{"an empty RAW", "sources/s/raw", "sources/s/RAW", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := storedSource(t)
+			from, to := filepath.Join(root, filepath.FromSlash(tc.from)), filepath.Join(root, filepath.FromSlash(tc.to))
+			if tc.mkdir {
+				if err := os.RemoveAll(from); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(to, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Rename(from, to); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshot(t, root)
+			conflict := func(what string, err error) {
+				t.Helper()
+				var c *Conflict
+				if !errors.As(err, &c) || !strings.Contains(err.Error(), tc.to+" ") {
+					t.Errorf("%s: %v; want a conflict naming %s", what, err, tc.to)
+				}
+			}
+			conflict("RealDirs", RealDirs(root, testSrc.RawDir()))
+			_, err := Read(root, testSrc)
+			conflict("Read", err)
+			_, w, err := Update(root, testSrc, derived("T", "X"))
+			conflict("Update", err)
+			if w != (Wrote{}) {
+				t.Errorf("Update wrote %+v", w)
+			}
+			_, err = StoreOnce(root, testSrc.RawPath("2025-01-09"), []byte(testRaw))
+			conflict("StoreOnce", err)
+			if got := changes(before, snapshot(t, root)); len(got) > 0 {
+				t.Errorf("changed %q", got)
+			}
+		})
+	}
+}
+
+// TestUpdateRefusesADerivedFileItCannotRead: a derived file Update can't
+// read can't be compared, so it is an error (exit 2), not a conflict and
+// never read as differing, and nothing is written, not even the other
+// derived file that does differ.
+func TestUpdateRefusesADerivedFileItCannotRead(t *testing.T) {
+	root, _ := storedSource(t)
+	if _, _, err := Update(root, testSrc, derived("T1", "X1")); err != nil {
+		t.Fatal(err)
+	}
+	text := filepath.Join(root, filepath.FromSlash(testSrc.TextPath()))
+	if err := os.Chmod(text, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(text, 0o644) })
+	if _, err := os.ReadFile(text); err == nil {
+		t.Skip("text.md is readable at mode 0 (running as root?)")
+	}
+	_, w, err := Update(root, testSrc, derivedSum("T2", "X2", "1111111111111111111111111111111111111111111111111111111111111111"))
+	var c *Conflict
+	if err == nil || errors.As(err, &c) || w != (Wrote{}) {
+		t.Errorf("%+v, %v; want an error that is not a conflict, nothing written", w, err)
+	}
+	if err := os.Chmod(text, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]string{testSrc.TreePath(): "T1", testSrc.TextPath(): "X1"} {
+		if b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p))); err != nil || string(b) != want {
+			t.Errorf("%s holds %q, %v; want %q, unchanged", p, b, err, want)
+		}
+	}
+}
+
+// TestWriteErrorsNameTheTarget: when writing a file fails, the error names
+// the file it was writing, by its slash path from the root, not only the
+// temporary file beside it: replace's (Update's) and StoreOnce's alike. A
+// directory that can't be written (no temporary file can be made) and a
+// directory where the file goes (the rename fails) both fail.
+func TestWriteErrorsNameTheTarget(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "meta.yaml", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := replace(root, "src/meta.yaml", []byte("x\n")); err == nil || !strings.Contains(err.Error(), "src/meta.yaml") {
+		t.Errorf("replace over a directory: %v; want an error naming src/meta.yaml", err)
+	}
+	ro := filepath.Join(root, "ro")
+	if err := os.Mkdir(ro, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(ro, 0o755) })
+	if f, err := os.CreateTemp(ro, "probe"); err == nil {
+		f.Close()
+		t.Skip("a mode 0555 directory is writable (running as root?)")
+	}
+	if err := replace(root, "ro/tree.json", []byte("T")); err == nil || !strings.Contains(err.Error(), "ro/tree.json") {
+		t.Errorf("replace in a read-only directory: %v; want an error naming ro/tree.json", err)
+	}
+	if _, err := StoreOnce(root, "ro/raw.xml", []byte("R")); err == nil || !strings.Contains(err.Error(), "ro/raw.xml") {
+		t.Errorf("StoreOnce in a read-only directory: %v; want an error naming ro/raw.xml", err)
 	}
 }
 
