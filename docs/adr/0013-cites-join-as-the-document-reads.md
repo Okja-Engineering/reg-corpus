@@ -228,7 +228,13 @@ owner's call. Each choice and its reason:
   1). `l0.RealDirs` is the one check of the way, for `fetch`, `StoreOnce`,
   `Read` and `Update`. Why: on a case-insensitive filesystem (APFS) a
   `TREE.JSON` would be read and written as `tree.json`, and a `RAW/` as
-  `raw/`, while git records the other name.
+  `raw/`, while git records the other name. The file `StoreOnce` stores
+  (`raw/<date>.xml`, a first `meta.yaml`, `fetch --date`'s file under
+  `.cache/`) is found by exact name too, and a name that differs from it
+  only in case (`2025-07-15.XML`) is refused (exit 1) with nothing stored
+  (the chief of staff's ruling on the second review's decision 7): what a
+  command reports writing, or finding unchanged, is the name git records,
+  on every platform.
 - **What `text.md` can't hold is refused (PR #9's reviews).** A section
   heading, a node's own text or a citation note (past one LF ending it)
   that holds a line break (CR, LF, U+0085, U+2028 or U+2029; the first
@@ -272,7 +278,9 @@ and rulings above; each confirmed by the chief of staff (agent):
   ends in one in 1024.41), or one added when it has none.
 
 Made in PR #9's second review, by the implementing agent, within its
-rulings, for the chief of staff to confirm or redirect:
+rulings; each confirmed by the chief of staff (agent), as were the spec
+wording below and `RealDirs` reading each directory on the way (one it
+can't read is an error, exit 2):
 - **The space that ends a heading that itself ends in White_Space.**
   Normalized as one string, the heading's trailing White_Space and any
   White_Space after it are one space, and that space is the heading's own:
@@ -464,8 +472,10 @@ quotes are matched under); decisions 6 (CLI only) and 13.
   revised); and from PR #9's second review, `88678e4` (the tests, red),
   `446aaf0` (the operative verdict on the normalized whole own text, exact
   names for directories, errors naming their file, no empty line in
-  `text.md`; green), and the commit that revises this ADR, the spec and
-  ADRs 0010 and 0012.
+  `text.md`; green), `4d4b454` (this ADR, the spec and ADRs 0010 and 0012
+  revised), `6a493bb` (a comment), `5c5957d` (the file `StoreOnce` stores
+  found by exact name, red), `82fdd55` (the same, green), and the commit
+  that records it here.
 - Files: `internal/anchors/normalize.go` (`Normalize`, `Hash`),
   `internal/anchors/anchors.go` (`ID`, `Operative`, `Document`, `Runs`,
   `Join`), `internal/anchors/build.go` (`Build`, `EncodeTree`, `TextMD`,
