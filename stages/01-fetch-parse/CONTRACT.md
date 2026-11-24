@@ -26,14 +26,17 @@ Per source directory: `sources/ecfr/title-12/1024.41/`,
 - `raw/<date>.xml`: the fetched XML, untouched (Supplement I: the whole appendix).
 - `tree.json`: the parsed tree; each node carries the `sha256` of its normalized own text
   (spec decision 13).
-- `text.md`: generated from `tree.json`: the section as it reads, verbatim.
+- `text.md`: generated from `tree.json`: the section as it reads, verbatim, with no
+  markup but the "# " that starts its heading line.
 - `meta.yaml`: the fields listed in R1 and the spec's L0 `meta.yaml` (tier, role,
   version dates, retrieval date, eCFR "up to date as of", `verified_on`,
   `sha256_raw`, `sha256_text`, `official: false`).
 - `overrides.yaml`: only if needed.
 
 `regcorpus parse <section>` writes `tree.json` and `text.md` and sets `sha256_text`,
-offline, from the stored raw XML (plan step 5).
+offline, from the stored raw XML (plan step 5). It writes a source's files only once
+its parser goldens are in: today 1024.41's. It refuses 1024.30 and 1024.31 (exit 1,
+nothing written) until plan step 9.
 
 Local exploratory downloads go in `.cache/` (git-ignored); committed raw XML
 lives only under `sources/**/raw/`.

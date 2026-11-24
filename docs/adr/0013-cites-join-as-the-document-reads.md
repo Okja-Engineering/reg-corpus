@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-24
-- **Decided by:** the owner, 2026-11-24 about 15:18 CST, in chat (answers to the chief of staff's questions): (F1) "Separator doesn't count (Recommended)"; (F2) "As the document reads (Recommended)"; (F3) "Rule text only (Recommended)"; (F4) "I'll land the 3-line edit (Recommended)"
+- **Decided by:** the owner, 2026-11-24 about 15:18 CST, in chat (answers to the chief of staff's questions), quoted on PR #9 (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7145434918): (F1) "Separator doesn't count (Recommended)"; (F2) "As the document reads (Recommended)"; (F3) "Rule text only (Recommended)"; (F4) "I'll land the 3-line edit (Recommended)"
 
 ## Context
 Plan step 5 builds `internal/anchors`: `text.md`, normalized text, each
@@ -58,65 +58,72 @@ No command wrote `tree.json` or `text.md`, and the plan's command list
 topics, version") has none that could, offline.
 
 ## Options considered
-The chief of staff asked the owner four questions. Each chosen option's
-text as offered (calls.md, the step 5 record):
-- F1, the operative test and the per-node hash: **"Separator doesn't count
-  (Recommended)"**, offered as "75 of 91 nodes operative. Only the one dash
-  or space that ends a heading is ignored. The per-node hash still covers
-  it, so an upstream change to that separator still marks the node stale."
-  Chosen.
-- F2, the multi-anchor join: **"As the document reads (Recommended)"**,
-  offered as "Nothing between own texts inside one <P>, one space between
-  <P>s. Rebuilds the text exactly, so a quote copied from the regulation
-  matches. Amends the spec's "one space" line." Chosen.
-- F3, `sha256_text`: **"Rule text only (Recommended)"**, offered as
-  "Heading plus all paragraphs joined. Changes only when the rule's words
-  change, and step 6 can compute the same hash from govinfo's text for
-  verified_on." The question stated the normalization: "NFC, whitespace
-  collapsed (no trim), curly quotes and en/em dashes mapped." Chosen.
-- F4, the x/text dependency: **"I'll land the 3-line edit
-  (Recommended)"**, offered as "You make (or approve me drafting for you to
-  apply) a small PR first; step 5 then uses x/text as the plan says.
-  yaml.v3 (step 12) needs the same edit anyway." Chosen.
-
-The other options, as the chief of staff drafted them for these questions
-(their wording as offered is not recorded):
-- F1: O1, the literal rule, the separator counts (90 of 91 operative; 15
-  lead-ins with no words of their own each need an inventory sign-off); O3,
-  a general trim of whitespace and dashes (75 today, but it would also drop
-  a remainder such as " – "). For the hash, H2: hash with the separator
-  removed, which drops a source character from change detection.
-- F2: J1, one space always, the spec's words; J3, one space except nothing
-  after a heading's "—", which still gives "(A) (1)".
-- F3: S2, S1 plus the citation note, which changes with each amendment
-  even when the rule's words don't; S3, the sha256 of `text.md`, which ties
-  the hash to a display format.
-- F4: B, standard library only, with a guard that allows only the
-  characters seen so far and fails on any other; C, port the NFC tables by
-  hand.
+The chief of staff asked the owner four questions. These are every option
+offered, each quoted as offered (PR #9's comment quoting the calls):
+- F1, "Operative": does the separator left after a heading make a lead-in
+  operative?
+  - **"Separator doesn't count (Recommended)"**: "75 of 91 nodes
+    operative. Only the one dash or space that ends a heading is ignored.
+    The per-node hash still covers it, so an upstream change to that
+    separator still marks the node stale." Chosen.
+  - **"Separator counts"**: "90 of 91 operative: the 15 heading-only
+    lead-ins each need a cite or an `na` with a reason, plus your sign-off
+    in the inventory."
+  - **"Trim all dashes/space"**: "75 operative on today's data, but it
+    would also silently ignore any remainder made only of dashes or
+    whitespace, not just the one separator."
+- F2, "Join": which join quotes are checked against.
+  - **"As the document reads (Recommended)"**: "Nothing between own texts
+    inside one `<P>`, one space between `<P>`s. Rebuilds the text exactly,
+    so a quote copied from the regulation matches. Amends the spec's "one
+    space" line." Chosen.
+  - **"One space always"**: "Keep the spec's words. Quotes across "—(1)"
+    or "(A)(1)" fail the check unless the extractor and verifier insert a
+    space."
+- F3, "Text hash": whether `sha256_text` covers the citation note. The
+  question itself stated the normalization, so the owner's answer was
+  given on it: "Normalization itself follows the spec: NFC, whitespace
+  collapsed (no trim), curly quotes and en/em dashes mapped."
+  - **"Rule text only (Recommended)"**: "Heading plus all paragraphs
+    joined. Changes only when the rule's words change, and step 6 can
+    compute the same hash from govinfo's text for verified_on." Chosen.
+  - **"Include the source note"**: "Also covers the CITA, so the hash
+    changes with each amendment notice even when the rule text is the
+    same."
+- F4, "x/text": how to take the NFC dependency.
+  - **"I'll land the 3-line edit (Recommended)"**: "You make (or approve me
+    drafting for you to apply) a small PR first; step 5 then uses x/text as
+    the plan says. yaml.v3 (step 12) needs the same edit anyway." Chosen.
+  - **"Stdlib only, NFC guard"**: "No dependency: allow only characters
+    already in NFC (ASCII, §, curly quotes, dashes, NBSP) and fail loudly
+    on anything else. Each new character later needs an entry; departs
+    from the plan's stack."
 
 ## Decision
 The owner decided:
 1. (F1) An anchor is operative when its own text, minus its label, the one
-   space before its heading, the heading, and the one "—" or space that
+   space before its heading, the heading, and the one dash or space that
    ends the heading, is non-empty: 75 of 1024.41's 91 nodes. A node's
    `sha256` covers its whole normalized own text, that separator included.
 2. (F2) A multi-anchor cite joins own texts with nothing between two in one
    `<P>` and one space between `<P>`s. This amends the spec's "one space".
-3. (F3) `sha256_text` is the sha256 of the normalized section heading, one
-   space, then every anchor's own text joined by the F2 rule; the citation
-   note is left out. Normalization: "NFC, whitespace collapsed (no trim),
-   curly quotes and en/em dashes mapped."
+3. (F3) `sha256_text` is the sha256 of the section heading, one space,
+   then every anchor's own text joined by the F2 rule, normalized as one
+   string; the citation note is left out. Normalization, as the question
+   stated it: "NFC, whitespace collapsed (no trim), curly quotes and en/em
+   dashes mapped."
 4. (F4) `golang.org/x/text` is a dependency, as the plan's stack says; the
    gate tests' change lands first, in the owner's own PR.
 
 How it is carried out was the chief of staff's (an agent's) choice, not the
 owner's call. Each choice and its reason:
-- **Normalization, pinned (N1–N6).** Within the owner's F3 statement:
-  - N1, whitespace: Unicode White_Space (Go's `unicode.White_Space`, which
-    holds U+00A0, U+2000 to U+200A, U+202F, U+3000, U+0085 and the ASCII
-    ones). Zero-width characters (U+200B, U+200D, U+FEFF) are not
-    White_Space and stay.
+- **Normalization, pinned (N1–N6).** Within the owner's F3 answer, given
+  on the question's statement of the normalization:
+  - N1, whitespace: Unicode's White_Space property (Go's
+    `unicode.White_Space`), all 25 of its characters in Unicode 17.0.0:
+    U+0009 to U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A,
+    U+2028, U+2029, U+202F, U+205F and U+3000. Zero-width characters
+    (U+200B, U+200D, U+FEFF) are not White_Space and stay.
   - N2: runs collapse to one space and are not trimmed, so a lead-in whose
     own text ends in a heading's space keeps it in its hashed text.
   - N3: exactly U+2018 and U+2019 to `'`, U+201C and U+201D to `"`. Left as
@@ -126,22 +133,26 @@ owner's call. Each choice and its reason:
     labels, another job.
   - N5, order: NFC, then the mappings, then the collapse. No input tells
     the orders apart under Unicode 17.0.0 (x/text v0.42.0's tables and Go
-    1.27's): no character's NFC form is a mapped character or a new
-    whitespace run, and no mapped character, ASCII replacement or space is
-    the first of a composition. The order is pinned all the same.
+    1.27's), checked over every scalar value: no character's NFC form holds
+    a mapped or White_Space character unless the character is one, and no
+    mapped character, ASCII replacement or White_Space character is the
+    first or the second of a canonical composition; each has combining
+    class 0. The order is pinned all the same.
   - N6: a cite's text is the raw own texts joined, then normalized as one
-    string. Normalizing each piece first would leave two spaces where a
-    `<P>` ends in one, and NFC is not closed under concatenation. Each
-    node's hash normalizes its own text alone.
+    string, and so is `sha256_text`'s, the heading, the space after it and
+    the body together. Normalizing each piece first would leave two spaces
+    where a `<P>` or the heading ends in one, and NFC is not closed under
+    concatenation. Each node's hash normalizes its own text alone.
 
   Why: every hash depends on these, and each is the narrowest reading of
   the owner's words.
 - **`text.md`'s form (F5: T1).** `# ` and the section heading, a blank
   line, then each `<P>`'s text (its own texts joined by the F2 rule) with a
   blank line between, and last the citation note; verbatim, with no anchor
-  IDs, markup or normalization; UTF-8, LF, one LF at the end. Why: eval arm
-  (a) reads it (spec "Evaluation", arms), so it stays a text-only baseline; anchor IDs
-  in it would give arm (a) the index meant for arms (b) and (c).
+  IDs, no normalization and no markup but the "# " that starts its heading
+  line; UTF-8, LF, one LF at the end. Why: eval arm (a) reads it (spec
+  "Evaluation", arms), so it stays a text-only baseline; anchor IDs in it
+  would give arm (a) the index meant for arms (b) and (c).
 - **Files for 1024.41 only (F6).** 1024.30 builds (a test shows it), but
   its goldens are plan step 9's, and stage 01 says `make test` passing says
   nothing about R1a for a source until its goldens exist; 1024.31 doesn't
@@ -152,20 +163,19 @@ owner's call. Each choice and its reason:
   check (ADR 0010), writes `tree.json` and `text.md` and sets
   `sha256_text`. A re-run that would write the same bytes changes nothing.
   A parse failure exits 1 with the parser's line and column, an
-  `overrides.yaml` exits 1 (applying overrides isn't built yet, R1a), an
-  unknown section exits 2; each writes nothing. Why: the files are derived
-  from committed raw XML, so deriving them needs no network, unlike
-  `fetch`; a test that writes under `sources/` would hide the write. It
-  also gives a parse failure a command that exits non-zero, which step 4
-  lacked. Plan step 6's `fetch --verify` rebuilds a fresh fetch with the
-  same `Build` and compares.
+  `overrides.yaml` exits 1 (applying overrides isn't built yet, R1a), a
+  source whose goldens aren't in (1024.30, 1024.31) exits 1, an unknown
+  section exits 2; each writes nothing. Why: the files are derived from
+  committed raw XML, so deriving them needs no network, unlike `fetch`; a
+  test that writes under `sources/` would hide the write. It also gives a
+  parse failure a command that exits non-zero, which step 4 lacked. Plan
+  step 6's `fetch --verify` rebuilds a fresh fetch with the same `Build`
+  and compares.
 - **Where it lives (F8).** The command's handler is in `internal/ecfr`,
   as `meta set`'s is, because the source table is (ADR 0010 left exporting
   or moving it to step 5); it passes an `l0.Source` to `internal/anchors`,
   which imports `internal/parse`, `internal/l0`, `internal/meta` and x/text
   and never `internal/ecfr`, so step 6, in `internal/ecfr`, can import it.
-  `internal/l0` gains `Derive`, the one writer of derived files, called
-  inside `Update`'s callback.
 - **`tree.json`'s form (F9).** `parse.Node` gains `sha256`
   (`json:"sha256"`), empty in what `Parse` returns; no anchor ID or
   operative flag is stored, since both follow from the tree. Written with
@@ -173,29 +183,74 @@ owner's call. Each choice and its reason:
 - **`Operative` and `Join` are exported and tested now (F10),** before
   their first callers (C6, `inventory --init`, `units.yaml`), so the
   owner's F1 and F2 calls are fixed in tests, not in prose.
+- **Exact names (PR #9's first review).** A source's `meta.yaml`,
+  `tree.json`, `text.md` and `overrides.yaml` are found by exact name among
+  its directory's entries, and a name that differs from one only in case is
+  refused (exit 1). Why: on a case-insensitive filesystem (APFS) a
+  `TREE.JSON` would be read and written as `tree.json` while git records
+  the other name.
+- **What `text.md` can't hold is refused (PR #9's first review).** A line
+  break (CR, LF, U+0085, U+2028 or U+2029) inside the section heading, a
+  node's own text or the citation note, but for one LF ending the note,
+  refuses the source (exit 1), rather than being rewritten: `text.md` holds
+  each text on one line, verbatim. None of the three stored raw XML files
+  holds one (a test reads them).
+- **Invalid UTF-8 is refused (PR #9's first review).** `Normalize` and
+  `Hash` return an error for text that isn't valid UTF-8, rather than read
+  a bad byte as U+FFFD, so two different byte strings never hash alike
+  that way. The parser already refuses such XML; the functions are
+  exported for steps 6 and 13.
 
 Made while carrying it out, by the implementing agent, within the choices
-above (for the chief of staff to confirm):
-- **The separator is exactly one "—" or one U+0020 space,** as ADR 0012
-  defines a heading's end. So a no-break space, a second space or an en
-  dash after a heading is text, and a node holding only that is operative;
-  and a node with no heading whose own text is its label and a space,
-  "(a) ", is operative too, since only a heading's separator is taken
-  away. None of these is in 1024.41.
-- **`Join` puts the nodes in document order** (by `<P>`, then depth: the
-  nodes of one `<P>` are a chain) whatever order they are given in, and
-  refuses a node given twice. Anchors of one `<P>` that are not consecutive
-  are still joined with nothing between; that a quote may not cross that
-  join is C6's rule (step 13).
+above; each confirmed by the chief of staff (agent), the separator, the
+join, the sources and the writer as PR #9's first review revised them:
+- **The separator is one `-` or one space once normalized.** What follows
+  the heading is read as normalized text, and one `-` or one space at its
+  start is the separator: an em or en dash, a space, a no-break space or a
+  run of White_Space. So two nodes with the same path, heading and
+  normalized own text, which hash alike, get the same verdict. Nothing else
+  is taken away: two dashes after a heading leave one, a dash and a space
+  leave the space, and a node with no heading whose own text is its label
+  and a space, "(a) ", is operative. The label and heading are cut from the
+  raw own text before the rest is normalized, since a combining mark right
+  after a heading would join its last letter once normalized. None of
+  these is in 1024.41.
+- **`Join` knows the document.** `Document`, built from a tree, holds its
+  nodes in document order, each before its children: the one notion of
+  that order and of anchors consecutive in it. `Runs` splits a cite into
+  the longest runs of anchors consecutive in that order, and `Join` gives
+  one string per run, both in document order whatever order the cite gives
+  them in; within a run, nothing between own texts in one `<P>` and one
+  space between `<P>`s. So a quote is matched within one run's string and
+  can't cross a join between anchors that aren't consecutive (spec
+  "Multi-anchor cite"): `[k-1, k-1-ii]` is two runs, `[k-1-i, k-1-ii]` one.
+  An empty cite, a nil anchor, one not in the document (by identity: a
+  node of another tree at the same path is not in it) and one given twice
+  are refused, each with its named error. `text.md` and `sha256_text` join
+  the whole document as one run.
 - **`Operative` returns an error** for a node whose own text doesn't start
-  with its label, and its heading if it has one, rather than guess.
-- **Sections are named, never defaulted:** `regcorpus parse` with no
-  section exits 2, so a bare run can't write 1024.30's files before step 9.
-- **`Derive` checks every derived file before writing any:** each must be
-  missing or a regular file, reached through real directories, or nothing
-  is written; then only files whose bytes differ are replaced. An
-  `overrides.yaml` of any kind (a file, an empty file, a directory, a
-  symlink) refuses.
+  with its label, and its heading if it has one, or isn't valid UTF-8,
+  rather than guess.
+- **`regcorpus parse` writes only sources whose goldens are in.** The
+  source table names, for a source without them, the plan step that adds
+  them, and `parse` refuses it (exit 1, "goldens are plan step 9's",
+  nothing written): today it writes 1024.41's files and refuses 1024.30
+  and 1024.31. Sections are named, never defaulted: no section exits 2.
+- **`l0.Update` is the only writer of a source's files.** The command's
+  set returns the derived files' bytes, built from the raw XML `Stored`
+  checked, and `Update`, under the source's lock, first checks that
+  `tree.json` and `text.md` are each missing or a regular file, then
+  replaces `tree.json`, `text.md` and `meta.yaml` (what `meta.Marshal`
+  renders) in turn, each only when its bytes differ. No exported function
+  replaces a file at a path its caller names, so raw XML is never
+  overwritten, `meta.yaml` is only what `internal/meta` renders, and a
+  derived file is only the source's own; a source directory with a "." or
+  ".." element, an empty one or a slash at either end is refused. Every
+  refusal (exit 1) is found before the first write, so exit 1 means
+  nothing was written. An error while writing is not a refusal: `Update`
+  returns the files it replaced before it, `regcorpus parse` prints them
+  and exits 2, and a re-run writes the rest. An `overrides.yaml` of any
+  kind (a file, an empty file, a directory, a symlink) refuses.
 - **`text.md`'s last LF** is the citation note's own (its character data
   ends in one in 1024.41), or one added when it has none.
 
@@ -208,19 +263,24 @@ above (for the chief of staff to confirm):
     dashes to `-`, then every run of Unicode White_Space collapsed to one
     space, never trimmed. An anchor is operative when its own text, minus
     its label, the one space before its heading, the heading, and the one
-    "—" or space that ends the heading, is non-empty. A multi-anchor cite
-    joins own texts in document order with nothing between two in one `<P>`
-    and one space between `<P>`s, and is normalized after joining. A node's
-    `sha256` covers its whole normalized own text, a heading's separator
-    included; `sha256_text` covers the normalized section heading, one space
-    and every anchor joined, not the citation note (the owner's calls; the
-    normalization detail, `text.md`'s form, and the offline `regcorpus
-    parse` that writes `tree.json`, `text.md` and `sha256_text`: the chief of
-    staff's choices). [ADR 0013](adr/0013-cites-join-as-the-document-reads.md) |"
+    dash or space that ends the heading (one `-` or one space once
+    normalized), is non-empty. A multi-anchor cite joins own texts in
+    document order with nothing between two in one `<P>` and one space
+    between `<P>`s, and is normalized after joining. A node's `sha256`
+    covers its whole normalized own text, a heading's separator included;
+    `sha256_text` covers the section heading, one space and every anchor
+    joined, normalized as one string, not the citation note; for the
+    Supplement I 41() slice it is open until plan step 8 (the owner's calls;
+    the normalization detail, the separator read normalized, `text.md`'s
+    form, and the offline `regcorpus parse` that writes `tree.json`,
+    `text.md` and `sha256_text`: the chief of staff's choices). [ADR
+    0013](adr/0013-cites-join-as-the-document-reads.md) |"
   - Definitions, "Operative anchor": "an anchor whose own text, minus label
     and heading, is non-empty." → "an anchor whose own text, minus its
-    label, the one space before its heading, the heading, and the one "—"
-    or space that ends the heading, is non-empty (decision 13)."
+    label, the one space before its heading, the heading, and the one dash
+    or space that ends the heading, is non-empty; what follows the heading
+    is read as normalized text, where that separator is one `-` or one
+    space (decision 13)."
   - Definitions, "Normalized text": "- **Normalized text:**" → "-
     **Normalized text** (decision 13), in this order:"; its items "Unicode
     NFC", "every whitespace run (including U+00A0) collapsed to one space"
@@ -235,7 +295,9 @@ above (for the chief of staff to confirm):
     its whole normalized own text, a heading's separator included, and
     `sha256_text` hashes the normalized source: the section heading, one
     space, then every anchor's own text joined as a multi-anchor cite joins
-    them, without the citation note."
+    them, normalized as one string, without the citation note. For the
+    Supplement I 41() slice, what `sha256_text` covers is open until plan
+    step 8."
   - Definitions, "Multi-anchor cite": "The anchors' own texts are joined
     with one space in document order, and a quote may cross a join only
     between anchors that are consecutive in the document." → "The anchors'
@@ -278,10 +340,13 @@ above (for the chief of staff to confirm):
   - Outputs: "`tree.json`: the parsed tree; each node carries the `sha256`
     of its normalized own text." → the same, then "(spec decision 13)."
     (rewrapped); "`text.md`: generated from `tree.json`." → "`text.md`:
-    generated from `tree.json`: the section as it reads, verbatim."; and
-    after the list, a paragraph is added: "`regcorpus parse <section>`
-    writes `tree.json` and `text.md` and sets `sha256_text`, offline, from
-    the stored raw XML (plan step 5)."
+    generated from `tree.json`: the section as it reads, verbatim, with no
+    markup but the "# " that starts its heading line."; and after the list,
+    a paragraph is added: "`regcorpus parse <section>` writes `tree.json`
+    and `text.md` and sets `sha256_text`, offline, from the stored raw XML
+    (plan step 5). It writes a source's files only once its parser goldens
+    are in: today 1024.41's. It refuses 1024.30 and 1024.31 (exit 1, nothing
+    written) until plan step 9."
   - Check that ends it, the `make test` item, gains: "From plan step 5,
     exit 0 also means 1024.41's committed `tree.json`, `text.md` and
     `sha256_text` are what `regcorpus parse` makes from its raw XML."
@@ -303,21 +368,33 @@ above (for the chief of staff to confirm):
 ## Consequences
 - 1024.41 has `tree.json` (91 nodes, each with a `sha256`), `text.md` and
   `sha256_text: "ecda50e7ce958e2fd19a8f1843b3c60bde0dcf533cc2c313cb9c1e1960760fe1"`,
-  which an independent computation (Python's `unicodedata` NFC, the raw
-  XML read without the Go parser) also gives, as it gives the hashes of
-  `b`, `c-2-v` and `c-2-v-A-1`. `make test` checks that the committed files
-  are what `regcorpus parse` makes from the raw XML.
+  which an independent computation,
+  [`internal/anchors/testdata/oracle.py`](../../internal/anchors/testdata/oracle.py)
+  (Python's `unicodedata` NFC, the raw XML read without the Go parser),
+  also gives, as it gives the hashes of `b`, `c-2-v` and `c-2-v-A-1`;
+  `make test` pins its output. `make test` also checks that the committed
+  files are what `regcorpus parse` makes from the raw XML.
 - 75 of 1024.41's 91 nodes are operative; the 15 heading-only lead-ins and
-  (c)(4)(ii)(A) are not, so the inventory (step 14) lists 75 anchors.
-- A change upstream to a heading's separator alone ("—" to ". ") changes
-  that node's hash but not whether it is operative.
+  (c)(4)(ii)(A) are not. So the inventory (step 14) lists 75 operative
+  anchors of 1024.41's rule text; its 41() comments are added in plan step
+  8.
+- An upstream change to a heading's separator alone: where a child's label
+  follows it, anything but one "—" or one space ("—" to ". ", say) fails
+  the parse (ADR 0012). At the end of a `<P>`, "—" to "–", or " " to a
+  no-break space or to two spaces, changes neither the node's hash nor
+  whether it is operative, since normalization maps them alike; "—" to ".
+  " changes the hash and makes the node operative, as ". " is text.
 - A quote copied from the regulation across "—(1)" or "(A)(1)" matches its
-  cite's join; across two `<P>`s it matches with one space.
+  cite's join; across two `<P>`s it matches with one space. A quote across
+  anchors that aren't consecutive matches nothing, since they are joined
+  in separate runs.
 - `sha256_text` doesn't change when only the citation note does.
 - `go.mod` requires `golang.org/x/text`. Until the owner's gate-test PR
   merges to main, `.githooks/pre-commit_test.sh` and `.github/c6_test.sh`
-  fail on this branch, since they copy `go.mod` without `go.sum`; the
-  pre-commit hook and CI build main's checker, so commits are unaffected.
+  fail on this branch, since they copy `go.mod` without `go.sum`. The
+  pre-commit hook builds main's checker, so commits are unaffected; but CI
+  runs `make test` too, so the PR's "C6 gate" check stays red until the
+  owner's gate-test PR lands and main is merged into this branch.
 - `regcorpus help` lists `parse`, and `regcorpus parse -h` gives its exit
   codes.
 - Changing any of the above after records store `source_hashes` (step 16
@@ -330,20 +407,32 @@ normalized text, multi-anchor cite) and "Granularity"; C6 (the join rule
 quotes are matched under); decisions 6 (CLI only) and 13.
 
 ## Links
-- calls.md (the owner's calls, quoted on the PR that records this ADR) and
-  the step 5 mandate, in the chief of staff's working notes.
-- The PR that records this ADR (the chief of staff opens it).
+- PR #9 (https://github.com/Okja-Engineering/reg-corpus/pull/9), which
+  records this ADR; its comment quoting the owner's calls and every option
+  offered (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7145434918).
 - Commits `e7359a6` (the tests against stubs, red), `0837bda`
   (`internal/anchors`, `l0.Derive`, `regcorpus parse` and 1024.41's files,
-  green) and `2e8806b` (a row from the mutant pass):
-  `internal/anchors/normalize.go` (`Normalize`, `Hash`),
-  `internal/anchors/anchors.go` (`ID`, `Operative`, `Join`),
-  `internal/anchors/build.go` (`Build`, `EncodeTree`, `TextMD`,
+  green), `2e8806b` (a row from the mutant pass), `08ec51e` (this ADR and
+  its amendments), `1d75130` (a comment); and from PR #9's first review,
+  `4da7089` (the tests against stubs, red), `b7174d5` (`Document`, `Runs`
+  and `Join` by run; `Update` the only writer, `Derive` and `Replace`
+  gone; exact names; the separator read normalized; the refusals; the
+  sources parse writes; green), `ae69a02` (escapes for invisible characters
+  in Go source), and the commit that revises this ADR, the spec and the
+  stage 01 contract.
+- Files: `internal/anchors/normalize.go` (`Normalize`, `Hash`),
+  `internal/anchors/anchors.go` (`ID`, `Operative`, `Document`, `Runs`,
+  `Join`), `internal/anchors/build.go` (`Build`, `EncodeTree`, `TextMD`,
   `SectionText`, `SHA256Text`), `internal/anchors/write.go` (`Write`),
-  `internal/l0/derive.go` (`Derive`), `internal/l0/source.go`,
-  `internal/ecfr/parsecmd.go`, `internal/parse/tree.go`, `cmd/regcorpus/main.go`,
-  `sources/ecfr/title-12/1024.41/{tree.json,text.md,meta.yaml}`, and the
-  tests `internal/anchors/*_test.go`, `internal/l0/derive_test.go`,
-  `internal/ecfr/parsecmd_test.go`.
+  `internal/anchors/testdata/oracle.py`, `internal/l0/source.go` (`Read`,
+  `Update`), `internal/l0/store.go` (`RealDirs`, `replace`),
+  `internal/ecfr/parsecmd.go`, `internal/ecfr/sources.go`,
+  `internal/ecfr/metaset.go`, `internal/parse/tree.go`,
+  `cmd/regcorpus/main.go`, `.gitignore`,
+  `sources/ecfr/title-12/1024.41/{tree.json,text.md,meta.yaml}`, the
+  package docs named above, and the tests `internal/anchors/*_test.go`,
+  `internal/l0/update_test.go`, `internal/l0/update_darwin_test.go`,
+  `internal/l0/store_test.go`, `internal/ecfr/parsecmd_test.go` and
+  `internal/ecfr/parsecmd_darwin_test.go`.
 - ADR 0012, "Where the dash or space after a heading goes"; ADR 0010, "Where
   the source table lives".
