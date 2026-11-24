@@ -57,9 +57,12 @@ lives only under `sources/**/raw/`.
 
 ## Requirements
 - R1: verbatim storage and the metadata each source records.
-- R1a: deterministic, rule-based parse. Labels count only at the start of a
-  paragraph element or right after a heading dash; (i)/(v)/(x) resolved by
-  sequence; any skipped, repeated, out-of-order or unplaceable label fails;
-  goldens are built from eCFR or official-edition XML only.
+- R1a: deterministic, rule-based parse. Labels count only in a paragraph's
+  lead: at the start of a paragraph element, right after a heading past the
+  dash or space that ends it, or right after another lead label; the lead
+  ends at the first other text (spec decision 12). (i)/(v)/(x) resolved by
+  sequence, and by the next label when it could be either; any skipped,
+  repeated, out-of-order or unplaceable label fails; goldens are built from
+  eCFR or official-edition XML only.
 - R1b: the newer-version check, run before every release (stage 04).
 - Spec "Granularity": one file set per CFR section; per-anchor hashes.

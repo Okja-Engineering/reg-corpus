@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/okja-engineering/reg-corpus/internal/meta"
+	"github.com/okja-engineering/reg-corpus/internal/parse"
 )
 
 // DefaultBaseURL is the eCFR versioner API (plan "Upstream calls"). It needs
@@ -257,9 +258,9 @@ const maxErrorBody = 8 << 10
 func errorSnippet(encoding string, r io.Reader) string {
 	raw, _ := io.ReadAll(io.LimitReader(r, maxErrorBody))
 	if body, err := decode(encoding, raw); err == nil {
-		return snippet(body)
+		return parse.Snippet(body)
 	}
-	return snippet(raw)
+	return parse.Snippet(raw)
 }
 
 // readCapped reads r to the end, failing past maxBody bytes.
@@ -295,15 +296,6 @@ func decode(encoding string, raw []byte) ([]byte, error) {
 	}
 }
 
-// snippet quotes up to the first 300 bytes of an error body.
-func snippet(body []byte) string {
-	const max = 300
-	if len(body) > max {
-		return strconv.Quote(string(body[:max])) + "..."
-	}
-	return strconv.Quote(string(body))
-}
-
 // firstInvalid returns the offset of the first byte of b that is not part of
 // a valid UTF-8 sequence, or -1.
 func firstInvalid(b []byte) int {
@@ -317,153 +309,29 @@ func firstInvalid(b []byte) int {
 	return -1
 }
 
-// bom is the UTF-8 byte order mark. It may open a document and is not part of
-// it (XML 1.0, 4.3.3).
-var bom = []byte("\xef\xbb\xbf")
-
-// document returns nil when b is one XML document whose root element is want;
-// otherwise an error completing "body is ...". It is not an XML 1.0 validator:
-// it checks what encoding/xml's strict parse checks (syntax, nesting, unknown
-// entities, unquoted attributes, characters XML forbids) and, on top:
-//   - exactly one root element, and it is want;
-//   - no element has the same attribute twice;
-//   - outside the root, only comments, processing instructions and XML
-//     whitespace (space, tab, CR, LF) as written: no other text, and no CDATA
-//     or character reference even if it stands for whitespace;
-//   - a PI target of "xml" in any case only as the XML declaration, at the
-//     very start (after an optional UTF-8 BOM), and that by its grammar
-//     (xmlDeclaration): version 1.0, encoding UTF-8 if any, standalone if any;
-//   - no <!DOCTYPE> or other declaration anywhere: eCFR serves none, and a
-//     document that has one is not eCFR's.
+// document returns nil when b is one well-formed XML document whose root
+// element is want; otherwise an error completing "body is ...". The
+// well-formedness check is parse.WellFormed, the one Parse also runs first, so
+// fetch and Parse refuse the same malformed XML; see its doc for what it
+// checks beyond encoding/xml's strict parse. The root element is fetch's to
+// check: it is the section asked for.
 func document(b []byte, want rootElement) error {
-	malformed := func(d *xml.Decoder, format string, a ...any) error {
-		line, _ := d.InputPos()
-		return fmt.Errorf("not well-formed XML: line %d: %s", line, fmt.Sprintf(format, a...))
-	}
-	in := bytes.TrimPrefix(b, bom)
-	d := xml.NewDecoder(bytes.NewReader(in))
-	d.Strict = true
-	depth, roots := 0, 0
-	for first := true; ; first = false {
-		start := d.InputOffset()
-		tok, err := d.Token()
-		if err == io.EOF {
-			break
+	return parse.WellFormed(b, func(t xml.StartElement) error {
+		if got := rootOf(t); got != want {
+			return fmt.Errorf("not %s's eCFR XML: root element %s, want %s", want.N, got, want)
 		}
-		if err != nil {
-			return fmt.Errorf("not well-formed XML: %w", err)
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			for i, a := range t.Attr {
-				for _, prev := range t.Attr[:i] {
-					if a.Name == prev.Name {
-						return malformed(d, "duplicate attribute %s on <%s>", qualified(a.Name), qualified(t.Name))
-					}
-				}
-			}
-			if depth == 0 {
-				if roots++; roots > 1 {
-					return malformed(d, "a second root element <%s>", t.Name.Local)
-				}
-				if got := rootOf(t); got != want {
-					return fmt.Errorf("not %s's eCFR XML: root element %s, want %s", want.N, got, want)
-				}
-			}
-			depth++
-		case xml.EndElement:
-			depth--
-		case xml.CharData:
-			// Judged as written, not as decoded: CDATA and character
-			// references decode to text indistinguishable from whitespace.
-			if written := in[start:d.InputOffset()]; depth == 0 && len(bytes.Trim(written, xmlSpace)) > 0 {
-				return malformed(d, "text outside the root element: %s", snippet(written))
-			}
-		case xml.ProcInst:
-			if !strings.EqualFold(t.Target, "xml") {
-				break
-			}
-			if !first || t.Target != "xml" {
-				return malformed(d, "<?%s %s?> is not an XML declaration, <?xml version=...?> at the very start", t.Target, t.Inst)
-			}
-			if err := xmlDeclaration(t.Inst); err != nil {
-				return malformed(d, "XML declaration <?xml %s?>: %v", t.Inst, err)
-			}
-		case xml.Directive:
-			return malformed(d, "<!%s>", t)
-		}
-	}
-	if roots == 0 {
-		return errors.New("not well-formed XML: no root element")
-	}
-	return nil
-}
-
-// xmlSpace is XML's whitespace (XML 1.0, 2.3 S).
-const xmlSpace = " \t\r\n"
-
-// xmlDeclaration returns nil when inst, what follows the target of an
-// <?xml ...?> PI, is an XML declaration by its grammar (XML 1.0, 2.8): version
-// 1.0, then optionally encoding UTF-8 (in any case), then optionally
-// standalone yes or no, in that order, each name Eq (= with optional
-// whitespace) and a single- or double-quoted value, separated by whitespace.
-func xmlDeclaration(inst []byte) error {
-	rest := string(inst)
-	for i, part := range []struct {
-		name string
-		ok   func(string) bool
-	}{
-		{"version", func(v string) bool { return v == "1.0" }},
-		{"encoding", func(v string) bool { return strings.EqualFold(v, "UTF-8") }},
-		{"standalone", func(v string) bool { return v == "yes" || v == "no" }},
-	} {
-		// The parser has read the whitespace after the target, so version
-		// needs none of its own; the others are each separated from the last.
-		s := strings.TrimLeft(rest, xmlSpace)
-		if (i > 0 && len(s) == len(rest)) || !strings.HasPrefix(s, part.name) {
-			if i == 0 {
-				return errors.New("no version")
-			}
-			continue // an optional part, absent
-		}
-		s = strings.TrimLeft(s[len(part.name):], xmlSpace)
-		if !strings.HasPrefix(s, "=") {
-			return fmt.Errorf("%s without =", part.name)
-		}
-		s = strings.TrimLeft(s[1:], xmlSpace)
-		if s == "" || (s[0] != '"' && s[0] != '\'') {
-			return fmt.Errorf("%s without a quoted value", part.name)
-		}
-		end := strings.IndexByte(s[1:], s[0])
-		if end < 0 {
-			return fmt.Errorf("%s's value is not closed", part.name)
-		}
-		if v := s[1 : 1+end]; !part.ok(v) {
-			return fmt.Errorf("%s %q", part.name, v)
-		}
-		rest = s[2+end:]
-	}
-	if s := strings.Trim(rest, xmlSpace); s != "" {
-		return fmt.Errorf("unexpected %q", s)
-	}
-	return nil
-}
-
-// qualified is n with its namespace, if any, before a colon.
-func qualified(n xml.Name) string {
-	if n.Space != "" {
-		return n.Space + ":" + n.Local
-	}
-	return n.Local
+		return nil
+	})
 }
 
 // rootOf is start's name and TYPE and N attributes. A namespaced element or
 // attribute keeps its namespace in the name, so it never equals an eCFR root.
-// document has refused duplicate attributes, so each is read once.
+// parse.WellFormed refuses duplicate attributes before it calls the root
+// check, so each is read once.
 func rootOf(start xml.StartElement) rootElement {
-	r := rootElement{Name: qualified(start.Name)}
+	r := rootElement{Name: parse.Qualified(start.Name)}
 	for _, a := range start.Attr {
-		switch qualified(a.Name) {
+		switch parse.Qualified(a.Name) {
 		case "TYPE":
 			r.Type = a.Value
 		case "N":

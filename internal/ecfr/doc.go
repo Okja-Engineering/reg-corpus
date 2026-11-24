@@ -26,9 +26,14 @@
 //     the status before reading, caps what it reads, decodes gzip itself, and
 //     returns the body exactly as served, after checking it is valid UTF-8 and
 //     one XML document whose root element is the source's
-//     (<DIV8 TYPE="SECTION" N="<section>">); document() says what that
-//     checks. An HTTP error, malformed JSON or a bad body is an error naming
-//     the URL; nothing falls back.
+//     (<DIV8 TYPE="SECTION" N="<section>">). document() checks the form with
+//     parse.WellFormed, the one well-formedness check, which Parse also runs
+//     first and meta set runs on the raw XML it reads citations from
+//     (WellFormed's doc says what it checks), and the root element itself.
+//     WellFormed lives in internal/parse because fetch may import parse but
+//     parse must not import this package, which holds the network client. An
+//     HTTP error, malformed JSON or a bad body is an error naming the URL;
+//     nothing falls back.
 //   - Every fetch first reads titles.json, and fetches no date after the one
 //     eCFR is up to date as of.
 //   - fetch stores the latest version's XML at
@@ -66,11 +71,12 @@
 // its form is checked (internal/meta). Each citation, each given once, must
 // be cited in a citation note (<CITA>) of the raw XML meta.yaml describes
 // (citationNote reads each run of a note's text on its own, shorthand pages
-// too), and raw XML that is not well-formed, which the strict parse refuses,
-// refuses the citations (exit 1); that checks membership only, not that the
-// page is the amendment that produced the version. The values are read from the Federal Register
-// and eCFR outside the tool (plan step 3's diff record, in its PR); meta set
-// checks only what L0 itself can check.
+// too), and raw XML that is not well-formed, which parse.WellFormed (fetch's
+// check) refuses, refuses the citations (exit 1); that checks membership
+// only, not that the page is the amendment that produced the version. The
+// values are read from the Federal Register and eCFR outside the tool (plan
+// step 3's diff record, in its PR); meta set checks only what L0 itself can
+// check.
 //
 // TODO(plan step 6): `fetch --verify` (verified_on) and
 // `fetch --latest` (R1b). TODO(plan step 8): Supplement I, an appendix source

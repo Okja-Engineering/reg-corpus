@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007, 0010 and 0011
+- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012
 - **Spec:** `docs/03-spec.md`
 - **Appetite:** four weekends plus the following week as buffer; decision by 2026-12-20
 
@@ -84,14 +84,15 @@ VERSION  CHANGES.json             # after accept
    - a corrupted-sequence fixture that must fail
 
    Then the parser itself:
-   - **Label position:** a label counts only at the start of `<P>` or after a heading dash.
+   - **Label position:** a label counts only in a paragraph's lead: at the start of `<P>`, right after a heading past the dash or space that ends it, or right after another lead label; the lead ends at the first other text (ADR 0012).
    - **State machine:** a stack of levels, each holding its last sibling label.
-   - **The (i)/(v)/(x) rule:** it's a letter only when the last letter-level sibling directly precedes it.
+   - **The (i)/(v)/(x) rule:** it's a letter only when the last letter-level sibling directly precedes it; when it could be either, the next label decides, and with no next label, or one placed after neither reading, the parse fails (ADR 0012).
    - **Fail loudly:** exit non-zero with the XML location; fix source defects only through `overrides.yaml`.
 5. `internal/anchors`:
    - Generate `text.md` from the tree.
    - Normalize the text, and write a per-node `sha256` of normalized own text into `tree.json`.
    - Set `sha256_text` in `meta.yaml` through `internal/l0`, keeping the other fields (ADR 0010).
+   - Decide whether a heading's "—" or space left at the end of a parent's own text counts in the operative-anchor test and the per-node hash, and how a multi-anchor cite joins own texts across a heading separator or a paragraph boundary (spec "Carried forward"; ADR 0012).
 6. `regcorpus fetch --verify`: compare the version date, tree and `sha256_text`, recording `sha256_raw` as information only. Then compare the normalized text to the govinfo CFR 2026 edition and set `verified_on`. Add `regcorpus fetch --latest` (R1b).
 7. `regcorpus text <anchor>`.
 
@@ -153,7 +154,7 @@ VERSION  CHANGES.json             # after accept
 ## Risks
 | Risk | Effect | Mitigation |
 |---|---|---|
-| eCFR XML doesn't tag paragraph depth; labels like (i) are ambiguous; cross-references contain labels | Wrong anchors poison every cite | Deterministic parser; labels recognized only by position; goldens written before the code, from the XML; fail on any sequence break |
+| eCFR XML doesn't tag paragraph depth; labels like (i) are ambiguous; cross-references contain labels | Wrong anchors poison every cite | Deterministic parser; labels recognized only by position; an (i), (v) or (x) that could be either decided by the next label; goldens written before the code, from the XML; fail on any sequence break (ADR 0012) |
 | A source defect blocks the parser | Weekend 1 stalls | A reviewed `overrides.yaml` entry, never a parser hack |
 | Supplement I's structure differs from the regulation's | Comment anchors wrong or missing | Inspect the raw XML first; goldens on known comments and a skipped heading |
 | Extraction misses or duplicates duties (~90% first-pass recall is typical) | Omissions inside the corpus | Subtree units with cross-references included; inventory at operative anchors; `reviewed` sign-off; dedup in `check --staging` |

@@ -723,6 +723,41 @@ func TestCitationsComeOnlyFromWellFormedXML(t *testing.T) {
 	}
 }
 
+// TestCitationsComeOnlyFromXMLFetchWouldStore: well-formed means the form
+// fetch checks before storing a body (parse.WellFormed), not only what the
+// strict parse refuses, so raw XML it would refuse as not well-formed is
+// refused here too (exit 1, naming the raw file and what is wrong), and no
+// citation is read from it.
+func TestCitationsComeOnlyFromXMLFetchWouldStore(t *testing.T) {
+	const (
+		decl = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+		rest = "<DIV8 N=\"1024.41\" TYPE=\"SECTION\">\n<HEAD>§ 1024.41 Stand-in.</HEAD>\n<P>(a) Stand-in text.</P>\n"
+		note = "<CITA TYPE=\"N\">[90 FR 20792, May 16, 2025]</CITA>\n</DIV8>\n"
+	)
+	for _, c := range []struct{ name, body, want string }{
+		{"a duplicate attribute", decl + rest + "<CITA TYPE=\"N\" TYPE=\"X\">[90 FR 20792, May 16, 2025]</CITA>\n</DIV8>\n",
+			"duplicate attribute TYPE on <CITA>"},
+		{"an XML declaration that breaks its grammar", "<?xml garbage?>\n" + rest + note,
+			"XML declaration <?xml garbage?>: no version"},
+		{"text before the root", decl + "junk" + rest + note,
+			"text outside the root element"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := corpusRoot(t)
+			writeFile(t, root, rawPath("1024.41"), c.body)
+			writeFile(t, root, metaPath("1024.41"), fetchMeta("2025-07-15", sha(c.body)))
+			before := tree(t, root)
+			code, stdout, stderr := metaAt(t, root, "set", "1024.41", "version_fr_citations", "90 FR 20792")
+			if code != 1 || stdout != "" || !strings.Contains(stderr, rawPath("1024.41")+": not well-formed XML: ") || !strings.Contains(stderr, c.want) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1 naming the raw file as not well-formed XML: %s", code, stdout, stderr, c.want)
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+}
+
 // TestEffectiveDateIsTakenAsGiven: version_effective_date is set as given,
 // whatever its relation to source_version_date (2025-07-15 here): only its
 // form is checked. eCFR also dates a version by a rule's publication, before

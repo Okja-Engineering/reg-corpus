@@ -14,6 +14,7 @@ import (
 
 	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
+	"github.com/okja-engineering/reg-corpus/internal/parse"
 )
 
 const metaUsage = `usage: regcorpus meta set <section> version_effective_date YYYY-MM-DD
@@ -45,8 +46,8 @@ meta.yaml (run regcorpus fetch first), or one not in the spec's schema or
 naming another source; raw/ not holding exactly the raw file meta.yaml
 describes, with its bytes; a symlink or a file in place of meta.yaml, the
 raw file or a directory on the way; when setting citations, raw XML that
-is not well-formed (the strict parse refuses it), or a citation the note
-doesn't cite. Nothing is written.
+is not well-formed (the form fetch checks before storing a body), or a
+citation the note doesn't cite. Nothing is written.
 Exit 2: a usage error (no such section, any other field, a flag, a value not
 of its field's type, a citation given twice), no sources/ecfr/title-12/ (not
 the corpus root), a file that can't be read or written, or a platform
@@ -232,9 +233,14 @@ var shorthand = regexp.MustCompile(`^,` + space + `*([0-9]+)`)
 // notes (<CITA> elements, eCFR XML), in order, each once. A citation lies
 // within one run of a note's text: text in two notes, or on either side of
 // an element inside a note, never joins into one. Text outside the notes
-// (an XREF's amendment link, the rule text) is not read.
+// (an XREF's amendment link, the rule text) is not read. If body fails
+// parse.WellFormed, the check of form fetch makes before storing a body, that
+// is the error, and no citation is read from it.
 func citationNote(body []byte) ([]meta.Citation, error) {
-	d := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(body, bom)))
+	if err := parse.WellFormed(body, nil); err != nil {
+		return nil, err
+	}
+	d := xml.NewDecoder(bytes.NewReader(body)) // a byte-order mark is text outside every note
 	d.Strict = true
 	var runs []string
 	var run strings.Builder
@@ -244,6 +250,9 @@ func citationNote(body []byte) ([]meta.Citation, error) {
 		if err == io.EOF {
 			break
 		}
+		// Not reached: WellFormed has decoded body after one leading BOM, if
+		// any, and this decoder reads that BOM as text (U+FEFF, a legal XML
+		// character), then the same bytes.
 		if err != nil {
 			return nil, fmt.Errorf("not well-formed XML: %w", err)
 		}
