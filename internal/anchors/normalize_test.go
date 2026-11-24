@@ -163,7 +163,7 @@ func TestInvalidUTF8IsRefused(t *testing.T) {
 			t.Errorf("Hash(%+q) = %s, nil; want an error", in, got)
 		}
 	}
-	if got, err := anchors.Hash("a�b"); err != nil || got != sum("a�b") {
+	if got, err := anchors.Hash("a\uFFFDb"); err != nil || got != sum("a\uFFFDb") {
 		t.Errorf("Hash(a U+FFFD b) = %s, %v; want the sha256 of its UTF-8", got, err)
 	}
 }

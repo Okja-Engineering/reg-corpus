@@ -66,7 +66,7 @@ func EncodeTree(t *parse.Tree) ([]byte, error) {
 
 // lineBreaks are the characters that end a line: CR, LF, NEL (U+0085), and
 // the line and paragraph separators (U+2028, U+2029).
-const lineBreaks = "\r\n\u0085  "
+const lineBreaks = "\r\n\u0085\u2028\u2029"
 
 // TextMD is text.md for t (ADR 0013, F5: T1), the section as it reads: "# "
 // and the section's HEAD, then each <P>'s text (its nodes' own texts joined

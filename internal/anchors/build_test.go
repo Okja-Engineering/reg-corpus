@@ -214,7 +214,7 @@ func TestSHA256Text(t *testing.T) {
 // White_Space leaves one space before the body, not two.
 func TestSHA256TextNormalizesTheHeadWithTheBody(t *testing.T) {
 	const want = "§ 0.1 Head. (a) Text."
-	for _, head := range []string{"§ 0.1 Head. ", "§ 0.1 Head. ", "§ 0.1 Head.\t"} {
+	for _, head := range []string{"§ 0.1 Head. ", "§ 0.1 Head.\u00A0", "§ 0.1 Head.\t"} {
 		d, err := anchors.Build(sectionHead(head, "", "(a) Text."))
 		if err != nil {
 			t.Fatal(err)
@@ -238,13 +238,13 @@ func TestTextMDRefusesALineBreakInsideAText(t *testing.T) {
 		{"LF in a <P>", section("", "(a) One&#10;two."), "0-1-a"},
 		{"CR in a <P>", section("", "(a) One&#13;two."), "0-1-a"},
 		{"NEL in a <P>", section("", "(a) One\u0085two."), "0-1-a"},
-		{"LS in a heading", section("", "(a) <I>One two.</I> Text."), "0-1-a"},
-		{"PS in a child's text", section("", "(a) <I>Head</I>—(1) One two."), "0-1-a-1"},
+		{"LS in a heading", section("", "(a) <I>One\u2028two.</I> Text."), "0-1-a"},
+		{"PS in a child's text", section("", "(a) <I>Head</I>—(1) One\u2029two."), "0-1-a-1"},
 		{"LF in the HEAD", sectionHead("§ 0.1&#10;Head.", "", "(a) Text."), "0.1 HEAD"},
 		{"two LFs ending the CITA", section("[Cite]\n\n", "(a) Text."), "0.1 CITA"},
 		{"an LF inside the CITA", section("[A]\n[B]", "(a) Text."), "0.1 CITA"},
 		{"CR LF ending the CITA", section("[Cite]&#13;\n", "(a) Text."), "0.1 CITA"},
-		{"LS ending the CITA", section("[Cite] ", "(a) Text."), "0.1 CITA"},
+		{"LS ending the CITA", section("[Cite]\u2028", "(a) Text."), "0.1 CITA"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, err := anchors.Build(tc.data)
@@ -296,7 +296,7 @@ func TestStoredRawsHoldNoLineBreakInsideAText(t *testing.T) {
 			if el == "CITA" {
 				s = strings.TrimSuffix(s, "\n")
 			}
-			if i := strings.IndexAny(s, "\r\n\u0085  "); i >= 0 {
+			if i := strings.IndexAny(s, "\r\n\u0085\u2028\u2029"); i >= 0 {
 				t.Errorf("%s: a line break in %s at byte %d", raw, el, i)
 			}
 		}
