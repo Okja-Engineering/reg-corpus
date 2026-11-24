@@ -31,10 +31,10 @@ func (s Source) Identity() meta.Meta {
 }
 
 // The names of the files a source's directory holds beside raw/ (spec
-// "Granularity"). Read matches them exactly (exactly, as RealDirs matches
-// directories): a name that differs from one only in case is refused,
-// since a case-insensitive filesystem (APFS, the default on macOS) would
-// read and write it as that file while git records another name.
+// "Granularity"). Read finds them by exact name (exactly, which RealDirs
+// uses for directories): a name that differs from one only in case is
+// refused, since a case-insensitive filesystem (APFS, the default on macOS)
+// would read and write it as that file while git records another name.
 const (
 	metaName      = "meta.yaml"
 	treeName      = "tree.json"

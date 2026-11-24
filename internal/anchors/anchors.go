@@ -27,8 +27,9 @@ func ID(section string, path []string) string {
 // no-break space or any run of White_Space, as the parser leaves at the end
 // of a lead-in's own text; ADR 0012). Where the heading itself ends in
 // White_Space, that run and any White_Space after it are one space, the
-// heading's own, so one "-" after it is still the separator: "(a) Head —"
-// and "(a) Head—" with the heading "Head " are both heading-only. So two
+// heading's own, so one "-" after it is still the separator: with the
+// heading "Head ", "(a) Head —" and "(a) Head  —" are both heading-only,
+// while with the heading "Head", "(a) Head —" leaves "-". So two
 // nodes with the same path, the same heading and the same normalized own
 // text get the same verdict. Nothing else is taken away: two dashes after a
 // heading leave one, a space after a label with no heading is text, and
