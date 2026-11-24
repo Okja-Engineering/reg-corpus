@@ -79,20 +79,29 @@ func TestDeriveRefusesAllBeforeWritingAny(t *testing.T) {
 			}
 		})
 	}
-	// A symlink on the way is refused as everywhere in L0 (RealDirs).
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "real"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("real", filepath.Join(root, "s")); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Derive(root, []File{{"s/tree.json", []byte("A")}})
-	var c *Conflict
-	if !errors.As(err, &c) {
-		t.Errorf("err %v; want a conflict for the symlinked directory", err)
-	}
-	if _, err := os.Lstat(filepath.Join(root, "real", "tree.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("tree.json was written through the symlink")
+	// A symlink on the way is refused as everywhere in L0 (RealDirs): a file
+	// is neither written nor read through one, so a file behind it that
+	// already holds the bytes is not reported unchanged.
+	for _, there := range []string{"", "A"} {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "real"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if there != "" {
+			if err := os.WriteFile(filepath.Join(root, "real", "tree.json"), []byte(there), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Symlink("real", filepath.Join(root, "s")); err != nil {
+			t.Fatal(err)
+		}
+		changed, err := Derive(root, []File{{"s/tree.json", []byte("A")}})
+		var c *Conflict
+		if !errors.As(err, &c) || changed != nil {
+			t.Errorf("tree.json %q behind a symlinked directory: changed %v, err %v; want a conflict", there, changed, err)
+		}
+		if b, err := os.ReadFile(filepath.Join(root, "real", "tree.json")); there == "" && !errors.Is(err, os.ErrNotExist) || there != "" && string(b) != there {
+			t.Errorf("tree.json was written through the symlink")
+		}
 	}
 }
