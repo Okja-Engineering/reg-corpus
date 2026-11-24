@@ -60,6 +60,46 @@ func TestALinkThatFindsAFileComparesIt(t *testing.T) {
 	}
 }
 
+// TestStoreOnceMatchesTheFileExactly: StoreOnce finds the file it stores by
+// exact name among its directory's entries, as RealDirs finds a directory.
+// An entry whose name differs from it only in case (a long s too), holding
+// the same bytes, other bytes, or being a directory, is a conflict naming
+// that entry, and nothing is stored: a case-insensitive filesystem would
+// read it as the file (reporting it unchanged, or its bytes as the stored
+// ones), and a case-sensitive one would store a second file beside it, while
+// git records only the other name.
+func TestStoreOnceMatchesTheFileExactly(t *testing.T) {
+	for _, tc := range []struct {
+		name, p, there, body string // there is "" for a directory
+	}{
+		{"the same bytes", "d/f.xml", "d/F.XML", "ours"},
+		{"other bytes", "d/f.xml", "d/F.xml", "theirs"},
+		{"a long s, the same bytes", "d/s.xml", "d/\U0000017F.xml", "ours"},
+		{"a directory", "d/meta.yaml", "d/META.YAML", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			full := filepath.Join(root, filepath.FromSlash(tc.there))
+			if tc.body == "" {
+				if err := os.MkdirAll(full, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				putFile(t, root, tc.there, tc.body)
+			}
+			before := snapshot(t, root)
+			stored, err := StoreOnce(root, tc.p, []byte("ours"))
+			var conflict *Conflict
+			if stored || !errors.As(err, &conflict) || !strings.Contains(err.Error(), tc.there+" ") || !strings.Contains(err.Error(), "in another case") {
+				t.Errorf("StoreOnce(%s): stored %v, %v; want a conflict naming %s in another case", tc.p, stored, err, tc.there)
+			}
+			if got := changes(before, snapshot(t, root)); len(got) > 0 {
+				t.Errorf("changed %q", got)
+			}
+		})
+	}
+}
+
 // TestStoredRefusesAMetaYAMLNamingAnotherSource: Stored refuses a meta.yaml
 // whose identity differs from the source's in any field, source and official
 // too, whatever read it (meta.Parse knows one source today, so this is

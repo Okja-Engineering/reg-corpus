@@ -82,9 +82,49 @@ func TestCommandsRefuseANameInAnotherCase(t *testing.T) {
 	}
 }
 
+// TestFetchMatchesTheFileItStoresExactly: what fetch reports storing, or
+// finding unchanged, is the name git records. A file beside the one fetch
+// stores, named for it in another case and holding eCFR's bytes, exits 1
+// naming it, with nothing printed or changed, under .cache/ (--date) and in
+// raw/ alike; never "unchanged" against a file git records as another. The
+// -h check is in TestUsageNamesTheCaseRefusal.
+func TestFetchMatchesTheFileItStoresExactly(t *testing.T) {
+	const cache, raw = ".cache/ecfr/title-12/1024.41/", "sources/ecfr/title-12/1024.41/raw/"
+	for _, tc := range []struct {
+		name, exact, there string // the file fetch stores, and its variant
+		args               []string
+	}{
+		{"--date, .XML", cache + "2025-05-15.xml", cache + "2025-05-15.XML", []string{"--date", "2025-05-15", "1024.41"}},
+		{"--date, .Xml", cache + "2025-05-15.xml", cache + "2025-05-15.Xml", []string{"--date", "2025-05-15", "1024.41"}},
+		{"latest, .XML", raw + "2025-07-15.xml", raw + "2025-07-15.XML", []string{"1024.41"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := corpusRoot(t)
+			_, c := newFake(t)
+			// Fetch the file under its own name, then rename it.
+			if code, _, stderr := fetchAt(t, root, c, "2026-11-22", tc.args...); code != 0 {
+				t.Fatalf("fetch: exit %d, %s", code, stderr)
+			}
+			if err := os.Rename(filepath.Join(root, filepath.FromSlash(tc.exact)), filepath.Join(root, filepath.FromSlash(tc.there))); err != nil {
+				t.Fatal(err)
+			}
+			before := tree(t, root)
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", tc.args...)
+			// In raw/, the variant is also an entry besides the latest
+			// version's file, which fetch refuses as such (admits).
+			if code != 1 || stdout != "" || !strings.Contains(stderr, tc.there) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1 naming %s", code, stdout, stderr, tc.there)
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed: before %v, after %v", keysOf(before), keysOf(tree(t, root)))
+			}
+		})
+	}
+}
+
 // TestUsageNamesTheCaseRefusal: each command's -h lists, under exit 1, a
 // name that differs only in case from a source's file's or from a
-// directory's on the way.
+// directory's on the way, and fetch's from the file it stores.
 func TestUsageNamesTheCaseRefusal(t *testing.T) {
 	_, c := newFake(t)
 	for name, run := range map[string]func() (int, string, string){
@@ -96,7 +136,12 @@ func TestUsageNamesTheCaseRefusal(t *testing.T) {
 		_, exit1, _ := strings.Cut(stdout, "Exit 1")
 		exit1, _, _ = strings.Cut(exit1, "Exit 2")
 		exit1 = strings.Join(strings.Fields(exit1), " ")
-		for _, want := range []string{"differs only in case", "meta.yaml, tree.json, text.md or overrides.yaml", "a directory on the way"} {
+		wants := []string{"differs only in case", "meta.yaml, tree.json, text.md or overrides.yaml", "a directory on the way"}
+		if name == "fetch" {
+			// fetch stores a file too, --date's under .cache/ among them.
+			wants = append(wants, "from the file it stores")
+		}
+		for _, want := range wants {
 			if code != 0 || !strings.Contains(exit1, want) {
 				t.Errorf("%s -h: exit %d; its Exit 1 list lacks %q:\n%s", name, code, want, exit1)
 			}
