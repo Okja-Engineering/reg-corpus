@@ -72,6 +72,9 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 // Update, are replaced, each under its source's lock; raw XML is stored once
 // (StoreOnce). Every directory on the way to p must be a real one
 // (RealDirs).
+// replace is the red commit's stub of the unexported writer: Replace.
+func replace(root, p string, body []byte) error { return Replace(root, p, body) }
+
 func Replace(root, p string, body []byte) error {
 	if err := RealDirs(root, path.Dir(p)); err != nil {
 		return err

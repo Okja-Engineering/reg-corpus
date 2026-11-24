@@ -7,8 +7,11 @@ package anchors_test
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
+	"io"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/okja-engineering/reg-corpus/internal/anchors"
@@ -16,10 +19,10 @@ import (
 	"github.com/okja-engineering/reg-corpus/internal/parse"
 )
 
-// The oracle's values: a Python one-off (stdlib unicodedata NFC, Unicode
-// 17.0.0, the raw XML read with regular expressions, not the Go parser)
-// computed them from 1024.41's stored raw XML; it is in the step 5 report,
-// not in the repo.
+// The oracle's values: testdata/oracle.py (Python's standard library only:
+// unicodedata's NFC, the raw XML read with regular expressions, not the Go
+// parser) prints them from 1024.41's stored raw XML; its header says how to
+// run it.
 const (
 	oracleText   = "ecda50e7ce958e2fd19a8f1843b3c60bde0dcf533cc2c313cb9c1e1960760fe1"
 	oracleB      = "3b97eaec814a015db9f4eca31e670e09ec059699c0ac04127d4b63fd849c7c47"
@@ -48,8 +51,8 @@ func TestBuildHashesEveryNode(t *testing.T) {
 		t.Fatalf("%d nodes, want %d", len(nodes), nodes1024_41)
 	}
 	for _, n := range nodes {
-		if !hex64.MatchString(n.SHA256) || n.SHA256 != sum(anchors.Normalize(n.Text)) {
-			t.Errorf("node %v: sha256 %q, want sha256 of %q", n.Path, n.SHA256, anchors.Normalize(n.Text))
+		if !hex64.MatchString(n.SHA256) || n.SHA256 != sum(normalize(t, n.Text)) {
+			t.Errorf("node %v: sha256 %q, want sha256 of %q", n.Path, n.SHA256, normalize(t, n.Text))
 		}
 	}
 }
@@ -97,11 +100,11 @@ func TestTextMDRegeneratesFromCommittedTree(t *testing.T) {
 	if err := json.Unmarshal(readRepo(t, tree41), &tree); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := anchors.TextMD(&tree), readRepo(t, text41); !bytes.Equal(got, want) {
-		t.Errorf("TextMD(committed tree.json) =\n%s\nwant the committed text.md\n%s", got, want)
+	if got, err := anchors.TextMD(&tree); err != nil || !bytes.Equal(got, readRepo(t, text41)) {
+		t.Errorf("TextMD(committed tree.json) = %v,\n%s\nwant the committed text.md\n%s", err, got, readRepo(t, text41))
 	}
-	if got := anchors.SHA256Text(&tree); got != oracleText {
-		t.Errorf("SHA256Text(committed tree.json) = %s, want %s", got, oracleText)
+	if got, err := anchors.SHA256Text(&tree); err != nil || got != oracleText {
+		t.Errorf("SHA256Text(committed tree.json) = %s, %v; want %s", got, err, oracleText)
 	}
 }
 
@@ -202,6 +205,100 @@ func TestSHA256Text(t *testing.T) {
 		}
 		if d.SHA256Text != meta.SHA256(sum(want)) {
 			t.Errorf("CITA %q: sha256_text = %s, want sha256(%q) = %s", cita, d.SHA256Text, want, sum(want))
+		}
+	}
+}
+
+// TestSHA256TextNormalizesTheHeadWithTheBody (N6): the HEAD, the space after
+// it and the body are normalized as one string, so a HEAD that ends in
+// White_Space leaves one space before the body, not two.
+func TestSHA256TextNormalizesTheHeadWithTheBody(t *testing.T) {
+	const want = "§ 0.1 Head. (a) Text."
+	for _, head := range []string{"§ 0.1 Head. ", "§ 0.1 Head. ", "§ 0.1 Head.\t"} {
+		d, err := anchors.Build(sectionHead(head, "", "(a) Text."))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.SHA256Text != meta.SHA256(sum(want)) {
+			t.Errorf("HEAD %+q: sha256_text = %s, want sha256(%q) = %s", head, d.SHA256Text, want, sum(want))
+		}
+	}
+}
+
+// TestTextMDRefusesALineBreakInsideAText: text.md holds the HEAD, each <P>
+// and the CITA on one line each, verbatim, so a line break inside one (CR,
+// LF, U+0085, U+2028, U+2029), or in the CITA anywhere but one LF at its
+// end, is refused, naming where it is, never rewritten.
+func TestTextMDRefusesALineBreakInsideAText(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		data  []byte
+		where string
+	}{
+		{"LF in a <P>", section("", "(a) One&#10;two."), "0-1-a"},
+		{"CR in a <P>", section("", "(a) One&#13;two."), "0-1-a"},
+		{"NEL in a <P>", section("", "(a) One\u0085two."), "0-1-a"},
+		{"LS in a heading", section("", "(a) <I>One two.</I> Text."), "0-1-a"},
+		{"PS in a child's text", section("", "(a) <I>Head</I>—(1) One two."), "0-1-a-1"},
+		{"LF in the HEAD", sectionHead("§ 0.1&#10;Head.", "", "(a) Text."), "0.1 HEAD"},
+		{"two LFs ending the CITA", section("[Cite]\n\n", "(a) Text."), "0.1 CITA"},
+		{"an LF inside the CITA", section("[A]\n[B]", "(a) Text."), "0.1 CITA"},
+		{"CR LF ending the CITA", section("[Cite]&#13;\n", "(a) Text."), "0.1 CITA"},
+		{"LS ending the CITA", section("[Cite] ", "(a) Text."), "0.1 CITA"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := anchors.Build(tc.data)
+			if err == nil || d != nil || !strings.Contains(err.Error(), tc.where+" holds a line break") {
+				t.Errorf("Build = %v, %v; want an error naming %s", d, err, tc.where)
+			}
+			tree := parseXML(t, tc.data)
+			if got, err := anchors.TextMD(tree); err == nil {
+				t.Errorf("TextMD = %q, nil; want an error", got)
+			}
+		})
+	}
+}
+
+// TestStoredRawsHoldNoLineBreakInsideAText: none of the three stored raw
+// XML files holds what TextMD refuses, read from the XML's character data
+// itself (encoding/xml), not through the parser, so 1024.31, which doesn't
+// parse yet, is checked too.
+func TestStoredRawsHoldNoLineBreakInsideAText(t *testing.T) {
+	for _, raw := range []string{raw41, raw30, raw31} {
+		dec := xml.NewDecoder(bytes.NewReader(readRepo(t, raw)))
+		var stack []string
+		texts := map[string]string{}
+		for {
+			tok, err := dec.Token()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch tok := tok.(type) {
+			case xml.StartElement:
+				stack = append(stack, tok.Name.Local)
+			case xml.EndElement:
+				stack = stack[:len(stack)-1]
+			case xml.CharData:
+				for _, el := range stack {
+					if el == "HEAD" || el == "P" || el == "CITA" {
+						texts[el] += string(tok)
+					}
+				}
+			}
+		}
+		if texts["HEAD"] == "" || texts["P"] == "" || texts["CITA"] == "" {
+			t.Fatalf("%s: read no HEAD, P or CITA text", raw)
+		}
+		for el, s := range texts {
+			if el == "CITA" {
+				s = strings.TrimSuffix(s, "\n")
+			}
+			if i := strings.IndexAny(s, "\r\n\u0085  "); i >= 0 {
+				t.Errorf("%s: a line break in %s at byte %d", raw, el, i)
+			}
 		}
 	}
 }

@@ -69,7 +69,7 @@ func TestNormalizePins(t *testing.T) {
 		{"a heading separator", "(b) Receipt of a loss mitigation application\u2014", "(b) Receipt of a loss mitigation application-"},
 		{"quotes and dashes in one string", "\u201CA\u201D \u2013 \u2018b\u2019", "\"A\" - 'b'"},
 	} {
-		if got := anchors.Normalize(tc.in); got != tc.want {
+		if got := normalize(t, tc.in); got != tc.want {
 			t.Errorf("%s: Normalize(%+q) = %+q, want %+q", tc.pin, tc.in, got, tc.want)
 		}
 	}
@@ -105,7 +105,7 @@ func TestNormalizeEveryRune(t *testing.T) {
 			}
 			space = false
 		}
-		if got := anchors.Normalize(string(r)); got != want {
+		if got := normalize(t, string(r)); got != want {
 			if bad++; bad <= 20 {
 				t.Errorf("Normalize(%U) = %+q, want %+q", r, got, want)
 			}
@@ -125,8 +125,8 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 		"\u212B\u2003\u2019\u0301",
 		" \u0301\u2014\u0301\u00A0\u0301",
 	} {
-		once := anchors.Normalize(s)
-		if twice := anchors.Normalize(once); twice != once {
+		once := normalize(t, s)
+		if twice := normalize(t, once); twice != once {
 			t.Errorf("Normalize(Normalize(%+q)) = %+q, want %+q", s, twice, once)
 		}
 	}
@@ -140,8 +140,30 @@ func TestHashIsOfNormalizedText(t *testing.T) {
 		{"", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
 		{"a\u00A0\u00A0b", "c8687a08aa5d6ed2044328fa6a697ab8e96dc34291e8c2034ae8c38e6fcc6d65"},
 	} {
-		if got := anchors.Hash(tc.in); got != tc.want {
-			t.Errorf("Hash(%+q) = %s, want %s", tc.in, got, tc.want)
+		if got, err := anchors.Hash(tc.in); err != nil || got != tc.want {
+			t.Errorf("Hash(%+q) = %s, %v; want %s", tc.in, got, err, tc.want)
 		}
+	}
+}
+
+// TestInvalidUTF8IsRefused: text that isn't valid UTF-8 is an error from
+// Normalize and Hash, never read as U+FFFD, so it can't normalize or hash
+// as text holding U+FFFD does; that text itself is valid.
+func TestInvalidUTF8IsRefused(t *testing.T) {
+	for _, in := range []string{
+		"a\xffb",         // a byte that starts no encoding
+		"a\xc3",          // a truncated encoding
+		"\xc0\xaf",       // an overlong encoding of "/"
+		"x\xed\xa0\x80y", // an encoded surrogate, U+D800
+	} {
+		if got, err := anchors.Normalize(in); err == nil {
+			t.Errorf("Normalize(%+q) = %+q, nil; want an error", in, got)
+		}
+		if got, err := anchors.Hash(in); err == nil {
+			t.Errorf("Hash(%+q) = %s, nil; want an error", in, got)
+		}
+	}
+	if got, err := anchors.Hash("a�b"); err != nil || got != sum("a�b") {
+		t.Errorf("Hash(a U+FFFD b) = %s, %v; want the sha256 of its UTF-8", got, err)
 	}
 }

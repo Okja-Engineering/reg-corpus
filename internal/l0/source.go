@@ -170,36 +170,53 @@ func (st State) Stored(root string, s Source) ([]byte, error) {
 // unless that is what it holds. It returns that meta.yaml and whether it
 // changed. A missing source directory has no meta.yaml: a *Conflict, as
 // Stored gives for one.
-func Update(root string, s Source, set func(m *meta.Meta, raw []byte) error) (b []byte, changed bool, err error) {
+func Update(root string, s Source, set func(m *meta.Meta, raw []byte) (*Derived, error)) (b []byte, w Wrote, err error) {
 	if err := RealDirs(root, s.Dir); err != nil {
-		return nil, false, err
+		return nil, Wrote{}, err
 	}
 	unlock, err := lock(filepath.Join(root, filepath.FromSlash(s.Dir)))
 	if errors.Is(err, fs.ErrNotExist) {
 		_, err = State{}.Stored(root, s)
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, Wrote{}, err
 	}
 	defer unlock()
 	st, err := Read(root, s)
 	if err != nil {
-		return nil, false, err
+		return nil, Wrote{}, err
 	}
 	raw, err := st.Stored(root, s)
 	if err != nil {
-		return nil, false, err
+		return nil, Wrote{}, err
 	}
 	m := *st.Meta
-	if err := set(&m, raw); err != nil {
-		return nil, false, err
+	d, err := set(&m, raw)
+	if err != nil {
+		return nil, Wrote{}, err
+	}
+	if d != nil {
+		ch, err := Derive(root, []File{{Path: s.TreePath(), Body: d.Tree}, {Path: s.TextPath(), Body: d.Text}})
+		if err != nil {
+			return nil, Wrote{}, err
+		}
+		w.Tree, w.Text = ch[0], ch[1]
 	}
 	b, err = meta.Marshal(m)
 	if err != nil {
-		return nil, false, err
+		return nil, Wrote{}, err
 	}
 	if bytes.Equal(b, st.metaBytes) {
-		return b, false, nil
+		return b, w, nil
 	}
-	return b, true, Replace(root, s.MetaPath(), b)
+	w.Meta = true
+	if err := Replace(root, s.MetaPath(), b); err != nil {
+		return nil, Wrote{}, err
+	}
+	return b, w, nil
 }
+
+// Derived and Wrote: the red commit's stubs of the new Update's types.
+type Derived struct{ Tree, Text []byte }
+
+type Wrote struct{ Tree, Text, Meta bool }

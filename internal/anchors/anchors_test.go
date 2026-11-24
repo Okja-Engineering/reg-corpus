@@ -1,9 +1,9 @@
-// Anchor IDs, the operative-anchor test (ADR 0013, F1: O2) and the
-// multi-anchor join (ADR 0013, F2: J2), on 1024.41's stored raw XML and on
-// small sections.
+// Anchor IDs, the operative-anchor test (ADR 0013, F1) and the multi-anchor
+// join (ADR 0013, F2), on 1024.41's stored raw XML and on small sections.
 package anchors_test
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -30,7 +30,7 @@ func TestID(t *testing.T) {
 }
 
 // operative41 is every operative anchor of 1024.41, in document order: 75 of
-// its 91 nodes (ADR 0013, F1: O2).
+// its 91 nodes (ADR 0013, F1).
 var operative41 = []string{
 	"1024-41-a",
 	"1024-41-b-1", "1024-41-b-2-i", "1024-41-b-2-i-A", "1024-41-b-2-i-B", "1024-41-b-2-ii", "1024-41-b-3",
@@ -90,8 +90,9 @@ func TestOperativeAnchors1024_41(t *testing.T) {
 }
 
 // TestOperativeRule: operative means own text minus the label, the one
-// space before a heading, the heading, and the one "—" or space that ends
-// the heading is non-empty. Nothing else is taken away.
+// space before a heading, the heading, and the one dash or space that ends
+// the heading is non-empty, the rest read as normalized text: one "-" or
+// one space there is that separator. Nothing else is taken away.
 func TestOperativeRule(t *testing.T) {
 	for _, tc := range []struct {
 		name, para string
@@ -105,12 +106,14 @@ func TestOperativeRule(t *testing.T) {
 		{"a heading alone", "(a) <I>Head.</I>", "a", false},
 		{"a heading, then its one separating space alone", "(a) <I>Head.</I> ", "a", false},
 		{"a heading, then its dash alone", "(a) <I>Head</I>—", "a", false},
+		{"a heading, then an en dash alone: normalized, one -", "(a) <I>Head</I>–", "a", false},
+		{"a heading, then a no-break space alone: normalized, one space", "(a) <I>Head.</I>\u00A0", "a", false},
+		{"a heading, then two spaces: normalized, one space", "(a) <I>Head.</I>  ", "a", false},
 		{"a heading, then text", "(a) <I>Head.</I> Text.", "a", true},
 		{"a heading, then a dash and text", "(a) <I>Head</I>— text.", "a", true},
-		{"a heading, then two spaces: only one is the separator", "(a) <I>Head.</I>  ", "a", true},
+		{"a heading, then two dashes: only one is the separator", "(a) <I>Head</I>——", "a", true},
 		{"a heading, then a dash and a space: only the dash is the separator", "(a) <I>Head</I>— ", "a", true},
-		{"a heading, then a no-break space: not the separator", "(a) <I>Head.</I>\u00A0", "a", true},
-		{"a heading, then an en dash: not the separator", "(a) <I>Head</I>–", "a", true},
+		{"a heading, then a combining mark: text, and no error", "(a) <I>Note</I>\u0301 text.", "a", true},
 		{"no heading, text", "(a) Text.", "a", true},
 		{"no heading, a space alone: only a heading's separator is taken away", "(a) ", "a", true},
 		{"an italic label alone", "(a)(1)(i)(A)(<I>1</I>) Text.", "a-1-i-A", false},
@@ -128,6 +131,32 @@ func TestOperativeRule(t *testing.T) {
 	}
 }
 
+// TestOperativeFollowsTheHash: the verdict is a function of what the hash
+// covers. Separators that normalize alike at the end of a <P> (an em or en
+// dash; a space, a no-break space or two spaces) give the same hash, and
+// every one of them the same verdict: a heading-only lead-in, not
+// operative.
+func TestOperativeFollowsTheHash(t *testing.T) {
+	for _, group := range [][]string{{"—", "–"}, {" ", "\u00A0", "  ", "\u2003"}} {
+		hash := ""
+		for _, sep := range group {
+			n := byPath(t, parseXML(t, section("", "(a) <I>Head</I>"+sep)))["a"]
+			h, err := anchors.Hash(n.Text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hash == "" {
+				hash = h
+			} else if h != hash {
+				t.Errorf("separator %+q: hash %s, want %s, as %+q gives", sep, h, hash, group[0])
+			}
+			if op, err := anchors.Operative(n); err != nil || op {
+				t.Errorf("separator %+q: Operative = %v, %v; want false, as for %+q", sep, op, err, group[0])
+			}
+		}
+	}
+}
+
 // TestOperativeRefusesANodeItsTextDoesNotFit: a node whose own text does not
 // start with its label, and its heading if it has one, is not a node the
 // parser makes; Operative says so rather than guess.
@@ -138,6 +167,7 @@ func TestOperativeRefusesANodeItsTextDoesNotFit(t *testing.T) {
 		{Path: []string{"a"}, Heading: "Head.", Text: "(a) Other. Text."},
 		{Path: []string{"a"}, Heading: "Head.", Text: "(a)Head. Text."},
 		{Path: nil, Text: "Text."},
+		{Path: []string{"a"}, Text: "(a) \xff"},
 	} {
 		if got, err := anchors.Operative(n); err == nil {
 			t.Errorf("Operative(%q, path %q, heading %q) = %v, nil; want an error", n.Text, n.Path, n.Heading, got)
@@ -145,12 +175,35 @@ func TestOperativeRefusesANodeItsTextDoesNotFit(t *testing.T) {
 	}
 }
 
-// TestJoinGoldens: own texts are joined in document order with nothing
-// between two in one <P> and one space between <P>s (ADR 0013, F2: J2), so
-// a cite across a heading separator or a run of labels reads as the
+// nodes41 is the nodes of 1024.41 at paths, and its document.
+func nodes41(t *testing.T) (*anchors.Document, map[string]*parse.Node) {
+	t.Helper()
+	tree := parseRepo(t, raw41)
+	return anchors.NewDocument(tree), byPath(t, tree)
+}
+
+func cite(n map[string]*parse.Node, paths ...string) []*parse.Node {
+	var out []*parse.Node
+	for _, p := range paths {
+		out = append(out, n[p])
+	}
+	return out
+}
+
+func reversed(nodes []*parse.Node) []*parse.Node {
+	out := make([]*parse.Node, len(nodes))
+	for i, x := range nodes {
+		out[len(nodes)-1-i] = x
+	}
+	return out
+}
+
+// TestJoinGoldens: a run of anchors consecutive in the document joins with
+// nothing between two in one <P> and one space between <P>s (ADR 0013, F2),
+// so a cite across a heading separator or a run of labels reads as the
 // document does. The windows are the normalized text around each join.
 func TestJoinGoldens(t *testing.T) {
-	n := byPath(t, parseRepo(t, raw41))
+	doc, n := nodes41(t)
 	for _, tc := range []struct {
 		name   string
 		cite   []string
@@ -167,62 +220,140 @@ func TestJoinGoldens(t *testing.T) {
 			n["b-2-i"].Text + " " + n["b-2-i-A"].Text, "a servicer shall: (A) Promptly upon receipt"},
 		{"(k) + (k)(1) + (k)(1)(i) + (k)(1)(ii), one <P> then another", []string{"k", "k-1", "k-1-i", "k-1-ii"},
 			n["k"].Text + n["k-1"].Text + n["k-1-i"].Text + " " + n["k-1-ii"].Text, "Servicing transfers-(1) In general-(i) Timing of compliance."},
-		{"(c)(4)(ii) + (A)(1), one <P>, not consecutive: still nothing between", []string{"c-4-ii", "c-4-ii-A-1"},
-			n["c-4-ii"].Text + n["c-4-ii-A-1"].Text, "(ii) Effect in case of delay. (1) Except as provided"},
-		{"(a) + (d), far apart: one space", []string{"a", "d"},
-			n["a"].Text + " " + n["d"].Text, "may exist pursuant to applicable law. (d) Denial of loan modification options."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var nodes []*parse.Node
-			for _, p := range tc.cite {
-				nodes = append(nodes, n[p])
-			}
-			got, err := anchors.Join(nodes)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != tc.want {
-				t.Errorf("Join =\n%q\nwant\n%q", got, tc.want)
-			}
-			if !strings.Contains(anchors.Normalize(got), tc.window) {
-				t.Errorf("normalized join lacks %q:\n%q", tc.window, anchors.Normalize(got))
-			}
-			// The same anchors in any order join in document order.
-			rev := make([]*parse.Node, len(nodes))
-			for i, x := range nodes {
-				rev[len(nodes)-1-i] = x
-			}
-			if back, err := anchors.Join(rev); err != nil || back != tc.want {
-				t.Errorf("Join of the cite reversed = %q, %v; want the document-order join", back, err)
+			nodes := cite(n, tc.cite...)
+			for _, order := range [][]*parse.Node{nodes, reversed(nodes)} {
+				got, err := doc.Join(order)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(got) != 1 || got[0] != tc.want {
+					t.Fatalf("Join = %q\nwant one run, %q", got, tc.want)
+				}
+				if !strings.Contains(normalize(t, got[0]), tc.window) {
+					t.Errorf("normalized join lacks %q:\n%q", tc.window, normalize(t, got[0]))
+				}
 			}
 		})
 	}
 }
 
-// TestJoinRebuildsEachParagraph: joining every node of one <P> gives back
-// that paragraph's character data, and joining every node gives the
-// paragraphs with one space between them.
-func TestJoinRebuildsEachParagraph(t *testing.T) {
-	data := section("", "(a) <I>Head</I>—(1) <I>Head.</I> (i) Text (<I>2</I>).", "(A)(<I>1</I>) Text.", "(2) Last.")
-	nodes := walk(parseXML(t, data).Children)
-	got, err := anchors.Join(nodes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "(a) Head—(1) Head. (i) Text (2). (A)(1) Text. (2) Last."; got != want {
-		t.Errorf("Join = %q, want %q", got, want)
-	}
-	if got, err := anchors.Join(nil); got != "" || err != nil {
-		t.Errorf("Join(nil) = %q, %v; want \"\", nil", got, err)
+// TestNoQuoteCrossesANonConsecutiveJoin (spec "Multi-anchor cite"): anchors
+// that are not consecutive in the document are separate runs, each joined
+// alone, so text that runs from one to the other, which the document never
+// reads, is in no string Join returns, whichever order the cite gives.
+func TestNoQuoteCrossesANonConsecutiveJoin(t *testing.T) {
+	doc, n := nodes41(t)
+	for _, tc := range []struct {
+		name   string
+		cite   []string
+		window string // normalized, across the join the document never reads
+	}{
+		{"(k) + (k)(1)(i), one <P>, (k)(1) between", []string{"k", "k-1-i"}, "Servicing transfers-(i) Timing"},
+		{"(c)(4)(ii) + (A)(1), one <P>, (A) between", []string{"c-4-ii", "c-4-ii-A-1"}, "delay. (1) Except"},
+		{"(a) + (d), far apart", []string{"a", "d"}, "applicable law. (d) Denial"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			nodes := cite(n, tc.cite...)
+			for _, order := range [][]*parse.Node{nodes, reversed(nodes)} {
+				got, err := doc.Join(order)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := []string{nodes[0].Text, nodes[1].Text}
+				if !reflect.DeepEqual(got, want) {
+					t.Errorf("Join = %q, want each anchor alone, in document order: %q", got, want)
+				}
+				for _, s := range got {
+					if strings.Contains(normalize(t, s), tc.window) {
+						t.Errorf("%q, which the document never reads, is in %q", tc.window, s)
+					}
+				}
+			}
+		})
 	}
 }
 
-// TestJoinRefusesAnAnchorTwice: a node given twice is an error, not a
-// doubled text.
-func TestJoinRefusesAnAnchorTwice(t *testing.T) {
-	n := byPath(t, parseRepo(t, raw41))
-	if got, err := anchors.Join([]*parse.Node{n["b"], n["b-1"], n["b"]}); err == nil {
-		t.Errorf("Join of (b) twice = %q, nil; want an error", got)
+// TestRuns: the runs of a cite are its longest lists of anchors consecutive
+// in document order, whatever order the cite gives them in.
+func TestRuns(t *testing.T) {
+	doc, n := nodes41(t)
+	for _, tc := range []struct {
+		name string
+		cite []string
+		want [][]string
+	}{
+		{"(k)(1) + (k)(1)(ii): (k)(1)(i) between, two runs", []string{"k-1", "k-1-ii"}, [][]string{{"k-1"}, {"k-1-ii"}}},
+		{"(k)(1)(i) + (k)(1)(ii): consecutive, one run", []string{"k-1-i", "k-1-ii"}, [][]string{{"k-1-i", "k-1-ii"}}},
+		{"one anchor", []string{"d"}, [][]string{{"d"}}},
+		{"two runs and a lone anchor", []string{"k-2", "a", "b", "k-1", "b-1", "k"}, [][]string{{"a", "b", "b-1"}, {"k", "k-1"}, {"k-2"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			nodes := cite(n, tc.cite...)
+			for _, order := range [][]*parse.Node{nodes, reversed(nodes)} {
+				runs, err := doc.Runs(order)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var got [][]string
+				for _, r := range runs {
+					var ps []string
+					for _, x := range r {
+						ps = append(ps, strings.Join(x.Path, "-"))
+					}
+					got = append(got, ps)
+				}
+				if !reflect.DeepEqual(got, tc.want) {
+					t.Errorf("Runs = %q, want %q", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// TestJoinRefuses: an empty cite, a nil anchor, an anchor of another
+// document (even one at the same path, from another parse of the same XML)
+// and an anchor given twice are refused, each by its named error.
+func TestJoinRefuses(t *testing.T) {
+	doc, n := nodes41(t)
+	_, other := nodes41(t)
+	_, n30 := docOf(t, readRepo(t, raw30))
+	for _, tc := range []struct {
+		name string
+		cite []*parse.Node
+		want error
+	}{
+		{"no anchor", nil, anchors.ErrEmptyCite},
+		{"an empty list", []*parse.Node{}, anchors.ErrEmptyCite},
+		{"a nil anchor", []*parse.Node{n["b"], nil}, anchors.ErrNilAnchor},
+		{"1024.30's (a)", []*parse.Node{n["b-1"], n30["a"]}, anchors.ErrForeignAnchor},
+		{"1024.30's (a) beside 1024.41's", []*parse.Node{n["a"], n30["a"]}, anchors.ErrForeignAnchor},
+		{"(b) from another parse", []*parse.Node{other["b"], n["b-1"]}, anchors.ErrForeignAnchor},
+		{"(b) twice", []*parse.Node{n["b"], n["b-1"], n["b"]}, anchors.ErrRepeatedAnchor},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, err := doc.Join(tc.cite); !errors.Is(err, tc.want) {
+				t.Errorf("Join = %q, %v; want %v", got, err, tc.want)
+			}
+			if got, err := doc.Runs(tc.cite); !errors.Is(err, tc.want) {
+				t.Errorf("Runs = %v, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// TestJoinRebuildsEachParagraph: joining every node, one run, gives back
+// each paragraph's character data, the paragraphs with one space between
+// them.
+func TestJoinRebuildsEachParagraph(t *testing.T) {
+	doc, _ := docOf(t, section("", "(a) <I>Head</I>—(1) <I>Head.</I> (i) Text (<I>2</I>).", "(A)(<I>1</I>) Text.", "(2) Last."))
+	got, err := doc.Join(doc.Nodes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"(a) Head—(1) Head. (i) Text (2). (A)(1) Text. (2) Last."}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Join = %q, want %q", got, want)
 	}
 }
 
@@ -230,12 +361,12 @@ func TestJoinRefusesAnAnchorTwice(t *testing.T) {
 // then normalized as one string; normalizing each first and joining after
 // can leave two spaces where a <P> ends in one.
 func TestJoinThenNormalize(t *testing.T) {
-	n := byPath(t, parseXML(t, section("", "(a) <I>Head.</I> Text. ", "(b) More.")))
-	got, err := anchors.Join([]*parse.Node{n["a"], n["b"]})
+	doc, n := docOf(t, section("", "(a) <I>Head.</I> Text. ", "(b) More."))
+	got, err := doc.Join([]*parse.Node{n["a"], n["b"]})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "(a) Head. Text. (b) More."; anchors.Normalize(got) != want {
-		t.Errorf("Normalize(Join) = %q, want %q", anchors.Normalize(got), want)
+	if want := "(a) Head. Text. (b) More."; len(got) != 1 || normalize(t, got[0]) != want {
+		t.Errorf("Normalize(Join) = %q, want %q", got, want)
 	}
 }

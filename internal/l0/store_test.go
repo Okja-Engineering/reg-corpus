@@ -89,15 +89,15 @@ func TestStoredRefusesAMetaYAMLNamingAnotherSource(t *testing.T) {
 }
 
 // TestAFailedReplaceLeavesNoTemporary: when the rename over the target fails
-// (here the target is a directory), Replace returns the error and leaves no
+// (here the target is a directory), replace returns the error and leaves no
 // temporary file beside it.
 func TestAFailedReplaceLeavesNoTemporary(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src", "meta.yaml", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := Replace(root, "src/meta.yaml", []byte("cfr: \"x\"\n")); err == nil {
-		t.Fatal("Replace over a directory succeeded; want an error")
+	if err := replace(root, "src/meta.yaml", []byte("cfr: \"x\"\n")); err == nil {
+		t.Fatal("replace over a directory succeeded; want an error")
 	}
 	ents, err := os.ReadDir(filepath.Join(root, "src"))
 	if err != nil {

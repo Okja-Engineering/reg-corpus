@@ -2,6 +2,7 @@ package anchors
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -76,6 +77,41 @@ func Join(nodes []*parse.Node) (string, error) {
 		}
 	}
 	return strings.Join(paragraphs(ns), " "), nil
+}
+
+// The red commit's stubs of the document-aware join: Runs puts every cited
+// node in one run, as the old Join did, refusing only a node given twice.
+type Document struct{ nodes []*parse.Node }
+
+func NewDocument(t *parse.Tree) *Document { return &Document{walk(t.Children)} }
+
+func (d *Document) Nodes() []*parse.Node { return slices.Clone(d.nodes) }
+
+var (
+	ErrEmptyCite      = errors.New("anchors: a cite with no anchor")
+	ErrNilAnchor      = errors.New("anchors: a nil anchor in a cite")
+	ErrForeignAnchor  = errors.New("anchors: an anchor that is not in the document")
+	ErrRepeatedAnchor = errors.New("anchors: an anchor given twice in a cite")
+)
+
+func (d *Document) Runs(cite []*parse.Node) ([][]*parse.Node, error) {
+	if slices.Contains(cite, nil) {
+		return nil, errors.New("stub: a nil node")
+	}
+	if _, err := Join(cite); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRepeatedAnchor, err)
+	}
+	ns := slices.Clone(cite)
+	slices.SortStableFunc(ns, docOrder)
+	return [][]*parse.Node{ns}, nil
+}
+
+func (d *Document) Join(cite []*parse.Node) ([]string, error) {
+	runs, err := d.Runs(cite)
+	if err != nil {
+		return nil, err
+	}
+	return []string{strings.Join(paragraphs(runs[0]), " ")}, nil
 }
 
 // docOrder orders nodes of one tree as the document does.

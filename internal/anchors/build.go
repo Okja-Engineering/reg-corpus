@@ -29,13 +29,15 @@ func Build(raw []byte) (*Derived, error) {
 		return nil, err
 	}
 	for _, n := range walk(t.Children) {
-		n.SHA256 = Hash(n.Text)
+		n.SHA256, _ = Hash(n.Text)
 	}
 	b, err := EncodeTree(t)
 	if err != nil {
 		return nil, err
 	}
-	return &Derived{Tree: t, TreeJSON: b, TextMD: TextMD(t), SHA256Text: SHA256Text(t)}, nil
+	text, _ := TextMD(t)
+	sum, _ := SHA256Text(t)
+	return &Derived{Tree: t, TreeJSON: b, TextMD: text, SHA256Text: sum}, nil
 }
 
 // EncodeTree is tree.json's bytes for t: the tree's JSON form (the json tags
@@ -59,7 +61,7 @@ func EncodeTree(t *parse.Tree) ([]byte, error) {
 // after a blank line. Every text is verbatim: no anchor IDs, no markup, no
 // normalization. The file is UTF-8 with LF line ends, and ends with one LF:
 // the CITA's own, or one added when its text has none.
-func TextMD(t *parse.Tree) []byte {
+func TextMD(t *parse.Tree) ([]byte, error) {
 	var b strings.Builder
 	b.WriteString("# " + t.Heading + "\n")
 	for _, p := range paragraphs(walk(t.Children)) {
@@ -71,7 +73,7 @@ func TextMD(t *parse.Tree) []byte {
 			b.WriteByte('\n')
 		}
 	}
-	return []byte(b.String())
+	return []byte(b.String()), nil
 }
 
 // SectionText is the text sha256_text hashes (ADR 0013, the owner's F3
@@ -84,6 +86,7 @@ func SectionText(t *parse.Tree) string {
 }
 
 // SHA256Text is meta.yaml's sha256_text for t: Hash of SectionText.
-func SHA256Text(t *parse.Tree) meta.SHA256 {
-	return meta.SHA256(Hash(SectionText(t)))
+func SHA256Text(t *parse.Tree) (meta.SHA256, error) {
+	h, _ := Hash(SectionText(t))
+	return meta.SHA256(h), nil
 }

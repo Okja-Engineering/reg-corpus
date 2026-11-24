@@ -23,7 +23,10 @@ import (
 // No mapped character, and no space, composes with what follows it, so
 // normalized text normalizes to itself. Text that joins several pieces is
 // joined first and normalized after, as one string (N6): see Join.
-func Normalize(s string) string {
+func Normalize(s string) (string, error) { return normalizeOld(s), nil }
+
+// normalizeOld is the red commit's stub body: no UTF-8 check.
+func normalizeOld(s string) string {
 	s = norm.NFC.String(s)
 	var b strings.Builder
 	b.Grow(len(s))
@@ -54,6 +57,6 @@ func Normalize(s string) string {
 // Hash is the sha256 of text's normalized form (Normalize), its UTF-8 bytes,
 // as 64 lowercase hex digits: a node's sha256 in tree.json is Hash of its
 // own text, and sha256_text is Hash of SectionText.
-func Hash(text string) string {
-	return l0.SHA256Hex([]byte(Normalize(text)))
+func Hash(text string) (string, error) {
+	return l0.SHA256Hex([]byte(normalizeOld(text))), nil
 }

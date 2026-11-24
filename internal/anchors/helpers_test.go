@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/okja-engineering/reg-corpus/internal/anchors"
 	"github.com/okja-engineering/reg-corpus/internal/parse"
 )
 
@@ -48,7 +49,12 @@ func parseRepo(t *testing.T, slash string) *parse.Tree {
 // section is a section's XML holding one <P> per argument, with a CITA
 // when cita is not empty.
 func section(cita string, paras ...string) []byte {
-	s := "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DIV8 N=\"0.1\" TYPE=\"SECTION\">\n<HEAD>§ 0.1 Head.</HEAD>\n"
+	return sectionHead("§ 0.1 Head.", cita, paras...)
+}
+
+// sectionHead is section with head as the HEAD's character data.
+func sectionHead(head, cita string, paras ...string) []byte {
+	s := "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DIV8 N=\"0.1\" TYPE=\"SECTION\">\n<HEAD>" + head + "</HEAD>\n"
 	for _, p := range paras {
 		s += "<P>" + p + "</P>\n"
 	}
@@ -90,4 +96,21 @@ func byPath(t *testing.T, tree *parse.Tree) map[string]*parse.Node {
 func sum(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
+}
+
+// normalize is anchors.Normalize of text that must be valid.
+func normalize(t *testing.T, s string) string {
+	t.Helper()
+	n, err := anchors.Normalize(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// docOf is the document of the section XML data.
+func docOf(t *testing.T, data []byte) (*anchors.Document, map[string]*parse.Node) {
+	t.Helper()
+	tree := parseXML(t, data)
+	return anchors.NewDocument(tree), byPath(t, tree)
 }
