@@ -65,12 +65,13 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 }
 
 // Replace writes body to the file at slash path p under root, which the
-// caller has read as a regular file, in one step: a temporary file beside it,
-// synced, then renamed over it, so the file is never seen half-written and
-// never left short by a crash. Only meta.yaml, by Update, and a source's
-// derived files, by Derive inside Update, are replaced, each under its
-// source's lock; raw XML is stored once (StoreOnce). Every directory on the
-// way to p must be a real one (RealDirs).
+// caller has read as a regular file or, for a derived file, found missing,
+// in one step: a temporary file beside it, synced, then renamed over it, so
+// the file is never seen half-written and never left short by a crash.
+// Only meta.yaml, by Update, and a source's derived files, by Derive inside
+// Update, are replaced, each under its source's lock; raw XML is stored once
+// (StoreOnce). Every directory on the way to p must be a real one
+// (RealDirs).
 func Replace(root, p string, body []byte) error {
 	if err := RealDirs(root, path.Dir(p)); err != nil {
 		return err
