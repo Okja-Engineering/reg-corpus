@@ -22,11 +22,11 @@
 //     source_version_date, retrieved_at, ecfr_up_to_date_as_of, sha256_raw.
 //     The others are absent until the plan step that owns them sets them:
 //     version_effective_date and version_fr_citations (plan step 3,
-//     `regcorpus meta set`), sha256_text (plan step 5, internal/anchors) and
-//     verified_on (plan step 6, `fetch --verify`).
+//     `regcorpus meta set`), sha256_text (plan step 5, `regcorpus parse`,
+//     internal/anchors) and verified_on (plan step 6, `fetch --verify`).
 //
 // Which command writes which field, and the checks each makes, live with the
-// command (internal/ecfr: fetch and meta set) and with internal/l0 (the
-// stored state every writer checks). This package checks only that each
-// value is well-typed; it holds no rule content.
+// command (internal/ecfr: fetch and meta set; internal/anchors: parse) and
+// with internal/l0 (the stored state every writer checks). This package
+// checks only that each value is well-typed; it holds no rule content.
 package meta

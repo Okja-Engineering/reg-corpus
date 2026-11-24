@@ -11,10 +11,10 @@
 // (meta.Parse) and writes what meta.Marshal returns, through l0. fetch
 // creates it with the fetch-time fields (l0.StoreOnce); meta set sets
 // version_effective_date and version_fr_citations (plan step 3, l0.Update);
-// plan step 5 (internal/anchors) adds sha256_text and plan step 6 (fetch
-// --verify) verified_on, each through l0.Update, each keeping the fields it
-// doesn't set. Before writing anything, each checks the same stored state
-// (l0's Stored).
+// parse (plan step 5, internal/anchors) sets sha256_text and plan step 6
+// (fetch --verify) verified_on, each through l0.Update, each keeping the
+// fields it doesn't set. Before writing anything, each checks the same
+// stored state (l0's Stored).
 //
 // Built (plan step 2): `regcorpus fetch [--date YYYY-MM-DD] [section ...]`
 // for 1024.41, 1024.30 and 1024.31 (sources.go holds the fixed source table).
@@ -77,6 +77,16 @@
 // values are read from the Federal Register and eCFR outside the tool (plan
 // step 3's diff record, in its PR); meta set checks only what L0 itself can
 // check.
+//
+// Built (plan step 5; ADR 0013): `regcorpus parse <section> ...`
+// (parsecmd.go), offline, the chief of staff's choice of command. Its handler
+// is here because the source table is; it passes each named source to
+// internal/anchors' Write, which, through l0.Update, writes tree.json and
+// text.md and sets sha256_text from the stored raw XML. A source that fails
+// the stored-state check, whose raw XML doesn't parse (the parser's line and
+// column) or that holds an overrides.yaml exits 1 with nothing written for
+// it; no section, an unknown one or a flag exits 2. Sections are named, never
+// defaulted: 1024.30's and 1024.31's files are plan step 9's.
 //
 // TODO(plan step 6): `fetch --verify` (verified_on) and
 // `fetch --latest` (R1b). TODO(plan step 8): Supplement I, an appendix source

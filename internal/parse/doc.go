@@ -126,22 +126,23 @@
 // and which nodes share one. The "—" or space after a heading that a child's
 // label follows stays at the end of the parent's own text, and a label
 // followed at once by its child's label has its label alone as own text
-// ("(A)"); what that trailing separator means for the operative-anchor test,
-// the per-node hash and multi-anchor joins is plan step 5's (spec "Carried
-// forward"). Inline <I> is carried as its character data, its markup
-// dropped: in a heading, in an italic label ("(<I>1</I>)" is "(1)", its kind
-// Italic) and in running text. Locations are not in the tree, so the tree
-// depends on the text, not the XML's layout.
+// ("(A)"). internal/anchors (plan step 5, ADR 0013) decides what that
+// separator means: the operative-anchor test leaves it out, the per-node
+// hash keeps it, and a multi-anchor join puts nothing between own texts of
+// one <P>. Inline <I> is carried as its character data, its markup dropped:
+// in a heading, in an italic label ("(<I>1</I>)" is "(1)", its kind Italic)
+// and in running text. Locations are not in the tree, so the tree depends on
+// the text, not the XML's layout.
 //
 // The tree's JSON form is the json tags on Tree and Node, kinds by name
-// ("letter", "number", "roman", "capital", "italic"). This package owns it;
-// plan step 5 adds each node's sha256 of normalized own text and writes it to
-// tree.json.
+// ("letter", "number", "roman", "capital", "italic"). This package owns it.
+// Each node's sha256, of its normalized own text, is empty in what Parse
+// returns; internal/anchors sets it and writes the form to tree.json.
 //
 // Not built here:
-//   - Writing tree.json, text.md and per-node hashes into sources/, and
-//     normalizing text: plan step 5 (internal/anchors), which also builds
-//     anchor IDs from label paths (1024-41-b-2-i-B).
+//   - Writing tree.json, text.md and per-node hashes into sources/,
+//     normalizing text and anchor IDs from label paths (1024-41-b-2-i-B):
+//     internal/anchors (plan step 5) and `regcorpus parse`.
 //   - Overrides: 1024.41 parses with no override, so none are applied yet.
 //     The first source that needs a reviewed overrides.yaml entry builds its
 //     application, before parsing (R1a).

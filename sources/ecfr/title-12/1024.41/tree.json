@@ -1,0 +1,1108 @@
+{
+  "section": "1024.41",
+  "heading": "§ 1024.41 Loss mitigation procedures.",
+  "citation": "[78 FR 10876, Feb. 14, 2013, as amended at 78 FR 60437, Oct. 1, 2013; 81 FR 72373, Oct. 19, 2016; 85 FR 39065, June 30, 2020; 86 FR 34899, June 30, 2021; 90 FR 20792, May 16, 2025]\n",
+  "children": [
+    {
+      "path": [
+        "a"
+      ],
+      "kind": "letter",
+      "para": 1,
+      "heading": "Enforcement and limitations.",
+      "text": "(a) Enforcement and limitations. A borrower may enforce the provisions of this section pursuant to section 6(f) of RESPA (12 U.S.C. 2605(f)). Nothing in § 1024.41 imposes a duty on a servicer to provide any borrower with any specific loss mitigation option. Nothing in § 1024.41 should be construed to create a right for a borrower to enforce the terms of any agreement between a servicer and the owner or assignee of a mortgage loan, including with respect to the evaluation for, or offer of, any loss mitigation option or to eliminate any such right that may exist pursuant to applicable law.",
+      "sha256": "8ce65dd4a0abb84dc229712640524c67ca85a879793e4cc32c9bd2a27aa03d60"
+    },
+    {
+      "path": [
+        "b"
+      ],
+      "kind": "letter",
+      "para": 2,
+      "heading": "Receipt of a loss mitigation application",
+      "text": "(b) Receipt of a loss mitigation application—",
+      "sha256": "3b97eaec814a015db9f4eca31e670e09ec059699c0ac04127d4b63fd849c7c47",
+      "children": [
+        {
+          "path": [
+            "b",
+            "1"
+          ],
+          "kind": "number",
+          "para": 2,
+          "heading": "Complete loss mitigation application.",
+          "text": "(1) Complete loss mitigation application. A complete loss mitigation application means an application in connection with which a servicer has received all the information that the servicer requires from a borrower in evaluating applications for the loss mitigation options available to the borrower. A servicer shall exercise reasonable diligence in obtaining documents and information to complete a loss mitigation application.",
+          "sha256": "3b3f20d1dfab2730c526e657cce3f41663df5b08450f8f56a2fc3079bf69af93"
+        },
+        {
+          "path": [
+            "b",
+            "2"
+          ],
+          "kind": "number",
+          "para": 3,
+          "heading": "Review of loss mitigation application submission",
+          "text": "(2) Review of loss mitigation application submission—",
+          "sha256": "330ccbdd8bb6e17f29e240334c0fea6f41140ad21e697c891f968ac48f8022bf",
+          "children": [
+            {
+              "path": [
+                "b",
+                "2",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 3,
+              "heading": "Requirements.",
+              "text": "(i) Requirements. If a servicer receives a loss mitigation application 45 days or more before a foreclosure sale, a servicer shall:",
+              "sha256": "9cff68ff571e9bd7f09d081fb8dccfb23bd3f4450178cbc60446641fe9cbf4a8",
+              "children": [
+                {
+                  "path": [
+                    "b",
+                    "2",
+                    "i",
+                    "A"
+                  ],
+                  "kind": "capital",
+                  "para": 4,
+                  "text": "(A) Promptly upon receipt of a loss mitigation application, review the loss mitigation application to determine if the loss mitigation application is complete; and",
+                  "sha256": "140c80a416a15780d4985e8df6dc603fef98f0cbe8f11074c7558a3757c49a9a"
+                },
+                {
+                  "path": [
+                    "b",
+                    "2",
+                    "i",
+                    "B"
+                  ],
+                  "kind": "capital",
+                  "para": 5,
+                  "text": "(B) Notify the borrower in writing within 5 days (excluding legal public holidays, Saturdays, and Sundays) after receiving the loss mitigation application that the servicer acknowledges receipt of the loss mitigation application and that the servicer has determined that the loss mitigation application is either complete or incomplete. If a loss mitigation application is incomplete, the notice shall state the additional documents and information the borrower must submit to make the loss mitigation application complete and the applicable date pursuant to paragraph (b)(2)(ii) of this section. The notice to the borrower shall include a statement that the borrower should consider contacting servicers of any other mortgage loans secured by the same property to discuss available loss mitigation options.",
+                  "sha256": "0fd3f136d3ac23a4263612f0971f11927ef09e193af93d04c896300382f24621"
+                }
+              ]
+            },
+            {
+              "path": [
+                "b",
+                "2",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 6,
+              "heading": "Time period disclosure.",
+              "text": "(ii) Time period disclosure. The notice required pursuant to paragraph (b)(2)(i)(B) of this section must include a reasonable date by which the borrower should submit the documents and information necessary to make the loss mitigation application complete.",
+              "sha256": "c82a9b9980a6b5efb50ecdc1a47a37fe8af214a1c191427fa7985ebc8fb881e9"
+            }
+          ]
+        },
+        {
+          "path": [
+            "b",
+            "3"
+          ],
+          "kind": "number",
+          "para": 7,
+          "heading": "Determining protections.",
+          "text": "(3) Determining protections. To the extent a determination of whether protections under this section apply to a borrower is made on the basis of the number of days between when a complete loss mitigation application is received and when a foreclosure sale occurs, such determination shall be made as of the date a complete loss mitigation application is received.",
+          "sha256": "097c354caf83357a72e7a543c3ab090ca18c616197c316e7e60ab6b13140c422"
+        }
+      ]
+    },
+    {
+      "path": [
+        "c"
+      ],
+      "kind": "letter",
+      "para": 8,
+      "heading": "Evaluation of loss mitigation applications",
+      "text": "(c) Evaluation of loss mitigation applications—",
+      "sha256": "87858b4aa609cca411ab5d5887fc5865d271f92a6c6225a4ffd2c9e366f5dfd3",
+      "children": [
+        {
+          "path": [
+            "c",
+            "1"
+          ],
+          "kind": "number",
+          "para": 8,
+          "heading": "Complete loss mitigation application.",
+          "text": "(1) Complete loss mitigation application. Except as provided in paragraph (c)(4)(ii) of this section, if a servicer receives a complete loss mitigation application more than 37 days before a foreclosure sale, then, within 30 days of receiving the complete loss mitigation application, a servicer shall:",
+          "sha256": "03929d881a7d2919d60c5c7f14b7e7ce3b24f9354109e473df10505395fd9d50",
+          "children": [
+            {
+              "path": [
+                "c",
+                "1",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 9,
+              "text": "(i) Evaluate the borrower for all loss mitigation options available to the borrower; and",
+              "sha256": "f952c0e7540d1ed3493e53895d227de57d8e30e55b2124710bc1c3f2221adb9d"
+            },
+            {
+              "path": [
+                "c",
+                "1",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 10,
+              "text": "(ii) Provide the borrower with a notice in writing stating the servicer's determination of which loss mitigation options, if any, it will offer to the borrower on behalf of the owner or assignee of the mortgage. The servicer shall include in this notice the amount of time the borrower has to accept or reject an offer of a loss mitigation program as provided for in paragraph (e) of this section, if applicable, and a notification, if applicable, that the borrower has the right to appeal the denial of any loan modification option as well as the amount of time the borrower has to file such an appeal and any requirements for making an appeal, as provided for in paragraph (h) of this section.",
+              "sha256": "95e4f1aebd42b879909ea2ee0fec01ac00510329a18a809d76c23e99f544aca4"
+            }
+          ]
+        },
+        {
+          "path": [
+            "c",
+            "2"
+          ],
+          "kind": "number",
+          "para": 11,
+          "heading": "Incomplete loss mitigation application evaluation",
+          "text": "(2) Incomplete loss mitigation application evaluation—",
+          "sha256": "f5aca8a94ff232c42fa9782729f230bafd46a866a5bb62b24fe9aceb27b1dc8d",
+          "children": [
+            {
+              "path": [
+                "c",
+                "2",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 11,
+              "heading": "In general.",
+              "text": "(i) In general. Except as set forth in paragraphs (c)(2)(ii), (iii), and (v) of this section, a servicer shall not evade the requirement to evaluate a complete loss mitigation application for all loss mitigation options available to the borrower by offering a loss mitigation option based upon an evaluation of any information provided by a borrower in connection with an incomplete loss mitigation application.",
+              "sha256": "b98f8c3207f7323763c1ea2cf825db70661587ac93567cf74f979942e7f8266d"
+            },
+            {
+              "path": [
+                "c",
+                "2",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 12,
+              "heading": "Reasonable time.",
+              "text": "(ii) Reasonable time. Notwithstanding paragraph (c)(2)(i) of this section, if a servicer has exercised reasonable diligence in obtaining documents and information to complete a loss mitigation application, but a loss mitigation application remains incomplete for a significant period of time under the circumstances without further progress by a borrower to make the loss mitigation application complete, a servicer may, in its discretion, evaluate an incomplete loss mitigation application and offer a borrower a loss mitigation option. Any such evaluation and offer is not subject to the requirements of this section and shall not constitute an evaluation of a single complete loss mitigation application for purposes of paragraph (i) of this section.",
+              "sha256": "c0d1806972df6c8b8012c59a3ded56bc1d1bc9edd0bd1d896219572fee04e4c7"
+            },
+            {
+              "path": [
+                "c",
+                "2",
+                "iii"
+              ],
+              "kind": "roman",
+              "para": 13,
+              "heading": "Short-term loss mitigation options.",
+              "text": "(iii) Short-term loss mitigation options. Notwithstanding paragraph (c)(2)(i) of this section, a servicer may offer a short-term payment forbearance program or a short-term repayment plan to a borrower based upon an evaluation of an incomplete loss mitigation application. Promptly after offering a payment forbearance program or a repayment plan under this paragraph (c)(2)(iii), unless the borrower has rejected the offer, the servicer must provide the borrower a written notice stating the specific payment terms and duration of the program or plan, that the servicer offered the program or plan based on an evaluation of an incomplete application, that other loss mitigation options may be available, and that the borrower has the option to submit a complete loss mitigation application to receive an evaluation for all loss mitigation options available to the borrower regardless of whether the borrower accepts the program or plan. A servicer shall not make the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process, and shall not move for foreclosure judgment or order of sale or conduct a foreclosure sale, if a borrower is performing pursuant to the terms of a payment forbearance program or repayment plan offered pursuant to this paragraph (c)(2)(iii). A servicer may offer a short-term payment forbearance program in conjunction with a short-term repayment plan pursuant to this paragraph (c)(2)(iii).",
+              "sha256": "2c3f472871f83619fd47ac83988122f4f3019ceb2b79f3a5ee3d51fe17b4b546"
+            },
+            {
+              "path": [
+                "c",
+                "2",
+                "iv"
+              ],
+              "kind": "roman",
+              "para": 14,
+              "heading": "Facially complete application.",
+              "text": "(iv) Facially complete application. A loss mitigation application shall be considered facially complete when a borrower submits all the missing documents and information as stated in the notice required under paragraph (b)(2)(i)(B) of this section, when no additional information is requested in such notice, or once the servicer is required to provide the borrower a written notice pursuant to paragraph (c)(3)(i) of this section. If the servicer later discovers that additional information or corrections to a previously submitted document are required to complete the application, the servicer must promptly request the missing information or corrected documents and treat the application as complete for the purposes of paragraphs (f)(2) and (g) of this section until the borrower is given a reasonable opportunity to complete the application. If the borrower completes the application within this period, the application shall be considered complete as of the date it first became facially complete, for the purposes of paragraphs (d), (e), (f)(2), (g), and (h) of this section, and as of the date the application was actually complete for the purposes of this paragraph (c). A servicer that complies with this paragraph (c)(2)(iv) will be deemed to have fulfilled its obligation to provide an accurate notice under paragraph (b)(2)(i)(B) of this section.",
+              "sha256": "b089a372939a3a553b4527df128d23b8b6129fbcdeb0fe4dc3075f73f12e0245"
+            },
+            {
+              "path": [
+                "c",
+                "2",
+                "v"
+              ],
+              "kind": "roman",
+              "para": 15,
+              "heading": "Certain COVID-19-related loss mitigation options.",
+              "text": "(v) Certain COVID-19-related loss mitigation options. ",
+              "sha256": "9e72894b51c5202d36ec00ee5d95c273cb1f74235f0d10b4c387328b9ea935a5",
+              "children": [
+                {
+                  "path": [
+                    "c",
+                    "2",
+                    "v",
+                    "A"
+                  ],
+                  "kind": "capital",
+                  "para": 15,
+                  "text": "(A) Notwithstanding paragraph (c)(2)(i) of this section, a servicer may offer a borrower a loss mitigation option based upon evaluation of an incomplete application, provided that all of the following criteria are met:",
+                  "sha256": "a1edbdd1aac282a1a6160e78b843088fcb266199077bf2ecd0ef54a41d327c56",
+                  "children": [
+                    {
+                      "path": [
+                        "c",
+                        "2",
+                        "v",
+                        "A",
+                        "1"
+                      ],
+                      "kind": "italic",
+                      "para": 16,
+                      "text": "(1) The loss mitigation option permits the borrower to delay paying covered amounts until the mortgage loan is refinanced, the mortgaged property is sold, the term of the mortgage loan ends, or, for a mortgage loan insured by the Federal Housing Administration, the mortgage insurance terminates. For purposes of this paragraph (c)(2)(v)(A)(1), “covered amounts” includes, without limitation, all principal and interest payments forborne under a payment forbearance program made available to borrowers experiencing a COVID-19-related hardship, including a payment forbearance program made pursuant to the Coronavirus Economic Stabilization Act, section 4022 (15 U.S.C. 9056); it also includes, without limitation, all other principal and interest payments that are due and unpaid by a borrower experiencing COVID-19-related hardship. For purposes of this paragraph (c)(2)(v)(A)(1), “the term of the mortgage loan” means the term of the mortgage loan according to the obligation between the parties in effect when the borrower is offered the loss mitigation option.",
+                      "sha256": "bd9d12027d994a673ebc9d359feb7bde9f044c7024ed8d0040cf96a03d028e5d"
+                    },
+                    {
+                      "path": [
+                        "c",
+                        "2",
+                        "v",
+                        "A",
+                        "2"
+                      ],
+                      "kind": "italic",
+                      "para": 17,
+                      "text": "(2) Any amounts that the borrower may delay paying as described in paragraph (c)(2)(v)(A)(1) of this section do not accrue interest; the servicer does not charge any fee in connection with the loss mitigation option; and the servicer waives all existing late charges, penalties, stop payment fees, or similar charges promptly upon the borrower's acceptance of the loss mitigation option.",
+                      "sha256": "1dd5b4213993750129fb3b3de201db4912a19d67cd9b350370e2979179d14365"
+                    },
+                    {
+                      "path": [
+                        "c",
+                        "2",
+                        "v",
+                        "A",
+                        "3"
+                      ],
+                      "kind": "italic",
+                      "para": 18,
+                      "text": "(3) The borrower's acceptance of an offer made pursuant to paragraph (c)(2)(v)(A) of this section ends any pre-existing delinquency on the mortgage loan.",
+                      "sha256": "5b812b93f4bf4b518b82998d473256c60a3679b25b2041cfd596b6ce427006bb"
+                    }
+                  ]
+                },
+                {
+                  "path": [
+                    "c",
+                    "2",
+                    "v",
+                    "B"
+                  ],
+                  "kind": "capital",
+                  "para": 19,
+                  "text": "(B) Once the borrower accepts an offer made pursuant to paragraph (c)(2)(v)(A) of this section, the servicer is not required to comply with paragraph (b)(1) or (2) of this section with regard to any loss mitigation application the borrower submitted prior to the servicer's offer of the loss mitigation option described in paragraph (c)(2)(v)(A) of this section.",
+                  "sha256": "2dff5ed7e1208d9846fc41f84c418ef816c4b17aeca6548e033565834cc19aae"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": [
+            "c",
+            "3"
+          ],
+          "kind": "number",
+          "para": 20,
+          "heading": "Notice of complete application.",
+          "text": "(3) Notice of complete application. ",
+          "sha256": "ba9b20ef1fe4bbb75d59e972a6a0fa5597b71288dd82da3ff2c2cdb494312959",
+          "children": [
+            {
+              "path": [
+                "c",
+                "3",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 20,
+              "text": "(i) Except as provided in paragraph (c)(3)(ii) of this section, within 5 days (excluding legal public holidays, Saturdays, and Sundays) after receiving a borrower's complete loss mitigation application, a servicer shall provide the borrower a written notice that sets forth the following information:",
+              "sha256": "00299a41fdea6d07d10a9b83f5e6bf92a1b4281b06f39aa21dd221dcc4c0a447",
+              "children": [
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "i",
+                    "A"
+                  ],
+                  "kind": "capital",
+                  "para": 21,
+                  "text": "(A) That the loss mitigation application is complete;",
+                  "sha256": "01dd255183b938cc837e36341077dd7cf1532068d00acf3782582fec826f0d8f"
+                },
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "i",
+                    "B"
+                  ],
+                  "kind": "capital",
+                  "para": 22,
+                  "text": "(B) The date the servicer received the complete application;",
+                  "sha256": "d5cea4625f35747ba3af5301991f3b8fbcb4c2fc798593d8f8f453d031cd3315"
+                },
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "i",
+                    "C"
+                  ],
+                  "kind": "capital",
+                  "para": 23,
+                  "text": "(C) That the servicer expects to complete its evaluation within 30 days of the date it received the complete application;",
+                  "sha256": "1c50a3c1ebeba9b3bfc6d65c363d3a5db42dd16a5e73cbfe407b5692aa3d2156"
+                },
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "i",
+                    "D"
+                  ],
+                  "kind": "capital",
+                  "para": 24,
+                  "text": "(D) That the borrower is entitled to certain foreclosure protections because the servicer has received the complete application, and, as applicable, either:",
+                  "sha256": "6e94a7197c6bf42d13e46c4948865c62377f2520a192130c5530fe1201fa00a2",
+                  "children": [
+                    {
+                      "path": [
+                        "c",
+                        "3",
+                        "i",
+                        "D",
+                        "1"
+                      ],
+                      "kind": "italic",
+                      "para": 25,
+                      "text": "(1) If the servicer has not made the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process, that the servicer cannot make the first notice or filing required to commence or initiate the foreclosure process under applicable law before evaluating the borrower's complete application; or",
+                      "sha256": "cf051e27c77d2aedad08390c0f03ddf0d0d9db2c971d6e916af512f74e68cdba"
+                    },
+                    {
+                      "path": [
+                        "c",
+                        "3",
+                        "i",
+                        "D",
+                        "2"
+                      ],
+                      "kind": "italic",
+                      "para": 26,
+                      "text": "(2) If the servicer has made the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process, that the servicer has begun the foreclosure process, and that the servicer cannot conduct a foreclosure sale before evaluating the borrower's complete application;",
+                      "sha256": "589af81050fd2f67367a7e1992dd07342812b64c3011a31a45d97e92514855c7"
+                    }
+                  ]
+                },
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "i",
+                    "E"
+                  ],
+                  "kind": "capital",
+                  "para": 27,
+                  "text": "(E) That the servicer may need additional information at a later date to evaluate the application, in which case the servicer will request that information from the borrower and give the borrower a reasonable opportunity to submit it, the evaluation process may take longer, and the foreclosure protections could end if the servicer does not receive the information as requested; and",
+                  "sha256": "639413aa3404f2336e49e78142b15e17a99f29a4343c4f498c837d4abd5ed6fa"
+                },
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "i",
+                    "F"
+                  ],
+                  "kind": "capital",
+                  "para": 28,
+                  "text": "(F) That the borrower may be entitled to additional protections under State or Federal law.",
+                  "sha256": "3edfb41e88645433df786e3a2f18d3d7211d51095fdaecb38a185c5132106729"
+                }
+              ]
+            },
+            {
+              "path": [
+                "c",
+                "3",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 29,
+              "text": "(ii) A servicer is not required to provide a notice pursuant to paragraph (c)(3)(i) of this section if:",
+              "sha256": "246323bf03c188c904174c0bd6954e17538c3f6aba35e0b476202ce2906d903b",
+              "children": [
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "ii",
+                    "A"
+                  ],
+                  "kind": "capital",
+                  "para": 30,
+                  "text": "(A) The servicer has already provided the borrower a notice under paragraph (b)(2)(i)(B) of this section informing the borrower that the application is complete and the servicer has not subsequently requested additional information or a corrected version of a previously submitted document from the borrower pursuant to paragraph (c)(2)(iv) of this section;",
+                  "sha256": "0c40ddfdacffa4a1f136a68ff9f95d73bf2a5227dceaad50b904b8399068e34a"
+                },
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "ii",
+                    "B"
+                  ],
+                  "kind": "capital",
+                  "para": 31,
+                  "text": "(B) The application was not complete or facially complete more than 37 days before a foreclosure sale; or",
+                  "sha256": "12581c59a2ba4b7c973f90c8b48b666c32803eb0bcd5308808d1f83dcd2a74f0"
+                },
+                {
+                  "path": [
+                    "c",
+                    "3",
+                    "ii",
+                    "C"
+                  ],
+                  "kind": "capital",
+                  "para": 32,
+                  "text": "(C) The servicer has already provided the borrower a notice regarding the application under paragraph (c)(1)(ii) of this section.",
+                  "sha256": "45d4e0fcaf6658588bac5772d8e57fd189095d90319438798bd3af003c556186"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": [
+            "c",
+            "4"
+          ],
+          "kind": "number",
+          "para": 33,
+          "heading": "Information not in the borrower's control",
+          "text": "(4) Information not in the borrower's control—",
+          "sha256": "04b90f95c4c54d188c3fe30265397b65f6587d8999e000fe574e8610de72a510",
+          "children": [
+            {
+              "path": [
+                "c",
+                "4",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 33,
+              "heading": "Reasonable diligence.",
+              "text": "(i) Reasonable diligence. If a servicer requires documents or information not in the borrower's control to determine which loss mitigation options, if any, it will offer to the borrower, the servicer must exercise reasonable diligence in obtaining such documents or information.",
+              "sha256": "e3b3ead438a6567652d2464a32e0debba84df540e361f9f2b036ab358aa7aabe"
+            },
+            {
+              "path": [
+                "c",
+                "4",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 34,
+              "heading": "Effect in case of delay.",
+              "text": "(ii) Effect in case of delay. ",
+              "sha256": "53a2407ec290da6bc41f3af388f479504164dcae93138a5e074c5cb061d5a9fa",
+              "children": [
+                {
+                  "path": [
+                    "c",
+                    "4",
+                    "ii",
+                    "A"
+                  ],
+                  "kind": "capital",
+                  "para": 34,
+                  "text": "(A)",
+                  "sha256": "2e5b320c4307603615d67098d9e1459ea7b6705b7d553049197d1f1e3a750840",
+                  "children": [
+                    {
+                      "path": [
+                        "c",
+                        "4",
+                        "ii",
+                        "A",
+                        "1"
+                      ],
+                      "kind": "italic",
+                      "para": 34,
+                      "text": "(1) Except as provided in paragraph (c)(4)(ii)(A)(2) of this section, a servicer must not deny a complete loss mitigation application solely because the servicer lacks required documents or information not in the borrower's control.",
+                      "sha256": "106a9f7211215c0cdeeeb822a0b31964442055f1667c5e2a8374a279bed7a7a7"
+                    },
+                    {
+                      "path": [
+                        "c",
+                        "4",
+                        "ii",
+                        "A",
+                        "2"
+                      ],
+                      "kind": "italic",
+                      "para": 35,
+                      "text": "(2) If a servicer has exercised reasonable diligence to obtain required documents or information from a party other than the borrower or the servicer, but the servicer has been unable to obtain such documents or information for a significant period of time following the 30-day period identified in paragraph (c)(1) of this section, and the servicer, in accordance with applicable requirements established by the owner or assignee of the borrower's mortgage loan, is unable to determine which loss mitigation options, if any, it will offer the borrower without such documents or information, the servicer may deny the application and provide the borrower with a written notice in accordance with paragraph (c)(1)(ii) of this section. When providing the written notice in accordance with paragraph (c)(1)(ii) of this section, the servicer must also provide the borrower with a copy of the written notice required by paragraph (c)(4)(ii)(B) of this section.",
+                      "sha256": "d80c8fe58952ea8f76e8be07c7fd3d55b79f3188b897659c5e0fe77fbc14838d"
+                    }
+                  ]
+                },
+                {
+                  "path": [
+                    "c",
+                    "4",
+                    "ii",
+                    "B"
+                  ],
+                  "kind": "capital",
+                  "para": 36,
+                  "text": "(B) If a servicer is unable to make a determination within the 30-day period identified in paragraph (c)(1) of this section as to which loss mitigation options, if any, it will offer to the borrower because the servicer lacks required documents or information from a party other than the borrower or the servicer, the servicer must, within such 30-day period or promptly thereafter, provide the borrower a written notice, informing the borrower:",
+                  "sha256": "35fc32844479981298de63cc6864be7d168e4bec88f2376f54007dfc74babe73",
+                  "children": [
+                    {
+                      "path": [
+                        "c",
+                        "4",
+                        "ii",
+                        "B",
+                        "1"
+                      ],
+                      "kind": "italic",
+                      "para": 37,
+                      "text": "(1) That the servicer has not received documents or information not in the borrower's control that the servicer requires to determine which loss mitigation options, if any, it will offer to the borrower on behalf of the owner or assignee of the mortgage;",
+                      "sha256": "93c942489b54e5a355311eed80ff8902a8f4533a859f6223023f274c9cf9bf31"
+                    },
+                    {
+                      "path": [
+                        "c",
+                        "4",
+                        "ii",
+                        "B",
+                        "2"
+                      ],
+                      "kind": "italic",
+                      "para": 38,
+                      "text": "(2) Of the specific documents or information that the servicer lacks;",
+                      "sha256": "fb800ebc63e8eab5263916b6df1432857ad834226c79f0b2c099a19e7cac923b"
+                    },
+                    {
+                      "path": [
+                        "c",
+                        "4",
+                        "ii",
+                        "B",
+                        "3"
+                      ],
+                      "kind": "italic",
+                      "para": 39,
+                      "text": "(3) That the servicer has requested such documents or information; and",
+                      "sha256": "e2f44152a63266b7b7008ac44213f0c94cdcd906bce8a65a151b475f8b901c6a"
+                    },
+                    {
+                      "path": [
+                        "c",
+                        "4",
+                        "ii",
+                        "B",
+                        "4"
+                      ],
+                      "kind": "italic",
+                      "para": 40,
+                      "text": "(4) That the servicer will complete its evaluation of the borrower for all available loss mitigation options promptly upon receiving the documents or information.",
+                      "sha256": "ec393decc1bc75bf06445fc097ec9f7620ef984bdb5f267443ceec26c8d46538"
+                    }
+                  ]
+                },
+                {
+                  "path": [
+                    "c",
+                    "4",
+                    "ii",
+                    "C"
+                  ],
+                  "kind": "capital",
+                  "para": 41,
+                  "text": "(C) If a servicer must provide a notice required by paragraph (c)(4)(ii)(B) of this section, the servicer must not provide the borrower a written notice pursuant to paragraph (c)(1)(ii) of this section until the servicer receives the required documents or information referenced in paragraph (c)(4)(ii)(B)(2) of this section, except as provided in paragraph (c)(4)(ii)(A)(2) of this section. Upon receiving such required documents or information, the servicer must promptly provide the borrower with the written notice pursuant to paragraph (c)(1)(ii) of this section.",
+                  "sha256": "4b932a273e4c43b1cabc83a519570e6b32201b6fa606de349fa38d24556133c7"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": [
+        "d"
+      ],
+      "kind": "letter",
+      "para": 42,
+      "heading": "Denial of loan modification options.",
+      "text": "(d) Denial of loan modification options. If a borrower's complete loss mitigation application is denied for any trial or permanent loan modification option available to the borrower pursuant to paragraph (c) of this section, a servicer shall state in the notice sent to the borrower pursuant to paragraph (c)(1)(ii) of this section the specific reason or reasons for the servicer's determination for each such trial or permanent loan modification option and, if applicable, that the borrower was not evaluated on other criteria.",
+      "sha256": "f1d53360759ed2a55252b6f0979264c7263c8292ed50dcda7b8d1a4b38e66f7a"
+    },
+    {
+      "path": [
+        "e"
+      ],
+      "kind": "letter",
+      "para": 43,
+      "heading": "Borrower response",
+      "text": "(e) Borrower response—",
+      "sha256": "ebc1059dcebff7509afb359cf8738342dde6fa735e10472050f04aaa8f2c1327",
+      "children": [
+        {
+          "path": [
+            "e",
+            "1"
+          ],
+          "kind": "number",
+          "para": 43,
+          "heading": "In general.",
+          "text": "(1) In general. Subject to paragraphs (e)(2)(ii) and (iii) of this section, if a complete loss mitigation application is received 90 days or more before a foreclosure sale, a servicer may require that a borrower accept or reject an offer of a loss mitigation option no earlier than 14 days after the servicer provides the offer of a loss mitigation option to the borrower. If a complete loss mitigation application is received less than 90 days before a foreclosure sale, but more than 37 days before a foreclosure sale, a servicer may require that a borrower accept or reject an offer of a loss mitigation option no earlier than 7 days after the servicer provides the offer of a loss mitigation option to the borrower.",
+          "sha256": "bebd924cf1dfe9609ce8aa92e5ae1eab58fa34ecf802aff6bc21128440ebf50e"
+        },
+        {
+          "path": [
+            "e",
+            "2"
+          ],
+          "kind": "number",
+          "para": 44,
+          "heading": "Rejection",
+          "text": "(2) Rejection—",
+          "sha256": "f652cad4af4d9c6f9a4e4161e6b1cf3be82c68325d714647ec9e0f4c94b2b77e",
+          "children": [
+            {
+              "path": [
+                "e",
+                "2",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 44,
+              "heading": "In general.",
+              "text": "(i) In general. Except as set forth in paragraphs (e)(2)(ii) and (iii) of this section, a servicer may deem a borrower that has not accepted an offer of a loss mitigation option within the deadline established pursuant to paragraph (e)(1) of this section to have rejected the offer of a loss mitigation option.",
+              "sha256": "0078a201b72c60d5eb0053709354a2869b19975e9abcb8787be087d404131920"
+            },
+            {
+              "path": [
+                "e",
+                "2",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 45,
+              "heading": "Trial Loan Modification Plan.",
+              "text": "(ii) Trial Loan Modification Plan. A borrower who does not satisfy the servicer's requirements for accepting a trial loan modification plan, but submits the payments that would be owed pursuant to any such plan within the deadline established pursuant to paragraph (e)(1) of this section, shall be provided a reasonable period of time to fulfill any remaining requirements of the servicer for acceptance of the trial loan modification plan beyond the deadline established pursuant to paragraph (e)(1) of this section.",
+              "sha256": "97a446307d66ef9c17033c27d971914f1b89841a7aeb304fb943bc0b3358959f"
+            },
+            {
+              "path": [
+                "e",
+                "2",
+                "iii"
+              ],
+              "kind": "roman",
+              "para": 46,
+              "heading": "Interaction with appeal process.",
+              "text": "(iii) Interaction with appeal process. If a borrower makes an appeal pursuant to paragraph (h) of this section, the borrower's deadline for accepting a loss mitigation option offered pursuant to paragraph (c)(1)(ii) of this section shall be extended until 14 days after the servicer provides the notice required pursuant to paragraph (h)(4) of this section.",
+              "sha256": "b2813cce1ffef8d7278f7283d64731564b21793f2dedb8dcb3592f30b56ab484"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": [
+        "f"
+      ],
+      "kind": "letter",
+      "para": 47,
+      "heading": "Prohibition on foreclosure referral",
+      "text": "(f) Prohibition on foreclosure referral—",
+      "sha256": "29002e3715c69de5c66481a2a133552a01e2cf4980fe5195bf178666594e785b",
+      "children": [
+        {
+          "path": [
+            "f",
+            "1"
+          ],
+          "kind": "number",
+          "para": 47,
+          "heading": "Pre-foreclosure review period.",
+          "text": "(1) Pre-foreclosure review period. A servicer shall not make the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process unless:",
+          "sha256": "9242ed88dbbe240540dc801c1122b843a891c49c748186b9d4fc13b28f866101",
+          "children": [
+            {
+              "path": [
+                "f",
+                "1",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 48,
+              "text": "(i) A borrower's mortgage loan obligation is more than 120 days delinquent;",
+              "sha256": "654d0659ea7306d300acb6f9cdcd75c3e65dc9f632c55ff6c8d0b8628c7cb739"
+            },
+            {
+              "path": [
+                "f",
+                "1",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 49,
+              "text": "(ii) The foreclosure is based on a borrower's violation of a due-on-sale clause; or",
+              "sha256": "96ab7957b1d1b21c67b5d71aa03d24da63445c3bfeb1cd6e2b3e513385d6b850"
+            },
+            {
+              "path": [
+                "f",
+                "1",
+                "iii"
+              ],
+              "kind": "roman",
+              "para": 50,
+              "text": "(iii) The servicer is joining the foreclosure action of a superior or subordinate lienholder.",
+              "sha256": "3bcdb42cfb9f9c4ab5ec0ce70c239927ae27080f208a8328f4dae9cbcfec303a"
+            }
+          ]
+        },
+        {
+          "path": [
+            "f",
+            "2"
+          ],
+          "kind": "number",
+          "para": 51,
+          "heading": "Application received before foreclosure referral.",
+          "text": "(2) Application received before foreclosure referral. If a borrower submits a complete loss mitigation application during the pre-foreclosure review period set forth in paragraph (f)(1) of this section or before a servicer has made the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process, a servicer shall not make the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process unless:",
+          "sha256": "9a16a836e4c0ad75a563219de576987f95be5c8081448ed1c90a26958fccd9ca",
+          "children": [
+            {
+              "path": [
+                "f",
+                "2",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 52,
+              "text": "(i) The servicer has sent the borrower a notice pursuant to paragraph (c)(1)(ii) of this section that the borrower is not eligible for any loss mitigation option and the appeal process in paragraph (h) of this section is not applicable, the borrower has not requested an appeal within the applicable time period for requesting an appeal, or the borrower's appeal has been denied;",
+              "sha256": "30fbfda5a1f23e41c967b243f19b68f206467b9a327c241758d1043b4dbbf284"
+            },
+            {
+              "path": [
+                "f",
+                "2",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 53,
+              "text": "(ii) The borrower rejects all loss mitigation options offered by the servicer; or",
+              "sha256": "c39186658aad53430c3db72297b3b6c69eda72928f09aff6e83f0440aeb8b0e3"
+            },
+            {
+              "path": [
+                "f",
+                "2",
+                "iii"
+              ],
+              "kind": "roman",
+              "para": 54,
+              "text": "(iii) The borrower fails to perform under an agreement on a loss mitigation option.",
+              "sha256": "28e6b185e0d7582a65f638d984633a6d25763460554645c69b9ad5641502e241"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": [
+        "g"
+      ],
+      "kind": "letter",
+      "para": 55,
+      "heading": "Prohibition on foreclosure sale.",
+      "text": "(g) Prohibition on foreclosure sale. If a borrower submits a complete loss mitigation application after a servicer has made the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process but more than 37 days before a foreclosure sale, a servicer shall not move for foreclosure judgment or order of sale, or conduct a foreclosure sale, unless:",
+      "sha256": "82b1e7bcda2331430811dd9445dda554e0bfa32f4a93e2ddb86b76f3fd90ccae",
+      "children": [
+        {
+          "path": [
+            "g",
+            "1"
+          ],
+          "kind": "number",
+          "para": 56,
+          "text": "(1) The servicer has sent the borrower a notice pursuant to paragraph (c)(1)(ii) of this section that the borrower is not eligible for any loss mitigation option and the appeal process in paragraph (h) of this section is not applicable, the borrower has not requested an appeal within the applicable time period for requesting an appeal, or the borrower's appeal has been denied;",
+          "sha256": "2881cd8aa584dc307084da34873c9ebd5e1fc811233f7ae215f2d0e83ed06392"
+        },
+        {
+          "path": [
+            "g",
+            "2"
+          ],
+          "kind": "number",
+          "para": 57,
+          "text": "(2) The borrower rejects all loss mitigation options offered by the servicer; or",
+          "sha256": "9efc0d7abcda2104134a8726cbd5b3eae061f8e52cc6c56e2ba1621ef19011fd"
+        },
+        {
+          "path": [
+            "g",
+            "3"
+          ],
+          "kind": "number",
+          "para": 58,
+          "text": "(3) The borrower fails to perform under an agreement on a loss mitigation option.",
+          "sha256": "fd331c6f91a5cab6e540fdbaf59a2f3979a1299a789ac7a014f569a52858fead"
+        }
+      ]
+    },
+    {
+      "path": [
+        "h"
+      ],
+      "kind": "letter",
+      "para": 59,
+      "heading": "Appeal process",
+      "text": "(h) Appeal process—",
+      "sha256": "46312844cb6fc144536c1d237690c6f6fc783735ac24e9497a61b954c940ccac",
+      "children": [
+        {
+          "path": [
+            "h",
+            "1"
+          ],
+          "kind": "number",
+          "para": 59,
+          "heading": "Appeal process required for loan modification denials.",
+          "text": "(1) Appeal process required for loan modification denials. If a servicer receives a complete loss mitigation application 90 days or more before a foreclosure sale or during the period set forth in paragraph (f) of this section, a servicer shall permit a borrower to appeal the servicer's determination to deny a borrower's loss mitigation application for any trial or permanent loan modification program available to the borrower.",
+          "sha256": "131c11fb29b9b7d363a65f6f0c23b614299b00d706e2ceed31eb9f56ffbd0648"
+        },
+        {
+          "path": [
+            "h",
+            "2"
+          ],
+          "kind": "number",
+          "para": 60,
+          "heading": "Deadlines.",
+          "text": "(2) Deadlines. A servicer shall permit a borrower to make an appeal within 14 days after the servicer provides the offer of a loss mitigation option to the borrower pursuant to paragraph (c)(1)(ii) of this section.",
+          "sha256": "04356cac5f825fc266ebbc5ee62b60d648a3a7577f564df64878c544a5e74a63"
+        },
+        {
+          "path": [
+            "h",
+            "3"
+          ],
+          "kind": "number",
+          "para": 61,
+          "heading": "Independent evaluation.",
+          "text": "(3) Independent evaluation. An appeal shall be reviewed by different personnel than those responsible for evaluating the borrower's complete loss mitigation application.",
+          "sha256": "ae75706df2ff999f4bb781a3698ae5b406fd7edeccc557496d33fffd37737c73"
+        },
+        {
+          "path": [
+            "h",
+            "4"
+          ],
+          "kind": "number",
+          "para": 62,
+          "heading": "Appeal determination.",
+          "text": "(4) Appeal determination. Within 30 days of a borrower making an appeal, the servicer shall provide a notice to the borrower stating the servicer's determination of whether the servicer will offer the borrower a loss mitigation option based upon the appeal and, if applicable, how long the borrower has to accept or reject such an offer or a prior offer of a loss mitigation option. A servicer may require that a borrower accept or reject an offer of a loss mitigation option after an appeal no earlier than 14 days after the servicer provides the notice to a borrower. A servicer's determination under this paragraph is not subject to any further appeal.",
+          "sha256": "ff9ca8452dd3b0972608cf10a8960fef8bd5c1436344c5f5b8308e89cfb2beb9"
+        }
+      ]
+    },
+    {
+      "path": [
+        "i"
+      ],
+      "kind": "letter",
+      "para": 63,
+      "heading": "Duplicative requests.",
+      "text": "(i) Duplicative requests. A servicer must comply with the requirements of this section for a borrower's loss mitigation application, unless the servicer has previously complied with the requirements of this section for a complete loss mitigation application submitted by the borrower and the borrower has been delinquent at all times since submitting the prior complete application.",
+      "sha256": "b5675d73f16646ed8369d5fd1197221793d7de4280713a5a704011853f06e49b"
+    },
+    {
+      "path": [
+        "j"
+      ],
+      "kind": "letter",
+      "para": 64,
+      "heading": "Small servicer requirements.",
+      "text": "(j) Small servicer requirements. A small servicer shall be subject to the prohibition on foreclosure referral in paragraph (f)(1) of this section. A small servicer shall not make the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process and shall not move for foreclosure judgment or order of sale, or conduct a foreclosure sale, if a borrower is performing pursuant to the terms of an agreement on a loss mitigation option.",
+      "sha256": "ddb38fdb32dafff6bbff7459e4c3d3edc280dc74ac816dad3ee80af92ea358f7"
+    },
+    {
+      "path": [
+        "k"
+      ],
+      "kind": "letter",
+      "para": 65,
+      "heading": "Servicing transfers",
+      "text": "(k) Servicing transfers—",
+      "sha256": "cac287c8a3d4b8ae5f98d5b615976541f799b7f6da828f78862dbcf54e2593c2",
+      "children": [
+        {
+          "path": [
+            "k",
+            "1"
+          ],
+          "kind": "number",
+          "para": 65,
+          "heading": "In general",
+          "text": "(1) In general—",
+          "sha256": "d6cb89bcc9b6d9eef11b59eb0db86299604274b4e306b697261d2fe9b7377aae",
+          "children": [
+            {
+              "path": [
+                "k",
+                "1",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 65,
+              "heading": "Timing of compliance.",
+              "text": "(i) Timing of compliance. Except as provided in paragraphs (k)(2) through (4) of this section, if a transferee servicer acquires the servicing of a mortgage loan for which a loss mitigation application is pending as of the transfer date, the transferee servicer must comply with the requirements of this section for that loss mitigation application within the timeframes that were applicable to the transferor servicer based on the date the transferor servicer received the loss mitigation application. All rights and protections under paragraphs (c) through (h) of this section to which a borrower was entitled before a transfer continue to apply notwithstanding the transfer.",
+              "sha256": "7b68ed9cddac215a092f0da63ebb110c49c3b77e16a853edd93bd1aa367720b4"
+            },
+            {
+              "path": [
+                "k",
+                "1",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 66,
+              "heading": "Transfer date defined.",
+              "text": "(ii) Transfer date defined. For purposes of this paragraph (k), the transfer date is the date on which the transferee servicer will begin accepting payments relating to the mortgage loan, as disclosed on the notice of transfer of loan servicing pursuant to § 1024.33(b)(4)(iv).",
+              "sha256": "930862fc3c7a99bf173c47b287855dd57d9b273b1a2cad0986d06e472e0fe81d"
+            }
+          ]
+        },
+        {
+          "path": [
+            "k",
+            "2"
+          ],
+          "kind": "number",
+          "para": 67,
+          "heading": "Acknowledgment notices",
+          "text": "(2) Acknowledgment notices—",
+          "sha256": "bae2fc9c583c76b3b81162a3718ea0895263b3b126aa9078746f9f44794842b3",
+          "children": [
+            {
+              "path": [
+                "k",
+                "2",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 67,
+              "heading": "Transferee servicer timeframes.",
+              "text": "(i) Transferee servicer timeframes. If a transferee servicer acquires the servicing of a mortgage loan for which the period to provide the notice required by paragraph (b)(2)(i)(B) of this section has not expired as of the transfer date and the transferor servicer has not provided such notice, the transferee servicer must provide the notice within 10 days (excluding legal public holidays, Saturdays, and Sundays) of the transfer date.",
+              "sha256": "b72ea741b7cae159496f8c2df6aa3789969d42bc54972a2cb1377bfbaaeb4429"
+            },
+            {
+              "path": [
+                "k",
+                "2",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 68,
+              "heading": "Prohibitions.",
+              "text": "(ii) Prohibitions. A transferee servicer that must provide the notice required by paragraph (b)(2)(i)(B) of this section under this paragraph (k)(2):",
+              "sha256": "c5ab1eee5503b115ec7af76041129fa1fa52e06c1f88812b7e545334286ef8fa",
+              "children": [
+                {
+                  "path": [
+                    "k",
+                    "2",
+                    "ii",
+                    "A"
+                  ],
+                  "kind": "capital",
+                  "para": 69,
+                  "text": "(A) Shall not make the first notice or filing required by applicable law for any judicial or non-judicial foreclosure process until a date that is after the reasonable date disclosed to the borrower pursuant to paragraph (b)(2)(ii) of this section, notwithstanding paragraph (f)(1) of this section. For purposes of paragraph (f)(2) of this section, a borrower who submits a complete loss mitigation application on or before the reasonable date disclosed to the borrower pursuant to paragraph (b)(2)(ii) of this section shall be treated as having done so during the pre-foreclosure review period set forth in paragraph (f)(1) of this section.",
+                  "sha256": "8ebc69f8ed2c7bcda29d7eb4f72b74ae020929cbaf065ac73e556f863f2a9143"
+                },
+                {
+                  "path": [
+                    "k",
+                    "2",
+                    "ii",
+                    "B"
+                  ],
+                  "kind": "capital",
+                  "para": 70,
+                  "text": "(B) Shall comply with paragraphs (c), (d), and (g) of this section if the borrower submits a complete loss mitigation application to the transferee or transferor servicer 37 or fewer days before the foreclosure sale but on or before the reasonable date disclosed to the borrower pursuant to paragraph (b)(2)(ii) of this section.",
+                  "sha256": "61d1b3a2441ac1b7fd436e9406b368db053614001bc24209df5ce7a4753b3787"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": [
+            "k",
+            "3"
+          ],
+          "kind": "number",
+          "para": 71,
+          "heading": "Complete loss mitigation applications pending at transfer.",
+          "text": "(3) Complete loss mitigation applications pending at transfer. If a transferee servicer acquires the servicing of a mortgage loan for which a complete loss mitigation application is pending as of the transfer date, the transferee servicer must comply with the applicable requirements of paragraphs (c)(1) and (4) of this section within 30 days of the transfer date.",
+          "sha256": "1056bad23115b2f7539a3663b49da0eb90d087303cbf898aa2d4b6707f650072"
+        },
+        {
+          "path": [
+            "k",
+            "4"
+          ],
+          "kind": "number",
+          "para": 72,
+          "heading": "Applications subject to appeal process.",
+          "text": "(4) Applications subject to appeal process. If a transferee servicer acquires the servicing of a mortgage loan for which an appeal of a transferor servicer's determination pursuant to paragraph (h) of this section has not been resolved by the transferor servicer as of the transfer date or is timely filed after the transfer date, the transferee servicer must make a determination on the appeal if it is able to do so or, if it is unable to do so, must treat the appeal as a pending complete loss mitigation application.",
+          "sha256": "01d7efe453c2a323c6a08587d50d2d87cfee5787094dafbc7a0915cc8efd1261",
+          "children": [
+            {
+              "path": [
+                "k",
+                "4",
+                "i"
+              ],
+              "kind": "roman",
+              "para": 73,
+              "heading": "Determining appeal.",
+              "text": "(i) Determining appeal. If a transferee servicer is required under this paragraph (k)(4) to make a determination on an appeal, the transferee servicer must complete the determination and provide the notice required by paragraph (h)(4) of this section within 30 days of the transfer date or 30 days of the date the borrower made the appeal, whichever is later.",
+              "sha256": "f528f9919ddc52adb3bb6025f117f603ca7e1811e25199267e846aa7679a6882"
+            },
+            {
+              "path": [
+                "k",
+                "4",
+                "ii"
+              ],
+              "kind": "roman",
+              "para": 74,
+              "heading": "Servicer unable to determine appeal.",
+              "text": "(ii) Servicer unable to determine appeal. A transferee servicer that is required to treat a borrower's appeal as a pending complete loss mitigation application under this paragraph (k)(4) must comply with the requirements of this section for such application, including evaluating the borrower for all loss mitigation options available to the borrower from the transferee servicer. For purposes of paragraph (c) or (k)(3) of this section, as applicable, such a pending complete loss mitigation application shall be considered complete as of the date the appeal was received by the transferor servicer or the transferee servicer, whichever occurs first. For purposes of paragraphs (e) through (h) of this section, the transferee servicer must treat such a pending complete loss mitigation application as facially complete under paragraph (c)(2)(iv) as of the date it was first facially complete or complete, as applicable, with respect to the transferor servicer.",
+              "sha256": "17c57c8a7624d0f95f94aa346b91cb595319081e93913f58803effb52983ddae"
+            }
+          ]
+        },
+        {
+          "path": [
+            "k",
+            "5"
+          ],
+          "kind": "number",
+          "para": 75,
+          "heading": "Pending loss mitigation offers.",
+          "text": "(5) Pending loss mitigation offers. A transfer does not affect a borrower's ability to accept or reject a loss mitigation option offered under paragraph (c) or (h) of this section. If a transferee servicer acquires the servicing of a mortgage loan for which the borrower's time period under paragraph (e) or (h) of this section for accepting or rejecting a loss mitigation option offered by the transferor servicer has not expired as of the transfer date, the transferee servicer must allow the borrower to accept or reject the offer during the unexpired balance of the applicable time period.",
+          "sha256": "ff555d352f01674c2678871fd1093275ef9260bb06f00be3003fba6edec2779f"
+        }
+      ]
+    }
+  ]
+}

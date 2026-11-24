@@ -170,8 +170,8 @@ func TestTreeJSONForm(t *testing.T) {
 // between paragraphs, and last the CITA; UTF-8, LF, one newline at the end.
 // No anchor IDs, markup or normalization.
 func TestTextMDForm(t *testing.T) {
-	paras := []string{"(a) <I>Head</I>—(1) <I>Sub.</I> “Text”  (i) here.", "(A)(<I>1</I>) Text.", "(2) Last."}
-	body := "# § 0.1 Head.\n\n(a) Head—(1) Sub. “Text”  (i) here.\n\n(A)(1) Text.\n\n(2) Last.\n"
+	paras := []string{"(a) <I>Head</I>—(1) <I>Sub.</I> “Text”  (i) here.", "(2) <I>Two</I>—(i) Text.", "(b) Last."}
+	body := "# § 0.1 Head.\n\n(a) Head—(1) Sub. “Text”  (i) here.\n\n(2) Two—(i) Text.\n\n(b) Last.\n"
 	for _, tc := range []struct{ name, cita, want string }{
 		{"a CITA ending in LF", "[Cite]\n", body + "\n[Cite]\n"},
 		{"a CITA with no LF", "[Cite]", body + "\n[Cite]\n"},

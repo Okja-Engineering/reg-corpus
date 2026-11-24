@@ -1,9 +1,10 @@
 // Package l0 is a stored L0 source on disk (R1; ADR 0010): how a file under
 // sources/ is stored, read and checked, and the one file-level writer of
 // meta.yaml, whose schema internal/meta owns. Every command that writes a
-// stored L0 file goes through it: fetch (internal/ecfr) and meta set (plan
-// step 3) now; internal/anchors (sha256_text, plan step 5) and fetch
-// --verify (verified_on, plan step 6) later. It imports only internal/meta.
+// stored L0 file goes through it: fetch (internal/ecfr), meta set (plan
+// step 3) and parse (internal/anchors: tree.json, text.md and sha256_text,
+// plan step 5) now; fetch --verify (verified_on, plan step 6) later. It
+// imports only internal/meta.
 //
 //   - Every directory on the way must be a real one, not a symlink or a file
 //     (RealDirs). StoreOnce stores a file that is not there yet, by hard
@@ -21,11 +22,16 @@
 //     processes), it reads, checks (Stored), sets the caller's fields and
 //     replaces the file whole (Replace: a temporary file renamed over it), so
 //     no update is lost and no reader sees half a file.
+//   - Derive writes a source's derived files (tree.json, text.md) inside
+//     Update's set, so under the same lock and from the raw XML Stored has
+//     just checked: it refuses anything but a missing or regular file at
+//     each path before writing any, then replaces only those whose bytes
+//     differ (Replace).
 //
 // The source table (cfr, tier, role per source) is unexported, in
 // internal/ecfr (sources.go); a caller passes each Source from it. fetch,
-// meta set and fetch --verify (plan step 6) are in internal/ecfr; how plan
-// step 5's writer (internal/anchors) gets its Source, the table exported or
-// moved, is step 5's choice. A refusal is a *Conflict (exit 1). It holds no
-// rule content.
+// meta set, parse and fetch --verify (plan step 6) have their handlers in
+// internal/ecfr; parse's passes its Source to internal/anchors, which does
+// the work, so the table stays where it is (the chief of staff's choice,
+// ADR 0013). A refusal is a *Conflict (exit 1). It holds no rule content.
 package l0

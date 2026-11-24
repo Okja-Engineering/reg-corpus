@@ -36,6 +36,16 @@ func (s Source) MetaPath() string { return path.Join(s.Dir, "meta.yaml") }
 // RawDir is s's raw/ directory, by slash path from the corpus root.
 func (s Source) RawDir() string { return path.Join(s.Dir, "raw") }
 
+// RawPath is s's raw XML for the version dated d, raw/<d>.xml, by slash path
+// from the corpus root.
+func (s Source) RawPath(d meta.Date) string { return path.Join(s.RawDir(), string(d)+".xml") }
+
+// TreePath, TextPath and OverridesPath are s's tree.json, text.md and
+// overrides.yaml, by slash path from the corpus root (spec "Granularity").
+func (s Source) TreePath() string      { return path.Join(s.Dir, "tree.json") }
+func (s Source) TextPath() string      { return path.Join(s.Dir, "text.md") }
+func (s Source) OverridesPath() string { return path.Join(s.Dir, "overrides.yaml") }
+
 // identity is the comparable form of the fields Identity sets.
 type identity struct {
 	cfr      string
@@ -112,8 +122,8 @@ func (st State) Stored(root string, s Source) ([]byte, error) {
 		return nil, Conflictf("%s says %s, but the source table gives %s: it describes another source, and no command writes to it (R1)",
 			s.MetaPath(), have, want)
 	}
-	name := string(m.SourceVersionDate) + ".xml"
-	raw := path.Join(s.RawDir(), name)
+	raw := s.RawPath(m.SourceVersionDate)
+	name := path.Base(raw)
 	var others []string
 	found := false
 	for _, e := range st.Raw {

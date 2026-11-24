@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -161,7 +160,7 @@ func parseSetting(key string, vals []string) (setting, error) {
 // with the field's line.
 func (st setting) apply(root string, s Source) (string, error) {
 	b, changed, err := l0.Update(root, s.stored(), func(m *meta.Meta, raw []byte) error {
-		return st.set(m, raw, path.Join(s.dir(), "raw", string(m.SourceVersionDate)+".xml"))
+		return st.set(m, raw, s.stored().RawPath(m.SourceVersionDate))
 	})
 	if err != nil {
 		return "", err
