@@ -1,7 +1,6 @@
 package anchors
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -20,21 +19,39 @@ func ID(section string, path []string) string {
 
 // Operative reports whether n is an operative anchor (spec "Definitions";
 // ADR 0013, the owner's F1 call): n's own text minus its label, the one
-// space before its heading, the heading, and the one "—" or space that ends
-// the heading is not empty. That separator is the one the parser leaves at
-// the end of a lead-in's own text when a child's label follows it (ADR
-// 0012); nothing else is taken away, so a second space, a no-break space or
-// an en dash after a heading makes n operative, as does a space after a
-// label with no heading. Own text is n.Text as the parser keeps it,
-// verbatim. An error means n's own text does not start with its label, and
-// its heading if it has one, as every node the parser makes does.
+// space before its heading, the heading, and the one dash or space that
+// ends the heading is not empty. What is left after the heading is read as
+// normalized text (Normalize), and one "-" or one space at its start is
+// that separator: an em or en dash, a space, a no-break space or a run of
+// White_Space, as the parser leaves at the end of a lead-in's own text
+// (ADR 0012). So the verdict follows what the node's hash covers: two nodes
+// with the same path, heading and normalized own text get the same one.
+// Nothing else is taken away: two dashes after a heading leave one, and a
+// space after a label with no heading is text. An error means n's own text
+// does not start with its label, and its heading if it has one, as every
+// node the parser makes does, or is not valid UTF-8.
 func Operative(n *parse.Node) (bool, error) {
 	rest, err := pastHeading(n)
-	return rest != "", err
+	if err != nil {
+		return false, err
+	}
+	if rest, err = Normalize(rest); err != nil {
+		return false, fmt.Errorf("anchors: node %s: %w", strings.Join(n.Path, "-"), err)
+	}
+	if n.Heading != "" {
+		if r, ok := strings.CutPrefix(rest, "-"); ok {
+			rest = r
+		} else {
+			rest = strings.TrimPrefix(rest, " ")
+		}
+	}
+	return rest != "", nil
 }
 
-// pastHeading is n's own text past its label and, if n has a heading, past
-// the one space before it, the heading and the one "—" or space after it.
+// pastHeading is n's own text, verbatim, past its label and, if n has a
+// heading, past the one space before it and the heading. It cuts the raw
+// text, as the parser built it: normalizing first could join the heading's
+// last character with a combining mark after it.
 func pastHeading(n *parse.Node) (string, error) {
 	if len(n.Path) == 0 {
 		return "", fmt.Errorf("anchors: a node with no label path, own text %q", n.Text)
@@ -50,43 +67,33 @@ func pastHeading(n *parse.Node) (string, error) {
 	if rest, ok = strings.CutPrefix(rest, " "+n.Heading); !ok {
 		return "", fmt.Errorf("anchors: node %s: own text %q does not hold its heading %q one space after its label", strings.Join(n.Path, "-"), n.Text, n.Heading)
 	}
-	if r, ok := strings.CutPrefix(rest, "—"); ok {
-		return r, nil
-	}
-	return strings.TrimPrefix(rest, " "), nil
+	return rest, nil
 }
 
-// Join is the text a multi-anchor cite quotes from (spec "Definitions";
-// ADR 0013, the owner's F2 call): the nodes' own texts in document order,
-// with nothing between two in one <P> and one space between two in
-// different <P>s, so the own texts of one <P> join to exactly its character
-// data, as the document reads. Nodes are put in document order whatever
-// order they are given in: by <P> (Para), then by depth, since the nodes of
-// one <P> are a chain, each a child of the one before. A node given twice
-// is an error. The join is raw, not normalized: a cite's text is matched
-// against the join normalized as one string (N6), never against normalized
-// pieces joined. Where a quote may cross a join (only between anchors
-// consecutive in the document) is C6's rule (plan step 13).
-func Join(nodes []*parse.Node) (string, error) {
-	ns := slices.Clone(nodes)
-	slices.SortStableFunc(ns, docOrder)
-	for i := 1; i < len(ns); i++ {
-		if docOrder(ns[i-1], ns[i]) == 0 {
-			return "", fmt.Errorf("anchors: two nodes at one place in the document, <P> %d at depth %d (%s and %s): an anchor given twice",
-				ns[i].Para, len(ns[i].Path), strings.Join(ns[i-1].Path, "-"), strings.Join(ns[i].Path, "-"))
-		}
-	}
-	return strings.Join(paragraphs(ns), " "), nil
+// Document is one parsed section's anchors in document order: the order
+// its nodes are read in, each before its children, which Join, text.md and
+// sha256_text all follow. Two anchors are consecutive in the document when
+// no anchor comes between them in that order (spec "Multi-anchor cite").
+// Nodes are its tree's, by identity: a node of another tree, even one with
+// the same path, is not in it.
+type Document struct {
+	nodes []*parse.Node
+	at    map[*parse.Node]int
 }
 
-// The red commit's stubs of the document-aware join: Runs puts every cited
-// node in one run, as the old Join did, refusing only a node given twice.
-type Document struct{ nodes []*parse.Node }
+// NewDocument indexes t's nodes in document order.
+func NewDocument(t *parse.Tree) *Document {
+	d := &Document{nodes: walk(t.Children), at: map[*parse.Node]int{}}
+	for i, n := range d.nodes {
+		d.at[n] = i
+	}
+	return d
+}
 
-func NewDocument(t *parse.Tree) *Document { return &Document{walk(t.Children)} }
-
+// Nodes is every node of the document, in document order.
 func (d *Document) Nodes() []*parse.Node { return slices.Clone(d.nodes) }
 
+// The cites Runs and Join refuse, each named in the error they return.
 var (
 	ErrEmptyCite      = errors.New("anchors: a cite with no anchor")
 	ErrNilAnchor      = errors.New("anchors: a nil anchor in a cite")
@@ -94,29 +101,70 @@ var (
 	ErrRepeatedAnchor = errors.New("anchors: an anchor given twice in a cite")
 )
 
+// Runs splits a cite's anchors into its runs: the longest lists of anchors
+// consecutive in the document, each in document order, the runs in
+// document order too, whatever order the cite gives them in. So [k-1,
+// k-1-ii] is two runs, since k-1-i comes between them, and [k-1-i, k-1-ii]
+// one. A quote may cross a join only within a run (spec "Multi-anchor
+// cite"): this is the one place that says which anchors are consecutive.
+// An empty cite, a nil anchor, one not in d, and one given twice are
+// refused, with ErrEmptyCite, ErrNilAnchor, ErrForeignAnchor or
+// ErrRepeatedAnchor.
 func (d *Document) Runs(cite []*parse.Node) ([][]*parse.Node, error) {
-	if slices.Contains(cite, nil) {
-		return nil, errors.New("stub: a nil node")
+	if len(cite) == 0 {
+		return nil, ErrEmptyCite
 	}
-	if _, err := Join(cite); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrRepeatedAnchor, err)
+	pos := make([]int, len(cite))
+	for i, n := range cite {
+		if n == nil {
+			return nil, fmt.Errorf("%w: item %d", ErrNilAnchor, i+1)
+		}
+		p, ok := d.at[n]
+		if !ok {
+			return nil, fmt.Errorf("%w: item %d, %s", ErrForeignAnchor, i+1, strings.Join(n.Path, "-"))
+		}
+		pos[i] = p
 	}
-	ns := slices.Clone(cite)
-	slices.SortStableFunc(ns, docOrder)
-	return [][]*parse.Node{ns}, nil
+	slices.Sort(pos)
+	var runs [][]*parse.Node
+	for i, p := range pos {
+		switch {
+		case i > 0 && p == pos[i-1]:
+			return nil, fmt.Errorf("%w: %s", ErrRepeatedAnchor, strings.Join(d.nodes[p].Path, "-"))
+		case i > 0 && p == pos[i-1]+1:
+			runs[len(runs)-1] = append(runs[len(runs)-1], d.nodes[p])
+		default:
+			runs = append(runs, []*parse.Node{d.nodes[p]})
+		}
+	}
+	return runs, nil
 }
 
+// Join is the text a multi-anchor cite quotes from (spec "Definitions";
+// ADR 0013, the owner's F2 call): one string per run of the cite (Runs), in
+// document order, each its anchors' own texts with nothing between two in
+// one <P> and one space between two in different <P>s, so the own texts of
+// one <P> join to exactly its character data, as the document reads. A
+// quote may cross a join only within one run, so it is matched within one
+// string, never across two. Each string is raw, not normalized: a quote is
+// matched against it normalized as one string (N6), never against
+// normalized pieces joined. It refuses what Runs refuses.
 func (d *Document) Join(cite []*parse.Node) ([]string, error) {
 	runs, err := d.Runs(cite)
 	if err != nil {
 		return nil, err
 	}
-	return []string{strings.Join(paragraphs(runs[0]), " ")}, nil
+	out := make([]string, len(runs))
+	for i, r := range runs {
+		out[i] = joinRun(r)
+	}
+	return out, nil
 }
 
-// docOrder orders nodes of one tree as the document does.
-func docOrder(a, b *parse.Node) int {
-	return cmp.Or(cmp.Compare(a.Para, b.Para), cmp.Compare(len(a.Path), len(b.Path)))
+// joinRun joins a run of consecutive nodes, in document order: their
+// paragraphs with one space between.
+func joinRun(nodes []*parse.Node) string {
+	return strings.Join(paragraphs(nodes), " ")
 }
 
 // paragraphs joins nodes, in document order, within each <P>: the own texts

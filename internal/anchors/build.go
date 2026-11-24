@@ -3,6 +3,7 @@ package anchors
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/okja-engineering/reg-corpus/internal/meta"
@@ -21,23 +22,31 @@ type Derived struct {
 // Build parses raw (internal/parse), sets each node's sha256 to Hash of its
 // own text, separator and all (ADR 0013, the owner's F1 call: the hash
 // covers every character), and renders tree.json, text.md and sha256_text
-// from the tree. A parse failure is the parser's *parse.Error, with its
-// location. The same bytes give the same output.
+// from the tree. It does no I/O, so every error is about raw: a parse
+// failure is the parser's *parse.Error, with its location, and text that
+// text.md can't hold as it reads is TextMD's error, naming where it is. The
+// same bytes give the same output.
 func Build(raw []byte) (*Derived, error) {
 	t, err := parse.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
 	for _, n := range walk(t.Children) {
-		n.SHA256, _ = Hash(n.Text)
+		if n.SHA256, err = Hash(n.Text); err != nil {
+			return nil, err
+		}
 	}
-	b, err := EncodeTree(t)
-	if err != nil {
+	d := &Derived{Tree: t}
+	if d.TreeJSON, err = EncodeTree(t); err != nil {
 		return nil, err
 	}
-	text, _ := TextMD(t)
-	sum, _ := SHA256Text(t)
-	return &Derived{Tree: t, TreeJSON: b, TextMD: text, SHA256Text: sum}, nil
+	if d.TextMD, err = TextMD(t); err != nil {
+		return nil, err
+	}
+	if d.SHA256Text, err = SHA256Text(t); err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 // EncodeTree is tree.json's bytes for t: the tree's JSON form (the json tags
@@ -55,16 +64,38 @@ func EncodeTree(t *parse.Tree) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// lineBreaks are the characters that end a line: CR, LF, NEL (U+0085), and
+// the line and paragraph separators (U+2028, U+2029).
+const lineBreaks = "\r\n\u0085  "
+
 // TextMD is text.md for t (ADR 0013, F5: T1), the section as it reads: "# "
 // and the section's HEAD, then each <P>'s text (its nodes' own texts joined
 // as Join joins them, with nothing between), then the CITA, if any, each
-// after a blank line. Every text is verbatim: no anchor IDs, no markup, no
-// normalization. The file is UTF-8 with LF line ends, and ends with one LF:
-// the CITA's own, or one added when its text has none.
+// after a blank line. Every text is verbatim: no anchor IDs, no markup but
+// the "# " that starts the heading line, no normalization. The file is
+// UTF-8 with LF line ends, and ends with one LF: the CITA's own, or one
+// added when its text has none.
+//
+// So that each text stays one line, as it reads, TextMD refuses rather
+// than rewrites (an error naming where): a line break (CR, LF, U+0085,
+// U+2028 or U+2029) in the HEAD or in any node's own text, and in the CITA
+// anywhere but one LF at its end.
 func TextMD(t *parse.Tree) ([]byte, error) {
+	doc := NewDocument(t)
+	if err := oneLine(t.Section+" HEAD", t.Heading); err != nil {
+		return nil, err
+	}
+	for _, n := range doc.nodes {
+		if err := oneLine(ID(t.Section, n.Path), n.Text); err != nil {
+			return nil, err
+		}
+	}
+	if err := oneLine(t.Section+" CITA", strings.TrimSuffix(t.Citation, "\n")); err != nil {
+		return nil, err
+	}
 	var b strings.Builder
 	b.WriteString("# " + t.Heading + "\n")
-	for _, p := range paragraphs(walk(t.Children)) {
+	for _, p := range paragraphs(doc.nodes) {
 		b.WriteString("\n" + p + "\n")
 	}
 	if t.Citation != "" {
@@ -76,17 +107,27 @@ func TextMD(t *parse.Tree) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+// oneLine is an error when text, at where, holds a line break.
+func oneLine(where, text string) error {
+	if i := strings.IndexAny(text, lineBreaks); i >= 0 {
+		r := []rune(text[i:])[0]
+		return fmt.Errorf("anchors: %s holds a line break, %U, at byte %d; text.md holds each text on one line, verbatim, so it is refused, not rewritten", where, r, i)
+	}
+	return nil
+}
+
 // SectionText is the text sha256_text hashes (ADR 0013, the owner's F3
-// call: S1): the section's HEAD, one space, then every node's own text
-// joined as Join joins them (nothing inside a <P>, one space between <P>s).
-// The CITA is left out, so the hash changes only when the rule's words do.
-// It is raw; SHA256Text normalizes it as one string (N6).
+// call: S1): the section's HEAD, one space, then every node's own text,
+// the whole document joined as one run of a cite joins (Join: nothing
+// inside a <P>, one space between <P>s). The CITA is left out, so the hash
+// changes only when the rule's words do. It is raw; SHA256Text normalizes
+// it as one string (N6), the HEAD and the space after it included.
 func SectionText(t *parse.Tree) string {
-	return t.Heading + " " + strings.Join(paragraphs(walk(t.Children)), " ")
+	return t.Heading + " " + joinRun(NewDocument(t).nodes)
 }
 
 // SHA256Text is meta.yaml's sha256_text for t: Hash of SectionText.
 func SHA256Text(t *parse.Tree) (meta.SHA256, error) {
-	h, _ := Hash(SectionText(t))
-	return meta.SHA256(h), nil
+	h, err := Hash(SectionText(t))
+	return meta.SHA256(h), err
 }

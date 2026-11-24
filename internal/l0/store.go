@@ -26,7 +26,7 @@ func Conflictf(format string, a ...any) error {
 	return &Conflict{fmt.Sprintf(format, a...)}
 }
 
-// TempPattern names the temporary file StoreOnce and Replace write beside
+// TempPattern names the temporary file StoreOnce and replace write beside
 // their target.
 // .gitignore ignores it under sources/, so an interrupted run leaves nothing
 // that can be committed.
@@ -64,20 +64,19 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 	return link(tmp, full, p, body)
 }
 
-// Replace writes body to the file at slash path p under root, which the
-// caller has read as a regular file or, for a derived file, found missing,
-// in one step: a temporary file beside it, synced, then renamed over it, so
-// the file is never seen half-written and never left short by a crash.
-// Only meta.yaml, by Update, and a source's derived files, by Derive inside
-// Update, are replaced, each under its source's lock; raw XML is stored once
-// (StoreOnce). Every directory on the way to p must be a real one
-// (RealDirs).
-// replace is the red commit's stub of the unexported writer: Replace.
-func replace(root, p string, body []byte) error { return Replace(root, p, body) }
-
-func Replace(root, p string, body []byte) error {
+// replace writes body to the file at slash path p under root, which Update
+// has read as a regular file or found missing, in one step: a temporary file
+// beside it, synced, then renamed over it, so the file is never seen
+// half-written and never left short by a crash. Only Update calls it, under
+// the source's lock, for meta.yaml and the source's derived files; raw XML
+// is stored once (StoreOnce). Every directory on the way to p must still be
+// a real one (RealDirs): Update checked that before writing anything, so if
+// it no longer holds, the way changed while files were being written, an
+// earlier one may be written, and the error is not a *Conflict (which means
+// nothing was written).
+func replace(root, p string, body []byte) error {
 	if err := RealDirs(root, path.Dir(p)); err != nil {
-		return err
+		return fmt.Errorf("writing %s: %v", p, err)
 	}
 	full := filepath.Join(root, filepath.FromSlash(p))
 	tmp, err := writeTemp(filepath.Dir(full), body)
@@ -136,8 +135,14 @@ func link(tmp, full, p string, body []byte) (stored bool, err error) {
 // (even to a directory) or a file. L0 is read and written only through real
 // directories, so nothing stored lands outside the root or behind a link git
 // can't see through. A missing entry ends the walk: what StoreOnce creates
-// there is real.
+// there is real. dir must name a directory below root: a slash path with no
+// "." or ".." element, no empty one and no leading or trailing slash
+// (fs.ValidPath, root itself excluded); any other is an error, so no path
+// leaves the root.
 func RealDirs(root, dir string) error {
+	if !fs.ValidPath(dir) || dir == "." {
+		return fmt.Errorf("l0: %q is not a slash path to a directory below the corpus root", dir)
+	}
 	p := ""
 	for _, name := range strings.Split(dir, "/") {
 		p = path.Join(p, name)

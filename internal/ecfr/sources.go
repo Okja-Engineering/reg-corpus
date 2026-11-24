@@ -61,6 +61,11 @@ type Source struct {
 	Role       meta.Role
 	Kind       Kind
 	Identifier string // eCFR's identifier for Kind, e.g. "1024.41"
+	// Goldens is the plan step that adds the source's parser goldens, empty
+	// once they are in. Until then `regcorpus parse` refuses the source and
+	// writes none of its derived files (stage 01: until a source's goldens
+	// exist, make test says nothing about R1a for it; ADR 0013).
+	Goldens string
 }
 
 // sources is the fixed source table, in fetch order (R1; spec "Upstream" and
@@ -69,15 +74,16 @@ type Source struct {
 // with Identifier "Supplement I to Part 1024", Dir "supplement-i/41" and tier
 // regulator_interpretation; eCFR versions it whole.
 var sources = []Source{
-	section("1024.41", meta.RoleInventoried),
-	section("1024.30", meta.RoleCiteOnly),
-	section("1024.31", meta.RoleCiteOnly),
+	section("1024.41", meta.RoleInventoried, ""),
+	section("1024.30", meta.RoleCiteOnly, "plan step 9"),
+	section("1024.31", meta.RoleCiteOnly, "plan step 9"),
 }
 
-func section(id string, role meta.Role) Source {
+func section(id string, role meta.Role, goldens string) Source {
 	return Source{
 		Name: id, Dir: id, CFR: "12 CFR " + id,
 		Tier: meta.TierLaw, Role: role, Kind: KindSection, Identifier: id,
+		Goldens: goldens,
 	}
 }
 
