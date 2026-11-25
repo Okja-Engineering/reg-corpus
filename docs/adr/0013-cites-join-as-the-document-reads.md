@@ -485,8 +485,10 @@ quotes are matched under); decisions 6 (CLI only) and 13.
   `696d17f` (one table of every name, condition and command, `exactly` on
   synthetic entries, an operative row; red), `08381ca` (the file-size-limit
   tests on every unix through `internal/fsizetest`, `Write` reading
-  `overrides.yaml` from `Read`'s record; green), and the commit that
-  records them here.
+  `overrides.yaml` from `Read`'s record; green), `4a231b9` (this ADR
+  revised); and from the confirming pass on that, `cd8ba10` (fetch names a
+  raw-file variant that is a directory or a symlink; a test, the code
+  already right), and the commit that adds this line.
 - Files, every one the PR changes:
   - Code: `internal/anchors/normalize.go` (`Normalize`, `Hash`),
     `internal/anchors/anchors.go` (`ID`, `Operative`, `Document`, `Runs`,
