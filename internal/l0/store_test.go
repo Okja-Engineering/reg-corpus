@@ -4,6 +4,7 @@ package l0
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,6 +98,70 @@ func TestStoreOnceMatchesTheFileExactly(t *testing.T) {
 				t.Errorf("changed %q", got)
 			}
 		})
+	}
+}
+
+// entry is a synthetic directory entry: a name and whether it is a
+// directory, nothing on disk.
+type entry struct {
+	name string
+	dir  bool
+}
+
+func (e entry) Name() string { return e.name }
+func (e entry) IsDir() bool  { return e.dir }
+func (e entry) Type() fs.FileMode {
+	if e.dir {
+		return fs.ModeDir
+	}
+	return 0
+}
+func (e entry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
+
+// TestExactlyFindsOnlyTheExactName: exactly, over synthetic entries in
+// every order, finds the entry with exactly the name, refuses one whose name
+// differs from it only in case (simple case folding: a long s, a Kelvin
+// sign, a capital) whether or not the exact name is beside it and on
+// whichever side, and finds nothing among other names. So the case a
+// case-insensitive filesystem can't make, a variant beside the exact name,
+// is checked on every platform.
+func TestExactlyFindsOnlyTheExactName(t *testing.T) {
+	const ls, kelvin = "\U0000017F", "\U0000212A"
+	for _, tc := range []struct {
+		name    string
+		want    string // the name found, "" for none
+		variant string // the entry refused, "" for none
+		ents    []string
+	}{
+		{"sources", "", "", nil},
+		{"sources", "", "", []string{".gitkeep", "source", "sources2"}},
+		{"sources", "sources", "", []string{".gitkeep", "sources", "x"}},
+		{"sources", "", "SOURCES", []string{"SOURCES"}},
+		{"sources", "", ls + "ources", []string{ls + "ources"}},
+		{"sources", "", "SOURCES", []string{"SOURCES", "sources"}},
+		{"sources", "", "SOURCES", []string{"sources", "SOURCES"}},
+		{"sources", "", ls + "ources", []string{"sources", ls + "ources"}},
+		{"sources", "", ls + "ources", []string{ls + "ources", "sources"}},
+		{"sources", "", "sourceS", []string{"a", "sources", "sourceS", "z"}},
+		{"kept", "", kelvin + "ept", []string{"kept", kelvin + "ept"}},
+		{"2025-07-15.xml", "", "2025-07-15.XML", []string{"2025-07-15.xml", "2025-07-15.XML"}},
+	} {
+		for _, dir := range []bool{false, true} {
+			ents := make([]fs.DirEntry, len(tc.ents))
+			for i, n := range tc.ents {
+				ents[i] = entry{n, dir}
+			}
+			e, err := exactly(ents, "d", tc.name)
+			var conflict *Conflict
+			switch {
+			case tc.variant != "":
+				if e != nil || !errors.As(err, &conflict) || !strings.Contains(err.Error(), "d/"+tc.variant+" is named "+tc.name+" in another case") {
+					t.Errorf("exactly(%q, %q), dirs %v: %v, %v; want a conflict naming d/%s", tc.ents, tc.name, dir, e, err, tc.variant)
+				}
+			case err != nil || (e == nil) != (tc.want == "") || (e != nil && (e.Name() != tc.want || e.IsDir() != dir)):
+				t.Errorf("exactly(%q, %q), dirs %v: %v, %v; want %q", tc.ents, tc.name, dir, e, err, tc.want)
+			}
+		}
 	}
 }
 

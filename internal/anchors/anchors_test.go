@@ -115,6 +115,7 @@ func TestOperativeRule(t *testing.T) {
 		{"a heading, then a dash and text", "(a) <I>Head</I>— text.", "a", true},
 		{"a heading, then two dashes: only one is the separator", "(a) <I>Head</I>——", "a", true},
 		{"a heading, then a dash and a space: only the dash is the separator", "(a) <I>Head</I>— ", "a", true},
+		{"a heading, then a space and a dash: only the space is the separator", "(a) <I>Head</I> \U00002014", "a", true},
 		{"a heading, then a combining mark: text, and no error", "(a) <I>Note</I>\u0301 text.", "a", true},
 		{"a heading, then a combining mark alone: text, not a separator", "(a) <I>Note</I>\u0301", "a", true},
 		// A heading that ends in White_Space: normalized as one string with
