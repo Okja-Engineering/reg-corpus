@@ -234,7 +234,11 @@ owner's call. Each choice and its reason:
   only in case (`2025-07-15.XML`) is refused (exit 1) with nothing stored
   (the chief of staff's ruling on the second review's decision 7): what a
   command reports writing, or finding unchanged, is the name git records,
-  on every platform.
+  on every platform. A known limit: "only in case" is Unicode simple case
+  folding, while APFS also folds one character into two (`ß` and `ss`,
+  `ﬁ` and `fi`), so a name APFS takes as another by such a fold is not
+  refused; no name the corpus uses holds such a character, and no code
+  handles it.
 - **What `text.md` can't hold is refused (PR #9's reviews).** A section
   heading, a node's own text or a citation note (past one LF ending it)
   that holds a line break (CR, LF, U+0085, U+2028 or U+2029; the first
@@ -348,11 +352,12 @@ can't read is an error, exit 2):
     in the per-node hash, and how a multi-anchor cite joins own texts across
     a heading separator or a paragraph boundary (decision 12) | plan, step
     5" is removed.
-  - Header "Amended: 2026-11-22 by ADRs 0007–0012" → "Amended: 2026-11-22
-    by ADRs 0007–0012; 2026-11-24 by ADR 0013".
+  - Header "**Amended:** 2026-11-22 by ADRs 0007–0012" → "**Amended:**
+    2026-11-22 by ADRs 0007–0012; 2026-11-24 by ADR 0013".
 - `docs/04-plan.md`:
-  - Header "Amended: 2026-11-22 by ADRs 0007, 0010, 0011 and 0012" → "…
-    and 0012; 2026-11-24 by ADR 0013".
+  - Header "**Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012" →
+    "**Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012; 2026-11-24
+    by ADR 0013".
   - Files: `cmd/regcorpus/main.go` "fetch, meta, check, inventory, …" →
     "fetch, meta, parse, check, inventory, …"; `internal/ecfr/` "versioner
     client; full/{date} XML; fetch and meta set" → "…; fetch, meta set and
@@ -375,8 +380,9 @@ can't read is an error, exit 2):
     are step 9's."
 - `stages/01-fetch-parse/CONTRACT.md`:
   - Outputs: "`tree.json`: the parsed tree; each node carries the `sha256`
-    of its normalized own text." → the same, then "(spec decision 13)."
-    (rewrapped); "`text.md`: generated from `tree.json`." → "`text.md`:
+    of its normalized own text." → "`tree.json`: the parsed tree; each node
+    carries the `sha256` of its normalized own text (spec decision 13)."
+    (rewrapped over two lines); "`text.md`: generated from `tree.json`." → "`text.md`:
     generated from `tree.json`: the section as it reads, verbatim, with no
     markup but the "# " that starts its heading line."; and after the list,
     a paragraph is added: "`regcorpus parse <section>` writes `tree.json`
@@ -474,25 +480,43 @@ quotes are matched under); decisions 6 (CLI only) and 13.
   names for directories, errors naming their file, no empty line in
   `text.md`; green), `4d4b454` (this ADR, the spec and ADRs 0010 and 0012
   revised), `6a493bb` (a comment), `5c5957d` (the file `StoreOnce` stores
-  found by exact name, red), `82fdd55` (the same, green), and the commit
-  that records it here.
-- Files: `internal/anchors/normalize.go` (`Normalize`, `Hash`),
-  `internal/anchors/anchors.go` (`ID`, `Operative`, `Document`, `Runs`,
-  `Join`), `internal/anchors/build.go` (`Build`, `EncodeTree`, `TextMD`,
-  `SectionText`, `SHA256Text`), `internal/anchors/write.go` (`Write`),
-  `internal/anchors/testdata/oracle.py`, `internal/l0/source.go` (`Read`,
-  `Update`), `internal/l0/store.go` (`RealDirs`, `StoreOnce`, `replace`),
-  `internal/ecfr/parsecmd.go`, `internal/ecfr/sources.go`,
-  `internal/ecfr/metaset.go`, `internal/ecfr/fetch.go`,
-  `internal/parse/tree.go`, `cmd/regcorpus/main.go`, `.gitignore`,
-  `sources/ecfr/title-12/1024.41/{tree.json,text.md,meta.yaml}`, the
-  package docs named above, `docs/adr/0010-one-writer-owns-meta-yaml.md`
-  and `docs/adr/0012-labels-count-in-the-paragraph-lead.md`, and the tests
-  `internal/anchors/*_test.go`, `internal/l0/update_test.go`,
-  `internal/l0/update_unix_test.go`, `internal/l0/update_darwin_test.go`,
-  `internal/l0/store_test.go`, `internal/ecfr/parsecmd_test.go`,
-  `internal/ecfr/parsecmd_darwin_test.go`, `internal/ecfr/store_unix_test.go`,
-  `internal/ecfr/names_test.go`, `internal/parse/tree_test.go` and
-  `cmd/regcorpus/main_test.go`.
+  found by exact name, red), `82fdd55` (the same, green), `5750e08` (this
+  ADR revised); and from the confirming pass on the second review,
+  `696d17f` (one table of every name, condition and command, `exactly` on
+  synthetic entries, an operative row; red), `08381ca` (the file-size-limit
+  tests on every unix through `internal/fsizetest`, `Write` reading
+  `overrides.yaml` from `Read`'s record; green), and the commit that
+  records them here.
+- Files, every one the PR changes:
+  - Code: `internal/anchors/normalize.go` (`Normalize`, `Hash`),
+    `internal/anchors/anchors.go` (`ID`, `Operative`, `Document`, `Runs`,
+    `Join`), `internal/anchors/build.go` (`Build`, `EncodeTree`, `TextMD`,
+    `SectionText`, `SHA256Text`), `internal/anchors/write.go` (`Write`),
+    `internal/l0/source.go` (`Read`, `State.Overrides`, `Update`),
+    `internal/l0/store.go` (`RealDirs`, `exactly`, `StoreOnce`,
+    `replace`), `internal/ecfr/parsecmd.go`, `internal/ecfr/sources.go`,
+    `internal/ecfr/metaset.go`, `internal/ecfr/fetch.go`,
+    `internal/parse/tree.go`, `cmd/regcorpus/main.go`, `go.mod` and
+    `go.sum` (`golang.org/x/text`, F4) and `.gitignore`.
+  - Package docs: `internal/anchors/doc.go`, `internal/ecfr/doc.go`,
+    `internal/l0/doc.go`, `internal/meta/doc.go`, `internal/parse/doc.go`
+    and `internal/fsizetest/doc.go`.
+  - Spec docs: `docs/03-spec.md`, `docs/04-plan.md`, `docs/adr/README.md`
+    and `stages/01-fetch-parse/CONTRACT.md`; this ADR,
+    `docs/adr/0010-one-writer-owns-meta-yaml.md` and
+    `docs/adr/0012-labels-count-in-the-paragraph-lead.md`.
+  - L0: `sources/ecfr/title-12/1024.41/tree.json`,
+    `sources/ecfr/title-12/1024.41/text.md` and
+    `sources/ecfr/title-12/1024.41/meta.yaml`.
+  - Tests: `internal/anchors/anchors_test.go`,
+    `internal/anchors/build_test.go`, `internal/anchors/helpers_test.go`,
+    `internal/anchors/normalize_test.go`, `internal/anchors/write_test.go`,
+    `internal/anchors/testdata/oracle.py`, `internal/l0/update_test.go`,
+    `internal/l0/update_unix_test.go`, `internal/l0/update_darwin_test.go`,
+    `internal/l0/store_test.go`, `internal/ecfr/parsecmd_test.go`,
+    `internal/ecfr/parsecmd_darwin_test.go`,
+    `internal/ecfr/store_unix_test.go`, `internal/ecfr/names_test.go`,
+    `internal/fsizetest/fsizetest.go` (a helper only tests import),
+    `internal/parse/tree_test.go` and `cmd/regcorpus/main_test.go`.
 - ADR 0012, "Where the dash or space after a heading goes"; ADR 0010, "Where
   the source table lives".
