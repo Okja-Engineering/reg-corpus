@@ -11,6 +11,7 @@ package ecfr
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -180,6 +181,53 @@ func TestEveryCommandFindsEachNameExactly(t *testing.T) {
 				restore()
 				if got != 2 || stdout != "" {
 					t.Errorf("exit %d, stdout %q, stderr %q; want 2, nothing printed", got, stdout, stderr)
+				}
+				if !equalTrees(before, tree(t, root)) {
+					t.Errorf("files changed: before %v, after %v", keysOf(before), keysOf(tree(t, root)))
+				}
+			})
+		}
+	}
+}
+
+// TestFetchNamesARawVariantOfAnyKind: where the raw file fetch stores is
+// missing and raw/ holds an entry named for it in another case that is not
+// a regular file (a directory, a symlink), fetch exits 1 naming that entry
+// as raw/ lists it, with meta.yaml or without, nothing printed or changed:
+// never a refusal of the exact name, which nothing holds.
+func TestFetchNamesARawVariantOfAnyKind(t *testing.T) {
+	const raw = "sources/ecfr/title-12/1024.41/raw/"
+	for _, kind := range []string{"a directory", "a symlink"} {
+		for _, withMeta := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s, meta.yaml %v", kind, withMeta), func(t *testing.T) {
+				root := corpusRoot(t)
+				_, c := newFake(t)
+				if code, _, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41"); code != 0 {
+					t.Fatalf("fetch: exit %d, %s", code, stderr)
+				}
+				gone := []string{raw + "2025-07-15.xml"}
+				if !withMeta {
+					gone = append(gone, metaPath("1024.41"))
+				}
+				for _, p := range gone {
+					if err := os.Remove(filepath.Join(root, filepath.FromSlash(p))); err != nil {
+						t.Fatal(err)
+					}
+				}
+				variant := filepath.Join(root, filepath.FromSlash(raw+"2025-07-15.XML"))
+				var err error
+				if kind == "a directory" {
+					err = os.Mkdir(variant, 0o755)
+				} else {
+					err = os.Symlink("../meta.yaml", variant)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				before := tree(t, root)
+				code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41")
+				if code != 1 || stdout != "" || !strings.Contains(stderr, raw+"2025-07-15.XML") || strings.Contains(stderr, raw+"2025-07-15.xml is") {
+					t.Errorf("exit %d, stdout %q, stderr %q; want 1 naming %s2025-07-15.XML, not refusing the missing %s2025-07-15.xml", code, stdout, stderr, raw, raw)
 				}
 				if !equalTrees(before, tree(t, root)) {
 					t.Errorf("files changed: before %v, after %v", keysOf(before), keysOf(tree(t, root)))
