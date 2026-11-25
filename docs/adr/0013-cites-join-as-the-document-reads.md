@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-24
-- **Decided by:** the owner, 2026-11-24 about 15:18 CST, in chat (answers to the chief of staff's questions), quoted on PR #9 (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7145434918): (F1) "Separator doesn't count (Recommended)"; (F2) "As the document reads (Recommended)"; (F3) "Rule text only (Recommended)"; (F4) "I'll land the 3-line edit (Recommended)"
+- **Decided by:** the owner, 2026-11-24 about 15:18 CST, in chat (answers to the chief of staff's questions), quoted on PR #9 (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7145434918): (F1) "Separator doesn't count (Recommended)"; (F2) "As the document reads (Recommended)"; (F3) "Rule text only (Recommended)"; (F4) "I'll land the 3-line edit (Recommended)"; and the owner, 2026-11-25 about 09:50 CST, in chat, on where that edit lands, quoted on PR #9 (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7167446669): "Commit it on PR #9"
 
 ## Context
 Plan step 5 builds `internal/anchors`: `text.md`, normalized text, each
@@ -50,8 +50,8 @@ citation note too?) were not said, and every hash depends on them.
 
 Go's standard library has no exported NFC; the plan's stack names
 `golang.org/x/text/unicode/norm`. With a dependency, the repo's shell gate
-tests (`.githooks/pre-commit_test.sh`, `.github/c6_test.sh`) fail, because
-they copy `go.mod` without `go.sum`.
+tests (`.githooks/pre-commit_test.sh`, `.github/c6_test.sh`) failed, because
+they copied `go.mod` without `go.sum`, until the owner's commit `cbd3695`.
 
 No command wrote `tree.json` or `text.md`, and the plan's command list
 ("fetch, meta, check, inventory, verify, upgrade, release, show, text,
@@ -113,7 +113,11 @@ The owner decided:
    stated it: "NFC, whitespace collapsed (no trim), curly quotes and en/em
    dashes mapped."
 4. (F4) `golang.org/x/text` is a dependency, as the plan's stack says; the
-   gate tests' change lands first, in the owner's own PR.
+   owner made the gate tests' change (they copy `go.sum` with `go.mod` into
+   their scaffold) and committed it on this PR (`cbd3695`), per the owner's
+   call of 2026-11-25 quoted on PR #9
+   (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7167446669),
+   which changed where the edit lands, not the F4 choice.
 
 How it is carried out was the chief of staff's (an agent's) choice, not the
 owner's call. Each choice and its reason:
@@ -445,12 +449,10 @@ can't read is an error, exit 2):
   anchors that aren't consecutive matches nothing, since they are joined
   in separate runs.
 - `sha256_text` doesn't change when only the citation note does.
-- `go.mod` requires `golang.org/x/text`. Until the owner's gate-test PR
-  merges to main, `.githooks/pre-commit_test.sh` and `.github/c6_test.sh`
-  fail on this branch, since they copy `go.mod` without `go.sum`. The
-  pre-commit hook builds main's checker, so commits are unaffected; but CI
-  runs `make test` too, so the PR's "C6 gate" check stays red until the
-  owner's gate-test PR lands and main is merged into this branch.
+- `go.mod` requires `golang.org/x/text`. Since the owner's commit `cbd3695`
+  on this PR, `.githooks/pre-commit_test.sh` and `.github/c6_test.sh` copy
+  `go.sum` with `go.mod` into their scaffold, so `make test` and the "C6
+  gate" check run with it.
 - `regcorpus help` lists `parse`, and `regcorpus parse -h` gives its exit
   codes.
 - Changing any of the above after records store `source_hashes` (step 16
@@ -488,7 +490,9 @@ quotes are matched under); decisions 6 (CLI only) and 13.
   `overrides.yaml` from `Read`'s record; green), `4a231b9` (this ADR
   revised); and from the confirming pass on that, `cd8ba10` (fetch names a
   raw-file variant that is a directory or a symlink; a test, the code
-  already right), and the commit that adds this line.
+  already right), `493c663` (this ADR revised); the owner's commit
+  `cbd3695` (the gate tests copy `go.sum` into their scaffold; the owner's,
+  not an agent's); and the commit that adds this line.
 - Files, every one the PR changes:
   - Code: `internal/anchors/normalize.go` (`Normalize`, `Hash`),
     `internal/anchors/anchors.go` (`ID`, `Operative`, `Document`, `Runs`,
@@ -520,5 +524,7 @@ quotes are matched under); decisions 6 (CLI only) and 13.
     `internal/ecfr/store_unix_test.go`, `internal/ecfr/names_test.go`,
     `internal/fsizetest/fsizetest.go` (a helper only tests import),
     `internal/parse/tree_test.go` and `cmd/regcorpus/main_test.go`.
+  - Gate tests, changed by the owner's commit `cbd3695`, not an agent's:
+    `.githooks/pre-commit_test.sh` and `.github/c6_test.sh`.
 - ADR 0012, "Where the dash or space after a heading goes"; ADR 0010, "Where
   the source table lives".
