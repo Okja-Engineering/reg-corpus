@@ -1,11 +1,6 @@
 package anchors
 
 import (
-	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
-
 	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 )
@@ -29,7 +24,8 @@ type Written struct {
 // (Stored's check, a name like meta.yaml, tree.json, text.md or
 // overrides.yaml, or like a directory on the way, in another case, anything
 // but a regular file where tree.json or text.md goes); an overrides.yaml in
-// s's directory, whatever it is, since applying overrides isn't built
+// s's directory, whatever it is, as Update's read of it found it
+// (l0.State.Overrides, by exact name), since applying overrides isn't built
 // (R1a), and parsing without one would drop a reviewed fix; and raw XML
 // that Build refuses, named with the raw file and Build's error (the
 // parser's location, or where text.md would break a line or show an empty
@@ -37,13 +33,9 @@ type Written struct {
 // before it, and names the file it was writing; a re-run writes the rest.
 func Write(root string, s l0.Source) (Written, error) {
 	var sum meta.SHA256
-	_, w, err := l0.Update(root, s, func(m *meta.Meta, raw []byte) (*l0.Derived, error) {
-		_, err := os.Lstat(filepath.Join(root, filepath.FromSlash(s.OverridesPath())))
-		switch {
-		case err == nil:
+	_, w, err := l0.Update(root, s, func(m *meta.Meta, raw []byte, st l0.State) (*l0.Derived, error) {
+		if st.Overrides() {
 			return nil, l0.Conflictf("%s exists, and applying overrides isn't built yet: the first source that needs a reviewed override builds it (R1a). Parsing as if it weren't there would drop its fixes, so nothing is written", s.OverridesPath())
-		case !errors.Is(err, fs.ErrNotExist):
-			return nil, err
 		}
 		d, err := Build(raw)
 		if err != nil {

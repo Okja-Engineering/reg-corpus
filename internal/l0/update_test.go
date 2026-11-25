@@ -99,13 +99,13 @@ func changes(before, after map[string]string) []string {
 }
 
 // derived is a set that returns tree and text as the derived files.
-func derived(tree, text string) func(*meta.Meta, []byte) (*Derived, error) {
+func derived(tree, text string) func(*meta.Meta, []byte, State) (*Derived, error) {
 	return derivedSum(tree, text, "0000000000000000000000000000000000000000000000000000000000000000")
 }
 
 // derivedSum is derived, setting sha256_text to sum.
-func derivedSum(tree, text string, sum meta.SHA256) func(*meta.Meta, []byte) (*Derived, error) {
-	return func(m *meta.Meta, _ []byte) (*Derived, error) {
+func derivedSum(tree, text string, sum meta.SHA256) func(*meta.Meta, []byte, State) (*Derived, error) {
+	return func(m *meta.Meta, _ []byte, _ State) (*Derived, error) {
 		m.SHA256Text = sum
 		return &Derived{Tree: []byte(tree), Text: []byte(text)}, nil
 	}

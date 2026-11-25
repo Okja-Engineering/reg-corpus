@@ -161,7 +161,7 @@ func parseSetting(key string, vals []string) (setting, error) {
 // line to print: "wrote" or, when meta.yaml already says it, "unchanged",
 // with the field's line.
 func (st setting) apply(root string, s Source) (string, error) {
-	b, w, err := l0.Update(root, s.stored(), func(m *meta.Meta, raw []byte) (*l0.Derived, error) {
+	b, w, err := l0.Update(root, s.stored(), func(m *meta.Meta, raw []byte, _ l0.State) (*l0.Derived, error) {
 		return nil, st.set(m, raw, s.stored().RawPath(m.SourceVersionDate))
 	})
 	if err != nil {

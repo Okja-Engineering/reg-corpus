@@ -136,6 +136,14 @@ func Read(root string, s Source) (State, error) {
 	return st, nil
 }
 
+// Overrides reports whether the source's directory holds an entry named
+// exactly overrides.yaml, whatever it is (a file, an empty one, a
+// directory, a symlink), as Read found it: the one record of that.
+func (st State) Overrides() bool {
+	_, ok := st.files[overridesName]
+	return ok
+}
+
 // readDir is the entries of the directory at slash path dir under root; none
 // when it is missing.
 func readDir(root, dir string) ([]fs.DirEntry, error) {
@@ -212,8 +220,9 @@ type Wrote struct{ Tree, Text, Meta bool }
 // holding s's lock (one Update per source at a time, across processes) from
 // before it reads until the last file is replaced, it reads s's directory
 // (Read, which checks the way again), checks it (Stored), and lets set
-// change the fields its command owns, given the raw XML that check read,
-// and return s's derived files or nil. Before writing anything it checks
+// change the fields its command owns, given the raw XML that check read
+// and what Read found (st: whether s holds an overrides.yaml, say), and
+// return s's derived files or nil. Before writing anything it checks
 // each derived file: missing, or a regular file (anything else is a
 // *Conflict); one it can't read is an error, not a difference. Then it
 // replaces, in turn, tree.json, text.md and meta.yaml (what meta.Marshal
@@ -228,7 +237,7 @@ type Wrote struct{ Tree, Text, Meta bool }
 // and the files replaced before it are in Wrote; a re-run writes the rest.
 // A missing source directory has no meta.yaml: a *Conflict, as Stored gives
 // for one.
-func Update(root string, s Source, set func(m *meta.Meta, raw []byte) (*Derived, error)) (b []byte, w Wrote, err error) {
+func Update(root string, s Source, set func(m *meta.Meta, raw []byte, st State) (*Derived, error)) (b []byte, w Wrote, err error) {
 	if err := RealDirs(root, s.Dir); err != nil {
 		return nil, w, err
 	}
@@ -249,7 +258,7 @@ func Update(root string, s Source, set func(m *meta.Meta, raw []byte) (*Derived,
 		return nil, w, err
 	}
 	m := *st.Meta
-	d, err := set(&m, raw)
+	d, err := set(&m, raw, st)
 	if err != nil {
 		return nil, w, err
 	}

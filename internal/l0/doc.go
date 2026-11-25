@@ -10,7 +10,11 @@
 //     symlink or a file, reached with no "." or ".." and found by its exact
 //     name among its parent's entries; one that differs from its name only
 //     in case ("RAW", "TITLE-12") is refused (RealDirs, the one check of
-//     the way). StoreOnce stores a file that is not there yet, by hard link,
+//     the way). "In case" is Unicode simple case folding (strings.EqualFold,
+//     so "ſ", U+017F, is "s"); a known limit: APFS folds fully too, so a
+//     name APFS takes as another by a fold of one character into two ("ß"
+//     and "ss", "ﬁ" and "fi") is not refused. No name the corpus uses holds
+//     such a character. StoreOnce stores a file that is not there yet, by hard link,
 //     and never overwrites one: fetch stores raw XML so, and a source's
 //     first meta.yaml. It finds that file by exact name too, and refuses a
 //     name that differs from it only in case ("2025-07-15.XML"), whatever it
