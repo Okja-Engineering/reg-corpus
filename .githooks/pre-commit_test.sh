@@ -27,7 +27,7 @@ g() { git -C "$R" "$@"; }
 # scaffold DIR: copy the checker, the stages and the hook under test into DIR.
 scaffold() {
   mkdir -p "$1/.githooks" "$1/staging"
-  (cd "$src" && tar -cf - go.mod cmd internal stages) | tar -xf - -C "$1" || exit 1
+  (cd "$src" && tar -cf - go.mod $(test -f go.sum && echo go.sum) cmd internal stages) | tar -xf - -C "$1" || exit 1
   cp -p "$here/pre-commit" "$here/build-checker.sh" "$1/.githooks/"
 }
 
@@ -362,7 +362,7 @@ R=$tmp/repo
 
 # --- go.sum travels with go.mod: once a dependency lands, commits still build.
 # A local module proxy serves example.com/dep; nothing is fetched from the network.
-export GOPROXY=file://$tmp/proxy GOSUMDB=off GOMODCACHE=$tmp/modcache
+export GOPROXY=file://$tmp/proxy,file://$(go env GOMODCACHE)/cache/download GOSUMDB=off GOMODCACHE=$tmp/modcache
 dep=$tmp/dep
 mkdir -p "$dep" "$tmp/proxy/example.com/dep/@v"
 printf 'module example.com/dep\n\ngo 1.21\n' >"$dep/go.mod"

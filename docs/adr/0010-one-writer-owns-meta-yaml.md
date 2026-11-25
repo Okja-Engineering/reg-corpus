@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Decided by:** the owner, 2026-11-22 15:48 CST, in chat (answer to "Who should own meta.yaml?"), recorded on issue #5: "One shared writer (Recommended)"
+- **Amended:** 2026-11-24 by ADR 0013, which made plan step 5's choice this left open. The Decision's "Step 5's writer, `internal/anchors`, needs a source too: whether the table is exported or moved is step 5's choice." describes the plan before step 5: the table stays unexported in `internal/ecfr`, whose `regcorpus parse` passes each `l0.Source` to `internal/anchors`.
 
 ## Context
 The spec's "L0 `meta.yaml`" lists thirteen fields, and the plan fills them in

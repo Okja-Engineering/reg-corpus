@@ -34,7 +34,7 @@ commit() { g add -A && g commit -q -m "$1" && g rev-parse HEAD; } # commit all, 
 
 # scaffold DIR: copy the checker and the stages into DIR.
 scaffold() {
-  (cd "$src" && tar -cf - go.mod cmd internal stages) | tar -xf - -C "$1" || die "scaffold"
+  (cd "$src" && tar -cf - go.mod $(test -f go.sum && echo go.sum) cmd internal stages) | tar -xf - -C "$1" || die "scaffold"
 }
 rec() { # write the unlogged record RX-41-TEST-01 in R
   mkdir -p "$R/registry/records"

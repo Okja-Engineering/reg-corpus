@@ -11,10 +11,10 @@
 // (meta.Parse) and writes what meta.Marshal returns, through l0. fetch
 // creates it with the fetch-time fields (l0.StoreOnce); meta set sets
 // version_effective_date and version_fr_citations (plan step 3, l0.Update);
-// plan step 5 (internal/anchors) adds sha256_text and plan step 6 (fetch
-// --verify) verified_on, each through l0.Update, each keeping the fields it
-// doesn't set. Before writing anything, each checks the same stored state
-// (l0's Stored).
+// parse (plan step 5, internal/anchors) sets sha256_text and plan step 6
+// (fetch --verify) verified_on, each through l0.Update, each keeping the
+// fields it doesn't set. Before writing anything, each checks the same
+// stored state (l0's Stored).
 //
 // Built (plan step 2): `regcorpus fetch [--date YYYY-MM-DD] [section ...]`
 // for 1024.41, 1024.30 and 1024.31 (sources.go holds the fixed source table).
@@ -46,9 +46,16 @@
 //     item's checks refuse) exits 1 and stores nothing. A stored file is
 //     never overwritten (l0.StoreOnce, by hard link), and every directory on
 //     the way to one, from sources/ down and under .cache/, must be a real
-//     directory, not a symlink or a file (l0.RealDirs, the one check of that;
-//     exit 1 otherwise, before any request for sources/ecfr/title-12/). A
-//     root without sources/ecfr/title-12/ is not the corpus root (exit 2).
+//     directory, not a symlink or a file, found by its exact name
+//     (l0.RealDirs, the one check of that; exit 1 otherwise, before any
+//     request for sources/ecfr/title-12/). A name that differs only in case
+//     from a directory's on the way ("RAW", "TITLE-12"), or from meta.yaml,
+//     tree.json, text.md or overrides.yaml in a source's directory (l0.Read),
+//     or from the file fetch stores ("2025-07-15.XML", --date's under .cache/
+//     too; l0.StoreOnce), exits 1 too, with nothing stored: a
+//     case-insensitive filesystem would store under, or report as unchanged,
+//     a name git doesn't record. A root without sources/ecfr/title-12/ is not the
+//     corpus root (exit 2).
 //   - Beside it, when missing, fetch writes meta.yaml's fetch-owned fields in
 //     the spec's order: cfr, tier, role, source, official, source_version_date,
 //     retrieved_at (UTC), ecfr_up_to_date_as_of, sha256_raw. When meta.yaml
@@ -65,8 +72,9 @@
 // set <section> <field> <value ...>` (metaset.go) sets version_effective_date
 // or version_fr_citations in a stored source's meta.yaml and nothing else;
 // every other field is refused (exit 2). Through l0.Update, under the
-// source's lock, it first makes the stored-state check fetch makes (exit 1
-// otherwise), then sets the field and replaces meta.yaml whole; setting the
+// source's lock, it first makes the stored-state check fetch makes, and
+// refuses a name in another case as fetch does (exit 1 otherwise), then
+// sets the field and replaces meta.yaml whole; setting the
 // value a field has is a no-op. version_effective_date is set as given; only
 // its form is checked (internal/meta). Each citation, each given once, must
 // be cited in a citation note (<CITA>) of the raw XML meta.yaml describes
@@ -77,6 +85,22 @@
 // values are read from the Federal Register and eCFR outside the tool (plan
 // step 3's diff record, in its PR); meta set checks only what L0 itself can
 // check.
+//
+// Built (plan step 5; ADR 0013): `regcorpus parse <section> ...`
+// (parsecmd.go), offline, the chief of staff's choice of command. Its handler
+// is here because the source table is; it passes each named source to
+// internal/anchors' Write, which, through l0.Update, writes tree.json and
+// text.md and sets sha256_text from the stored raw XML. Sections are named,
+// never defaulted, and it writes only a source whose parser goldens are in
+// (the table's Goldens is empty): today 1024.41. 1024.30 and 1024.31 are
+// refused (exit 1, "goldens are plan step 9's"), with nothing written. A
+// source that fails the stored-state check, whose raw XML doesn't parse (the
+// parser's line and column) or holds a line break or an empty line text.md
+// can't show, that holds an overrides.yaml, or a name like a source file's
+// or a directory's on the way in another case, exits 1 with nothing written
+// for it; no section, an unknown one or a flag exits 2, as does a write
+// that fails part-way, after printing the files it wrote, its error naming
+// the file it was writing.
 //
 // TODO(plan step 6): `fetch --verify` (verified_on) and
 // `fetch --latest` (R1b). TODO(plan step 8): Supplement I, an appendix source

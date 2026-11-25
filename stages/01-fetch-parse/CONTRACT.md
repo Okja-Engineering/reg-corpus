@@ -24,12 +24,19 @@ Per source directory: `sources/ecfr/title-12/1024.41/`,
 `sources/ecfr/title-12/supplement-i/41/`, `sources/ecfr/title-12/1024.30/`,
 `sources/ecfr/title-12/1024.31/`:
 - `raw/<date>.xml`: the fetched XML, untouched (Supplement I: the whole appendix).
-- `tree.json`: the parsed tree; each node carries the `sha256` of its normalized own text.
-- `text.md`: generated from `tree.json`.
+- `tree.json`: the parsed tree; each node carries the `sha256` of its normalized own text
+  (spec decision 13).
+- `text.md`: generated from `tree.json`: the section as it reads, verbatim, with no
+  markup but the "# " that starts its heading line.
 - `meta.yaml`: the fields listed in R1 and the spec's L0 `meta.yaml` (tier, role,
   version dates, retrieval date, eCFR "up to date as of", `verified_on`,
   `sha256_raw`, `sha256_text`, `official: false`).
 - `overrides.yaml`: only if needed.
+
+`regcorpus parse <section>` writes `tree.json` and `text.md` and sets `sha256_text`,
+offline, from the stored raw XML (plan step 5). It writes a source's files only once
+its parser goldens are in: today 1024.41's. It refuses 1024.30 and 1024.31 (exit 1,
+nothing written) until plan step 9.
 
 Local exploratory downloads go in `.cache/` (git-ignored); committed raw XML
 lives only under `sources/**/raw/`.
@@ -44,6 +51,8 @@ lives only under `sources/**/raw/`.
   step 8, and 1024.30/1024.31 (cite-only; the `1024-31-day` golden) in plan
   step 9. Until a source's goldens exist, `make test` passing says nothing
   about R1a for that source: do not report R1a met for it; name its plan step.
+  From plan step 5, exit 0 also means 1024.41's committed `tree.json`, `text.md`
+  and `sha256_text` are what `regcorpus parse` makes from its raw XML.
 - `regcorpus fetch --latest` exits 0 (R1b; built in plan step 6). Exit 0 means eCFR
   lists no newer version of any stored section, and the fresh Supplement I 41()
   slice hash equals the stored one.
@@ -51,7 +60,9 @@ lives only under `sources/**/raw/`.
 ## Who may run it
 - A person or an agent, on the owner's machine (the cloud workspace cannot reach
   the upstream hosts). Later stages work offline from the committed XML.
-- An agent may write parser code and goldens, and run the checks above.
+- An agent may write parser code and goldens, run the checks above, and run
+  `regcorpus parse`, which is offline and derives every file from the committed
+  raw XML; a person reviews its output in the PR diff.
 - A source defect is fixed only by a reviewed `overrides.yaml` entry, never in
   parser code and never by editing stored text.
 

@@ -43,7 +43,7 @@ go.work.sum
 # sources/, registry/ and registry/verify.log stay tracked: in them git ignores
 # only what the patterns above ignore anywhere (binaries, test and coverage
 # output, go.work, .env, OS and editor clutter) and the temporary files of
-# fetch and meta set (below), none of them a corpus file.
+# fetch, meta set and parse (below), none of them a corpus file.
 /regcorpus
 /dist/
 # Local raw-download cache: exploratory fetches and the govinfo edition.
@@ -51,8 +51,8 @@ go.work.sum
 /.cache/
 # Temporary files written beside a stored L0 file before it is linked or
 # renamed into place (R1; internal/l0/store.go: StoreOnce for `regcorpus
-# fetch`, Replace for `regcorpus meta set`); an interrupted run can leave one
-# behind.
+# fetch`, replace, through Update, for `regcorpus meta set` and `regcorpus
+# parse`); an interrupted run can leave one behind.
 /sources/**/.fetch-*
 .claude/settings.local.json
 .claude/worktrees/

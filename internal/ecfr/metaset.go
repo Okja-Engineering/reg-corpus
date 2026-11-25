@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -45,7 +44,9 @@ Exit 0: set, or already that value. Exit 1: refused by what is stored: no
 meta.yaml (run regcorpus fetch first), or one not in the spec's schema or
 naming another source; raw/ not holding exactly the raw file meta.yaml
 describes, with its bytes; a symlink or a file in place of meta.yaml, the
-raw file or a directory on the way; when setting citations, raw XML that
+raw file or a directory on the way; a name that differs only in case from
+meta.yaml, tree.json, text.md or overrides.yaml, or from a directory on the
+way; when setting citations, raw XML that
 is not well-formed (the form fetch checks before storing a body), or a
 citation the note doesn't cite. Nothing is written.
 Exit 2: a usage error (no such section, any other field, a flag, a value not
@@ -160,14 +161,14 @@ func parseSetting(key string, vals []string) (setting, error) {
 // line to print: "wrote" or, when meta.yaml already says it, "unchanged",
 // with the field's line.
 func (st setting) apply(root string, s Source) (string, error) {
-	b, changed, err := l0.Update(root, s.stored(), func(m *meta.Meta, raw []byte) error {
-		return st.set(m, raw, path.Join(s.dir(), "raw", string(m.SourceVersionDate)+".xml"))
+	b, w, err := l0.Update(root, s.stored(), func(m *meta.Meta, raw []byte, _ l0.State) (*l0.Derived, error) {
+		return nil, st.set(m, raw, s.stored().RawPath(m.SourceVersionDate))
 	})
 	if err != nil {
 		return "", err
 	}
 	verb := "unchanged "
-	if changed {
+	if w.Meta {
 		verb = "wrote "
 	}
 	return verb + s.stored().MetaPath() + ": " + fieldLine(b, st.key), nil

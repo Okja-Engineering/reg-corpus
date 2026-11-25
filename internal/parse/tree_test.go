@@ -1,5 +1,5 @@
-// The tree's JSON form. internal/parse owns it; plan step 5 adds each
-// node's sha256 and writes it to tree.json.
+// The tree's JSON form. internal/parse owns it; each node's sha256 is empty
+// until internal/anchors fills it (plan step 5), which writes tree.json.
 package parse_test
 
 import (
@@ -23,11 +23,11 @@ func TestTreeJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	const want = `{"section":"0.1","heading":"§ 0.1 Head.","citation":"[Cite]\n","children":[` +
-		`{"path":["a"],"kind":"letter","para":1,"heading":"Head","text":"(a) Head—","children":[` +
-		`{"path":["a","1"],"kind":"number","para":1,"heading":"Head.","text":"(1) Head. ","children":[` +
-		`{"path":["a","1","i"],"kind":"roman","para":1,"text":"(i) Text (2).","children":[` +
-		`{"path":["a","1","i","A"],"kind":"capital","para":2,"text":"(A)","children":[` +
-		`{"path":["a","1","i","A","1"],"kind":"italic","para":2,"text":"(1) Text."}]}]}]}]}]}`
+		`{"path":["a"],"kind":"letter","para":1,"heading":"Head","text":"(a) Head—","sha256":"","children":[` +
+		`{"path":["a","1"],"kind":"number","para":1,"heading":"Head.","text":"(1) Head. ","sha256":"","children":[` +
+		`{"path":["a","1","i"],"kind":"roman","para":1,"text":"(i) Text (2).","sha256":"","children":[` +
+		`{"path":["a","1","i","A"],"kind":"capital","para":2,"text":"(A)","sha256":"","children":[` +
+		`{"path":["a","1","i","A","1"],"kind":"italic","para":2,"text":"(1) Text.","sha256":""}]}]}]}]}]}`
 	if string(got) != want {
 		t.Errorf("JSON =\n%s\nwant\n%s", got, want)
 	}
@@ -74,7 +74,7 @@ func TestTreeJSONOmits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `{"section":"0.1","heading":"Head.","children":[{"path":["a"],"kind":"letter","para":1,"text":"(a) text."}]}`
+	const want = `{"section":"0.1","heading":"Head.","children":[{"path":["a"],"kind":"letter","para":1,"text":"(a) text.","sha256":""}]}`
 	if string(got) != want {
 		t.Errorf("JSON =\n%s\nwant\n%s", got, want)
 	}

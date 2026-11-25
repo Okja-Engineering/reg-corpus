@@ -4,6 +4,7 @@ package l0
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,110 @@ func TestALinkThatFindsAFileComparesIt(t *testing.T) {
 	}
 }
 
+// TestStoreOnceMatchesTheFileExactly: StoreOnce finds the file it stores by
+// exact name among its directory's entries, as RealDirs finds a directory.
+// An entry whose name differs from it only in case (a long s too), holding
+// the same bytes, other bytes, or being a directory, is a conflict naming
+// that entry, and nothing is stored: a case-insensitive filesystem would
+// read it as the file (reporting it unchanged, or its bytes as the stored
+// ones), and a case-sensitive one would store a second file beside it, while
+// git records only the other name.
+func TestStoreOnceMatchesTheFileExactly(t *testing.T) {
+	for _, tc := range []struct {
+		name, p, there, body string // there is "" for a directory
+	}{
+		{"the same bytes", "d/f.xml", "d/F.XML", "ours"},
+		{"other bytes", "d/f.xml", "d/F.xml", "theirs"},
+		{"a long s, the same bytes", "d/s.xml", "d/\U0000017F.xml", "ours"},
+		{"a directory", "d/meta.yaml", "d/META.YAML", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			full := filepath.Join(root, filepath.FromSlash(tc.there))
+			if tc.body == "" {
+				if err := os.MkdirAll(full, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				putFile(t, root, tc.there, tc.body)
+			}
+			before := snapshot(t, root)
+			stored, err := StoreOnce(root, tc.p, []byte("ours"))
+			var conflict *Conflict
+			if stored || !errors.As(err, &conflict) || !strings.Contains(err.Error(), tc.there+" ") || !strings.Contains(err.Error(), "in another case") {
+				t.Errorf("StoreOnce(%s): stored %v, %v; want a conflict naming %s in another case", tc.p, stored, err, tc.there)
+			}
+			if got := changes(before, snapshot(t, root)); len(got) > 0 {
+				t.Errorf("changed %q", got)
+			}
+		})
+	}
+}
+
+// entry is a synthetic directory entry: a name and whether it is a
+// directory, nothing on disk.
+type entry struct {
+	name string
+	dir  bool
+}
+
+func (e entry) Name() string { return e.name }
+func (e entry) IsDir() bool  { return e.dir }
+func (e entry) Type() fs.FileMode {
+	if e.dir {
+		return fs.ModeDir
+	}
+	return 0
+}
+func (e entry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
+
+// TestExactlyFindsOnlyTheExactName: exactly, over synthetic entries in
+// every order, finds the entry with exactly the name, refuses one whose name
+// differs from it only in case (simple case folding: a long s, a Kelvin
+// sign, a capital) whether or not the exact name is beside it and on
+// whichever side, and finds nothing among other names. So the case a
+// case-insensitive filesystem can't make, a variant beside the exact name,
+// is checked on every platform.
+func TestExactlyFindsOnlyTheExactName(t *testing.T) {
+	const ls, kelvin = "\U0000017F", "\U0000212A"
+	for _, tc := range []struct {
+		name    string
+		want    string // the name found, "" for none
+		variant string // the entry refused, "" for none
+		ents    []string
+	}{
+		{"sources", "", "", nil},
+		{"sources", "", "", []string{".gitkeep", "source", "sources2"}},
+		{"sources", "sources", "", []string{".gitkeep", "sources", "x"}},
+		{"sources", "", "SOURCES", []string{"SOURCES"}},
+		{"sources", "", ls + "ources", []string{ls + "ources"}},
+		{"sources", "", "SOURCES", []string{"SOURCES", "sources"}},
+		{"sources", "", "SOURCES", []string{"sources", "SOURCES"}},
+		{"sources", "", ls + "ources", []string{"sources", ls + "ources"}},
+		{"sources", "", ls + "ources", []string{ls + "ources", "sources"}},
+		{"sources", "", "sourceS", []string{"a", "sources", "sourceS", "z"}},
+		{"kept", "", kelvin + "ept", []string{"kept", kelvin + "ept"}},
+		{"2025-07-15.xml", "", "2025-07-15.XML", []string{"2025-07-15.xml", "2025-07-15.XML"}},
+	} {
+		for _, dir := range []bool{false, true} {
+			ents := make([]fs.DirEntry, len(tc.ents))
+			for i, n := range tc.ents {
+				ents[i] = entry{n, dir}
+			}
+			e, err := exactly(ents, "d", tc.name)
+			var conflict *Conflict
+			switch {
+			case tc.variant != "":
+				if e != nil || !errors.As(err, &conflict) || !strings.Contains(err.Error(), "d/"+tc.variant+" is named "+tc.name+" in another case") {
+					t.Errorf("exactly(%q, %q), dirs %v: %v, %v; want a conflict naming d/%s", tc.ents, tc.name, dir, e, err, tc.variant)
+				}
+			case err != nil || (e == nil) != (tc.want == "") || (e != nil && (e.Name() != tc.want || e.IsDir() != dir)):
+				t.Errorf("exactly(%q, %q), dirs %v: %v, %v; want %q", tc.ents, tc.name, dir, e, err, tc.want)
+			}
+		}
+	}
+}
+
 // TestStoredRefusesAMetaYAMLNamingAnotherSource: Stored refuses a meta.yaml
 // whose identity differs from the source's in any field, source and official
 // too, whatever read it (meta.Parse knows one source today, so this is
@@ -89,15 +194,15 @@ func TestStoredRefusesAMetaYAMLNamingAnotherSource(t *testing.T) {
 }
 
 // TestAFailedReplaceLeavesNoTemporary: when the rename over the target fails
-// (here the target is a directory), Replace returns the error and leaves no
+// (here the target is a directory), replace returns the error and leaves no
 // temporary file beside it.
 func TestAFailedReplaceLeavesNoTemporary(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src", "meta.yaml", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := Replace(root, "src/meta.yaml", []byte("cfr: \"x\"\n")); err == nil {
-		t.Fatal("Replace over a directory succeeded; want an error")
+	if err := replace(root, "src/meta.yaml", []byte("cfr: \"x\"\n")); err == nil {
+		t.Fatal("replace over a directory succeeded; want an error")
 	}
 	ents, err := os.ReadDir(filepath.Join(root, "src"))
 	if err != nil {

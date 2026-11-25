@@ -18,6 +18,7 @@ type Node struct {
 	Para     int      `json:"para"`              // the <P> its own text is in, counted from 1 in document order
 	Heading  string   `json:"heading,omitempty"` // the italic heading right after the label, if any
 	Text     string   `json:"text"`              // own text: label and heading included, children excluded, verbatim
+	SHA256   string   `json:"sha256"`            // sha256 of the normalized own text; empty until internal/anchors fills it (plan step 5)
 	Children []*Node  `json:"children,omitempty"`
 }
 

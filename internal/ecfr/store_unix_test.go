@@ -1,70 +1,54 @@
 //go:build unix
 
-// A store that fails mid-write (R1, plan step 2), forced with the file size
-// limit: Go ignores SIGXFSZ, so a write past RLIMIT_FSIZE returns EFBIG.
+// Writes that fail mid-way (R1, plan steps 2 and 5), forced with the file
+// size limit on every unix, Linux CI included: Go ignores SIGXFSZ, so a
+// write past RLIMIT_FSIZE returns EFBIG (internal/fsizetest).
 package ecfr
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
+
+	"github.com/okja-engineering/reg-corpus/internal/anchors"
+	"github.com/okja-engineering/reg-corpus/internal/fsizetest"
 )
 
-// fsizeRootEnv, when set, makes TestAFailedWriteStoresNothing the child: it
-// runs the fetch in that root under the lowered limit and prints the result.
-const fsizeRootEnv = "REGCORPUS_TEST_FSIZE_ROOT"
-
-// fsizeResult is the child's fetch outcome, printed after fsizeMarker.
+// fsizeResult is a command's exit code and output in the child.
 type fsizeResult struct {
-	Skip           string
 	Code           int
 	Stdout, Stderr string
-	After          string // the error writing a file after the fetch, if any
 }
 
-const fsizeMarker = "fsize-result: "
+// underFileLimit runs a command, run, in root with RLIMIT_FSIZE at limit
+// bytes (fsizetest.Run, in a child test binary) and returns its outcome. It
+// returns false in the child, where the test returns at once.
+func underFileLimit(t *testing.T, root string, limit uint64, run func(root string) (code int, stdout, stderr string)) (fsizeResult, bool) {
+	t.Helper()
+	var r fsizeResult
+	ok := fsizetest.Run(t, root, limit, func(root string) any {
+		var c fsizeResult
+		c.Code, c.Stdout, c.Stderr = run(root)
+		return c
+	}, &r)
+	return r, ok
+}
 
-// TestAFailedWriteStoresNothing: when writing the body fails, fetch exits 2
-// and leaves neither the file nor a temporary behind. RLIMIT_FSIZE binds the
-// whole process, so the fetch runs in a child test binary: in this one, any
-// write in the window (go test's own log of file accesses) would fail too.
-// And in the child only the fetch runs under the limit: what writes after it
-// (a coverage profile at exit, say) can write in full.
+// TestAFailedWriteStoresNothing: when writing the body fails, fetch exits 2,
+// names the file it was storing, and leaves neither it nor a temporary
+// behind.
 func TestAFailedWriteStoresNothing(t *testing.T) {
-	if root := os.Getenv(fsizeRootEnv); root != "" {
-		fsizeChild(t, root)
+	root := corpusRoot(t)
+	_, c := newFake(t)
+	r, ok := underFileLimit(t, root, 64, func(root string) (int, string, string) {
+		return fetchAt(t, root, c, "2026-11-22", "1024.41")
+	})
+	if !ok {
 		return
 	}
-	root := corpusRoot(t)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestAFailedWriteStoresNothing$", "-test.count=1")
-	cmd.Env = append(os.Environ(), fsizeRootEnv+"="+root)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("child: %v\n%s", err, out)
-	}
-	_, line, ok := bytes.Cut(out, []byte(fsizeMarker))
-	if !ok {
-		t.Fatalf("child printed no result:\n%s", out)
-	}
-	line, _, _ = bytes.Cut(line, []byte("\n"))
-	var r fsizeResult
-	if err := json.Unmarshal(line, &r); err != nil {
-		t.Fatalf("child result %q: %v", line, err)
-	}
-	if r.Skip != "" {
-		t.Skip(r.Skip)
-	}
-	if r.Code != 2 || r.Stdout != "" || !strings.HasPrefix(r.Stderr, "regcorpus fetch: 1024.41: ") {
-		t.Errorf("exit %d, stdout %q, stderr %q; want 2 for 1024.41", r.Code, r.Stdout, r.Stderr)
-	}
-	if r.After != "" {
-		t.Errorf("after the fetch the child can't write a file: %s; the limit outlived the fetch", r.After)
+	if want := "regcorpus fetch: 1024.41: storing " + rawPath("1024.41") + ": "; r.Code != 2 || r.Stdout != "" || !strings.HasPrefix(r.Stderr, want) {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 2 for 1024.41, %q", r.Code, r.Stdout, r.Stderr, want)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41/raw")))
 	if err != nil && !os.IsNotExist(err) {
@@ -75,32 +59,36 @@ func TestAFailedWriteStoresNothing(t *testing.T) {
 	}
 }
 
-// fsizeChild fetches 1024.41 into root with RLIMIT_FSIZE at 64 bytes, less
-// than any section body, restores the limit as soon as the fetch returns,
-// and prints the outcome on stdout.
-func fsizeChild(t *testing.T, root string) {
-	_, c := newFake(t)
-	var r fsizeResult
-	lim := syscall.Rlimit{Cur: 64}
-	var old syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
-		t.Fatal(err)
-	}
-	lim.Max = old.Max
-	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &lim); err != nil {
-		r.Skip = fmt.Sprintf("can't lower RLIMIT_FSIZE: %v", err)
-	} else {
-		r.Code, r.Stdout, r.Stderr = fetchAt(t, root, c, "2026-11-22", "1024.41")
-		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(t.TempDir(), "after"), make([]byte, 1<<10), 0o644); err != nil {
-			r.After = err.Error()
-		}
-	}
-	b, err := json.Marshal(r)
+// TestParsePrintsWhatItWroteWhenAWriteFails: with tree.json already right
+// and the file size limit between text.md's size and meta.yaml's, parse
+// writes text.md, then fails writing meta.yaml: it prints text.md as
+// written, names meta.yaml in the error, and exits 2, not 1 (which says
+// nothing was written); a re-run, without the limit, writes the rest.
+func TestParsePrintsWhatItWroteWhenAWriteFails(t *testing.T) {
+	root := corpusRoot(t)
+	raw := []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DIV8 N=\"1024.41\" TYPE=\"SECTION\">\n<HEAD>H</HEAD>\n<P>(a) x.</P>\n</DIV8>\n")
+	storedSourceBody(t, root, "1024.41", raw)
+	d, err := anchors.Build(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Printf("\n%s%s\n", fsizeMarker, b)
+	dir := "sources/ecfr/title-12/1024.41/"
+	writeFile(t, root, dir+"tree.json", string(d.TreeJSON))
+	const limit = 100
+	if m := len(readFile(t, root, metaPath("1024.41"))); len(d.TextMD) >= limit || m < limit {
+		t.Fatalf("text.md is %d bytes and meta.yaml %d; the limit, %d, must be between them", len(d.TextMD), m, limit)
+	}
+	r, ok := underFileLimit(t, root, limit, func(root string) (int, string, string) { return parseAt(t, root, "1024.41") })
+	if !ok {
+		return
+	}
+	if want := "1024.41: wrote " + dir + "text.md\n"; r.Code != 2 || r.Stdout != want || !strings.HasPrefix(r.Stderr, "regcorpus parse: 1024.41: writing "+metaPath("1024.41")+": ") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 2, %q and an error naming meta.yaml", r.Code, r.Stdout, r.Stderr, want)
+	}
+	code, stdout, stderr := parseAt(t, root, "1024.41")
+	want := "1024.41: unchanged " + dir + "tree.json\n1024.41: unchanged " + dir + "text.md\n" +
+		"1024.41: wrote " + dir + `meta.yaml: sha256_text: "` + string(d.SHA256Text) + "\"\n"
+	if code != 0 || stdout != want || stderr != "" {
+		t.Errorf("re-run: exit %d, stdout %q, stderr %q; want 0 and\n%s", code, stdout, stderr, want)
+	}
 }

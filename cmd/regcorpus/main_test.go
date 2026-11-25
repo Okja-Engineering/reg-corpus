@@ -75,14 +75,16 @@ func TestHelpExitsZeroOnStdout(t *testing.T) {
 }
 
 // TestUsageGivesEveryCommandsExitCodes: AGENTS.md says `regcorpus help` and
-// each command's -h give the exit codes, so help names where check's, fetch's
-// and meta's are and states verify's, which has no -h of its own (R10).
+// each command's -h give the exit codes, so help names where check's,
+// fetch's, meta's and parse's are and states verify's, which has no -h of its
+// own (R10).
 func TestUsageGivesEveryCommandsExitCodes(t *testing.T) {
 	in, out, errf := files(t)
 	run([]string{"help"}, in, out, errf)
 	u := read(t, out)
 	for _, want := range []string{
-		`"regcorpus check -h", "regcorpus fetch -h" and "regcorpus meta -h" show their`,
+		`"regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h" and`,
+		`"regcorpus parse -h" show their flags and their exit codes`,
 		"verify exits 2 without an interactive terminal and 1 until it is built",
 		"A missing or unknown command exits 2.",
 	} {
@@ -101,6 +103,7 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		"fetch [--date YYYY-MM-DD] [section ...]",
 		"meta set <section> version_effective_date YYYY-MM-DD",
 		`meta set <section> version_fr_citations "<vol> FR <page>" ...`,
+		"parse <section> ...",
 		"verify <ID>",
 		"not implemented yet (plan step 19)",
 	} {
@@ -145,6 +148,8 @@ func TestDispatch(t *testing.T) {
 		{"meta help", []string{"meta", "-h"}, 0, "usage: regcorpus meta set", ""},
 		{"meta unknown section", []string{"meta", "set", "1024.99", "version_effective_date", "2025-07-15"}, 2, "",
 			`regcorpus meta: unknown section "1024.99"`},
+		{"parse help", []string{"parse", "-h"}, 0, "usage: regcorpus parse", ""},
+		{"parse unknown section", []string{"parse", "1024.99"}, 2, "", `regcorpus parse: unknown section "1024.99"`},
 		{"verify without a terminal", []string{"verify", "RX-41-TEST-01"}, 2, "",
 			"regcorpus verify requires an interactive terminal (R2a); a person runs it\n"},
 	} {
@@ -198,6 +203,7 @@ func TestBuiltBinaryExitCodes(t *testing.T) {
 		{"fetch unknown section", []string{"fetch", "1024.99"}, 2, "", `regcorpus fetch: unknown section "1024.99"`},
 		{"meta unknown section", []string{"meta", "set", "1024.99", "version_effective_date", "2025-07-15"}, 2, "",
 			`regcorpus meta: unknown section "1024.99"`},
+		{"parse unknown section", []string{"parse", "1024.99"}, 2, "", `regcorpus parse: unknown section "1024.99"`},
 		{"verify < /dev/null", []string{"verify", "RX-41-TEST-01"}, 2, "", "regcorpus verify requires an interactive terminal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
