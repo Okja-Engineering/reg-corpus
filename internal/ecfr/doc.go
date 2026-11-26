@@ -160,15 +160,24 @@
 //     retrieved_at's day, a possible reissue, or isn't a YYYY-MM-DD date, is
 //     printed as information only, a date as a date and anything else
 //     quoted. R1b's Supplement I clause is plan step 8's.
-//   - An upstream value printed, in a line or an error, is validated to its
-//     form first or quoted (worklist round 2, §3): eCFR's dates and
-//     identifiers are checked (Versions, ParseDate); issue_date as above; a
-//     root element's name and values (rootElement, parse.Qualified); a URL
-//     a redirect led to must be printable ASCII (getFrom); a heading or a
-//     paragraph in a diff, and a granule's values in internal/govinfo's
-//     errors, are quoted. encoding/xml's own messages for XML that is not
-//     well-formed are printed as it writes them: a name or an entity there
-//     can't hold an ASCII control character, a line break or an escape.
+//   - No upstream byte reaches the output unescaped. The guarantee is the
+//     sink (internal/sink; worklist round 3, §1): every line fetch writes,
+//     to stdout or stderr, a say line or an error, goes through the Writer
+//     cmd/regcorpus gives it, which writes each C0 control but the LF ending
+//     the line, DEL, each C1 control, U+2028, U+2029 and each byte that isn't
+//     UTF-8 escaped, as \xNN or \uNNNN; so a value or a message, quoted or
+//     not, can't forge a line or move the terminal. Its help text is
+//     written with sink.Print. Before it, an upstream value printed is
+//     validated to its form or quoted, so it reads back (worklist round 2,
+//     §3): eCFR's dates and identifiers are checked (Versions, ParseDate);
+//     issue_date as above; a root element's name and values (rootElement,
+//     parse.Qualified); a URL a redirect led to must be printable ASCII
+//     (getFrom); an HTTP status, a DOCTYPE, PI or XML declaration
+//     parse.WellFormed refuses, a heading or a paragraph in a diff, and a
+//     granule's values in internal/govinfo's errors, are quoted.
+//     encoding/xml's own messages for XML that is not well-formed are
+//     printed as it writes them, and a name there may hold a C1 control or
+//     a separator (U+0085, U+2028): the sink escapes it.
 //
 // TODO(plan step 8): Supplement I, an appendix source fetched whole, its
 // --verify and --latest's slice-hash clause.

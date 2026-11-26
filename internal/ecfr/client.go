@@ -236,7 +236,7 @@ const maxBody = 64 << 20
 // bytes returned are exactly what was served. It follows a redirect only to
 // u's own scheme and host, so every body comes from the origin asked. Any
 // status but 200 is an error, decided before the body is read, quoting the
-// start of the body, which is where eCFR puts its reason.
+// status and the start of the body, which is where eCFR puts its reason.
 func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 	body, _, err := c.getFrom(ctx, u)
 	return body, err
@@ -271,7 +271,8 @@ func (c *Client) getFrom(ctx context.Context, u string) (body []byte, from strin
 	}
 	enc := resp.Header.Get("Content-Encoding")
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("GET %s: %s: %s", got, resp.Status, errorSnippet(enc, resp.Body))
+		// The status's reason phrase is the server's text: quoted.
+		return nil, "", fmt.Errorf("GET %s: %q: %s", got, resp.Status, errorSnippet(enc, resp.Body))
 	}
 	raw, err := readCapped(resp.Body)
 	if err != nil {

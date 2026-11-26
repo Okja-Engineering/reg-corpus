@@ -15,6 +15,7 @@ import (
 
 	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
+	"github.com/okja-engineering/reg-corpus/internal/sink"
 )
 
 const usage = `usage: regcorpus fetch [--date YYYY-MM-DD | --verify | --latest] [section ...]
@@ -81,10 +82,10 @@ before the lock: their tree and sha256_text are plan step 9's.
      must be valid UTF-8 with no CR, well-formed, and in the form a
      granule has, or it is refused, not read past: title 12, the
      section's part, DATE 2026-01-01, SECTNO the section, a SECTNO, a
-     SUBJECT, then one or more non-empty <P>s and page breaks, then one
-     citation note; no CDATA section, and no character reference to a
-     space, a line break or any other White_Space character. Its layout
-     is deleted (each line break and up to 12 spaces after it, in each
+     SUBJECT, then one or more <P>s, none of only White_Space, and page
+     breaks, then one citation note; no CDATA section, and no character
+     reference to a space, a line break or any other White_Space
+     character. Its layout is deleted (each line break and up to 12 spaces after it, in each
      run of text on its own), and nothing else: White_Space at an edge is
      text. Its heading (SECTNO, one space, SUBJECT) and each paragraph
      (<E>'s text kept, page breaks dropped, the citation note left out),
@@ -113,17 +114,19 @@ clause, a fresh 41() slice's hash, is plan step 8's, which stores
 Supplement I.
 
 Exit 0: ok; with --verify, matched, verified_on set or kept; with --latest,
-eCFR's latest version is the stored one. Exit 1: a conflict with a stored
-file under sources/; a symlink or a file in place of a directory there;
+eCFR's latest version is the stored one. Exit 1: under sources/, a
+conflict with a stored file, a symlink or a file in place of a directory,
 or a name that differs only in case from meta.yaml, tree.json, text.md or
-overrides.yaml, from a directory on the way, or from the file it stores.
-With --verify, also a refusal or a finding, with nothing written: step 1
-refuses; eCFR's latest version is not the stored one (newer, older, or it
-removed the section); the fresh fetch doesn't build; or its tree or
-sha256_text differs. And a govinfo mismatch, which
-writes verified_on: null and exits 1. With --latest, also eCFR's latest version is newer than the
-stored one, older (eCFR no longer lists the stored version as latest), or
-removed the section; --latest writes nothing. Exit 2: a usage error, no
+overrides.yaml, from a directory on the way, or from the file it stores
+(under .cache/ each is exit 2, below). With --verify, also a refusal or a
+finding, with nothing written: 1024.30 and 1024.31, refused before the
+lock (plan step 9's); step 1 refuses; eCFR's latest version is not the
+stored one (newer, older, or it removed the section); the fresh fetch
+doesn't build; or its tree or sha256_text differs. And a govinfo
+mismatch, which writes verified_on: null and exits 1. With --latest,
+also eCFR's latest version is newer than the stored one, older (eCFR no
+longer lists the stored version as latest), or removed the section;
+--latest writes nothing. Exit 2: a usage error, no
 sources/ecfr/title-12/ (not the corpus root), a network, eCFR or govinfo
 error (an HTTP error, eCFR mid-import, a response that isn't the section's
 XML, a granule of another section or edition, or one --verify doesn't
@@ -167,12 +170,13 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 	verify := fl.Bool("verify", false, "")
 	newer := fl.Bool("latest", false, "")
 	usageError := func(err error) int {
-		fmt.Fprintf(stderr, "regcorpus fetch: %v\n%s", err, usage)
+		fmt.Fprintf(stderr, "regcorpus fetch: %v\n", err)
+		sink.Print(stderr, usage)
 		return 2
 	}
 	if err := fl.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(stdout, usage)
+			sink.Print(stdout, usage)
 			return 0
 		}
 		return usageError(err)

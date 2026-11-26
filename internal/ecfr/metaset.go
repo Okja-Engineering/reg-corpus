@@ -14,6 +14,7 @@ import (
 	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 	"github.com/okja-engineering/reg-corpus/internal/parse"
+	"github.com/okja-engineering/reg-corpus/internal/sink"
 )
 
 const metaUsage = `usage: regcorpus meta set <section> version_effective_date YYYY-MM-DD
@@ -71,13 +72,14 @@ func MetaMain(args []string, stdout, stderr io.Writer) int {
 
 func metaMain(root string, args []string, stdout, stderr io.Writer) int {
 	usageError := func(err error) int {
-		fmt.Fprintf(stderr, "regcorpus meta: %v\n%s", err, metaUsage)
+		fmt.Fprintf(stderr, "regcorpus meta: %v\n", err)
+		sink.Print(stderr, metaUsage)
 		return 2
 	}
 	isHelp := func(a string) bool { return a == "-h" || a == "-help" || a == "--help" }
 	switch {
 	case len(args) > 0 && isHelp(args[0]), len(args) > 1 && args[0] == "set" && isHelp(args[1]):
-		fmt.Fprint(stdout, metaUsage)
+		sink.Print(stdout, metaUsage)
 		return 0
 	case len(args) == 0:
 		return usageError(errors.New("no subcommand"))

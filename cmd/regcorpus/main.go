@@ -4,7 +4,8 @@
 // step 3 adds meta set (ADR 0010); plan step 5 adds parse (R1, R1a; ADR 0013);
 // plan step 6 adds fetch --verify and --latest (R1, R1b; ADR 0014). The rest
 // of the plan's command list (inventory, upgrade, release, show, text,
-// topics, version) arrives in later plan steps.
+// topics, version) arrives in later plan steps. Every line it writes goes
+// through internal/sink.
 package main
 
 import (
@@ -13,6 +14,7 @@ import (
 
 	"github.com/okja-engineering/reg-corpus/internal/check"
 	"github.com/okja-engineering/reg-corpus/internal/ecfr"
+	"github.com/okja-engineering/reg-corpus/internal/sink"
 	"github.com/okja-engineering/reg-corpus/internal/verify"
 )
 
@@ -21,11 +23,15 @@ func main() {
 }
 
 // run dispatches args and returns the exit code: the command's own, 0 for
-// help, 2 for a missing or unknown command. verify needs the real stdin and
-// stdout files to test them for a terminal.
-func run(args []string, stdin, stdout, stderr *os.File) int {
+// help, 2 for a missing or unknown command. Every command, and run itself,
+// writes through the sink (internal/sink), never to stdout or stderr: the
+// output is saved as evidence, and no byte in it may forge a line or move
+// a terminal (worklist round 3, §1). verify is given the stdin and stdout
+// files only to test them for a terminal; it writes to its stderr sink.
+func run(args []string, stdin, stdoutFile, stderrFile *os.File) int {
+	stdout, stderr := sink.New(stdoutFile), sink.New(stderrFile)
 	if len(args) == 0 {
-		fmt.Fprint(stderr, usage)
+		sink.Print(stderr, usage)
 		return 2
 	}
 	switch args[0] {
@@ -38,12 +44,13 @@ func run(args []string, stdin, stdout, stderr *os.File) int {
 	case "parse":
 		return ecfr.ParseMain(args[1:], stdout, stderr)
 	case "verify":
-		return verify.Main(args[1:], stdin, stdout, stderr)
+		return verify.Main(args[1:], stdin, stdoutFile, stderr)
 	case "-h", "--help", "help":
-		fmt.Fprint(stdout, usage)
+		sink.Print(stdout, usage)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "regcorpus: unknown command %q\n%s", args[0], usage)
+		fmt.Fprintf(stderr, "regcorpus: unknown command %q\n", args[0])
+		sink.Print(stderr, usage)
 		return 2
 	}
 }

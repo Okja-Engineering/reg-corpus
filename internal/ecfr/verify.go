@@ -163,7 +163,7 @@ func (f fetcher) freshVersion(ctx context.Context, s Source, m *meta.Meta, store
 		return err
 	}
 	if sd.stand != standCurrent {
-		say("version: eCFR's latest %s, stored source_version_date %s: differ", sd.latestText(), m.SourceVersionDate)
+		say("version: eCFR's latest %s, stored source_version_date %s: %s", sd.latestText(), m.SourceVersionDate, sd.verdict)
 		return findingf("stored source_version_date %s, eCFR's latest %s: %s%s; nothing is written (R1)", m.SourceVersionDate, sd.latestText(), sd.verdict, sd.advice())
 	}
 	say("version: eCFR's latest %s, stored source_version_date %s: equal", sd.latest, m.SourceVersionDate)

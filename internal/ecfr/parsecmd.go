@@ -7,6 +7,7 @@ import (
 
 	"github.com/okja-engineering/reg-corpus/internal/anchors"
 	"github.com/okja-engineering/reg-corpus/internal/l0"
+	"github.com/okja-engineering/reg-corpus/internal/sink"
 )
 
 const parseUsage = `usage: regcorpus parse <section> ...
@@ -72,11 +73,12 @@ func ParseMain(args []string, stdout, stderr io.Writer) int {
 // package, so plan step 6's fetch --verify, here, can call it.
 func parseMain(root string, args []string, stdout, stderr io.Writer) int {
 	usageError := func(format string, a ...any) int {
-		fmt.Fprintf(stderr, "regcorpus parse: "+format+"\n%s", append(a, parseUsage)...)
+		fmt.Fprintf(stderr, "regcorpus parse: "+format+"\n", a...)
+		sink.Print(stderr, parseUsage)
 		return 2
 	}
 	if len(args) > 0 && (args[0] == "-h" || args[0] == "-help" || args[0] == "--help") {
-		fmt.Fprint(stdout, parseUsage)
+		sink.Print(stdout, parseUsage)
 		return 0
 	}
 	if len(args) == 0 {

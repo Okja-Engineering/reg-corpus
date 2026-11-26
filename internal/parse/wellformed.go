@@ -112,17 +112,19 @@ func WellFormed(b []byte, root func(xml.StartElement) error) error {
 				return malformed(start+int64(len(written)-len(text)), "text outside the root element: %s", Snippet(written))
 			}
 		case xml.ProcInst:
+			// A token named in a message is quoted as written (Snippet), so
+			// a line break or an escape in it stays on the message's line.
 			if !strings.EqualFold(t.Target, "xml") {
 				break
 			}
 			if !first || t.Target != "xml" {
-				return malformed(start, "<?%s %s?> is not an XML declaration, <?xml version=...?> at the very start", t.Target, t.Inst)
+				return malformed(start, "%s is not an XML declaration, <?xml version=...?> at the very start", Snippet(in[start:d.InputOffset()]))
 			}
 			if err := xmlDeclaration(t.Inst); err != nil {
-				return malformed(start, "XML declaration <?xml %s?>: %v", t.Inst, err)
+				return malformed(start, "XML declaration %s: %v", Snippet(in[start:d.InputOffset()]), err)
 			}
 		case xml.Directive:
-			return malformed(start, "<!%s>", t)
+			return malformed(start, "%s", Snippet(in[start:d.InputOffset()]))
 		}
 	}
 	if roots == 0 {
