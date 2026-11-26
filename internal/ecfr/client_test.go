@@ -515,6 +515,17 @@ func TestOnlyA200IsABody(t *testing.T) {
 			t.Errorf("err %v; want one naming 503", err)
 		}
 	})
+	// The status line's reason phrase is the server's text, so the status
+	// is printed quoted: a CR or an escape sequence in it stays on the
+	// error's line (worklist round 3, §1).
+	t.Run("a reason phrase with a CR and an escape sequence", func(t *testing.T) {
+		const status = "404 Not\rFound\x1b[2K\x1b[1A"
+		u := statusServer(t, "HTTP/1.1 "+status)
+		_, err := (&Client{BaseURL: u}).XML(context.Background(), s, "2025-07-15")
+		if err == nil || strings.ContainsAny(err.Error(), "\r\x1b") || !strings.Contains(err.Error(), ": "+strconv.Quote(status)+": ") {
+			t.Errorf("err %q; want one quoting the status, %q", err, status)
+		}
+	})
 	t.Run("a 200 whose body is cut short", func(t *testing.T) {
 		f, c := newFake(t)
 		f.set(xmlURI("2025-07-15", "1024.41"), reply{body: xmlBody("1024.41", "2025-07-15"), cut: true})

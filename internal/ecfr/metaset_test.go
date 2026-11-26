@@ -738,7 +738,7 @@ func TestCitationsComeOnlyFromXMLFetchWouldStore(t *testing.T) {
 		{"a duplicate attribute", decl + rest + "<CITA TYPE=\"N\" TYPE=\"X\">[90 FR 20792, May 16, 2025]</CITA>\n</DIV8>\n",
 			"duplicate attribute TYPE on <CITA>"},
 		{"an XML declaration that breaks its grammar", "<?xml garbage?>\n" + rest + note,
-			"XML declaration <?xml garbage?>: no version"},
+			`XML declaration "<?xml garbage?>": no version`},
 		{"text before the root", decl + "junk" + rest + note,
 			"text outside the root element"},
 	} {

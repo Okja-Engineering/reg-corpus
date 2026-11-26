@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/okja-engineering/reg-corpus/internal/l0"
+	"github.com/okja-engineering/reg-corpus/internal/sink"
 )
 
 // corpusRoot returns a root holding the three section directories, each with
@@ -90,7 +91,8 @@ func tree(t *testing.T, root string) map[string]string {
 	return out
 }
 
-// fetchAt runs fetch in root against c with the clock at day (YYYY-MM-DD).
+// fetchAt runs fetch in root against c with the clock at day (YYYY-MM-DD),
+// writing through the sink, as cmd/regcorpus gives fetch stdout and stderr.
 func fetchAt(t *testing.T, root string, c *Client, day string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	now, err := time.Parse(time.DateOnly, day)
@@ -99,7 +101,7 @@ func fetchAt(t *testing.T, root string, c *Client, day string, args ...string) (
 	}
 	var out, errb bytes.Buffer
 	f := fetcher{root: root, client: c, now: func() time.Time { return now.Add(13 * time.Hour) }}
-	code = f.main(args, &out, &errb)
+	code = f.main(args, sink.New(&out), sink.New(&errb))
 	return code, out.String(), errb.String()
 }
 

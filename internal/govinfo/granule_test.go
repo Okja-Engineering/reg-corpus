@@ -353,6 +353,10 @@ func TestReadRefusesWhatItDoesNotRead(t *testing.T) {
 		{"an empty P first", strings.Replace(ok, "        <P>\n            (a) ", "        <P></P>\n        <P>\n            (a) ", 1)},
 		{"a P of layout only", strings.Replace(ok, "<P>(b) Text two.</P>", "<P>(b) Text two.</P>\n        <P>\n            \n        </P>", 1)},
 		{"a P of a no-break space only", strings.Replace(ok, "<P>(b) Text two.</P>", "<P>(b) Text two.</P>\n        <P>"+nbsp+"</P>", 1)},
+		// A SECTION holds elements and XML whitespace between them: a
+		// no-break space between two <P>s is text there (worklist round
+		// 3, §2: G2).
+		{"a no-break space between two Ps", strings.Replace(ok, "<P>(b) Text two.</P>", nbsp+"<P>(b) Text two.</P>", 1)},
 		// Worklist round 2, §2 (C-N3, C-N7, R-N4) and §6 (M44, M48): a
 		// CDATA section, and a reference to any White_Space character, are
 		// refused, so every character Layout deletes was written as itself;

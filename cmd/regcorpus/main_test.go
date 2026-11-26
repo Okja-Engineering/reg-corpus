@@ -5,11 +5,13 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const usageLine = "usage: regcorpus <command> [flags]"
@@ -180,6 +182,60 @@ func TestDispatch(t *testing.T) {
 				t.Fatalf("exit %d, stdout %q, stderr %q; want %d, %q, %q", code, stdout, stderr, tc.code, tc.stdout, tc.stderr)
 			}
 		})
+	}
+}
+
+// rawControl says where s, as a stream holds it, has a character that
+// could end a line or move a terminal: a C0 control but LF, which ends a
+// line there, DEL, a C1 control, U+2028 or U+2029, or a byte that isn't
+// UTF-8. It is "" when s has none.
+func rawControl(s string) string {
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && n == 1 || r < 0x20 && r != '\n' || r == 0x7f || 0x80 <= r && r <= 0x9f || r == 0x2028 || r == 0x2029 {
+			return fmt.Sprintf("%q at byte %d", s[i:i+n], i)
+		}
+		i += n
+	}
+	return ""
+}
+
+// TestEveryLineGoesThroughTheSink: run gives every command the sink for
+// stdout and stderr (internal/sink), so whatever a command prints, from a
+// flag it doesn't know to a path, no byte forges a line of the saved
+// output or moves the terminal (worklist round 3, §1). Each payload holds
+// an LF and a line of fetch's own, an escape sequence, a line separator
+// (from its code point) and a byte that isn't UTF-8.
+func TestEveryLineGoesThroughTheSink(t *testing.T) {
+	const forged = `1024.41: wrote sources/ecfr/title-12/1024.41/meta.yaml: verified_on: "2026-11-25"`
+	payload := "x\n" + forged + "\x1b[2K" + string(rune(0x2028)) + "\x9b"
+	for _, args := range [][]string{
+		{"-" + payload},
+		{"check", "-" + payload},
+		{"check", "--corpus", "--root", filepath.Join(t.TempDir(), payload)},
+		{"fetch", "-" + payload},
+		{"fetch", "--date", payload},
+		{"meta", "-" + payload},
+		{"meta", "set", "-" + payload},
+		{"parse", "-" + payload},
+		{"verify", "-" + payload},
+	} {
+		in, out, errf := files(t)
+		code := run(args, in, out, errf)
+		stdout, stderr := read(t, out), read(t, errf)
+		for _, s := range []struct{ name, out string }{{"stdout", stdout}, {"stderr", stderr}} {
+			if at := rawControl(s.out); at != "" {
+				t.Errorf("%q: %s holds %s, unescaped: %q", args, s.name, at, s.out)
+			}
+			for _, l := range strings.Split(s.out, "\n") {
+				if strings.HasPrefix(l, "1024.41: wrote") {
+					t.Errorf("%q: %s has a forged line %q", args, s.name, l)
+				}
+			}
+		}
+		if code == 0 {
+			t.Errorf("%q: exit 0; want a usage or root error", args)
+		}
 	}
 }
 

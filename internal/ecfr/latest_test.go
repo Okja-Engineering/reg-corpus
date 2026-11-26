@@ -113,6 +113,10 @@ func TestLatestReadsEcfrsLatestFromTheList(t *testing.T) {
 		{"the stored date's entry removed it", strings.Replace(versions41, `],"meta"`,
 			`,{"date":"2025-07-15","issue_date":"2025-08-01","identifier":"1024.41","removed":true}],"meta"`, 1),
 			"stored source_version_date 2025-07-15, eCFR's latest 2025-07-15 (removed): the latest entry, at the stored date, removed the section"},
+		// Older and a removal: the verdict is the older one, the removal
+		// marked on the date (worklist round 3, §2: G1).
+		{"the newest before the stored date removed it", `{"content_versions":[{"date":"2021-08-31","identifier":"1024.41","removed":true}],"meta":{}}`,
+			"stored source_version_date 2025-07-15, eCFR's latest 2021-08-31 (removed): eCFR no longer lists the stored version as latest"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.list == versions41 {

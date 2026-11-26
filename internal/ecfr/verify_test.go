@@ -221,7 +221,7 @@ func TestVerifyEcfrMismatchesWriteNothing(t *testing.T) {
 		xml    bool // whether the eCFR XML is fetched
 	}{
 		{"a newer version", versionsURI("1024.41"), reply{body: newer},
-			[]string{"1024.41: version: eCFR's latest 2026-01-10, stored source_version_date 2025-07-15: differ\n"},
+			[]string{"1024.41: version: eCFR's latest 2026-01-10, stored source_version_date 2025-07-15: newer versions 2026-01-10\n"},
 			[]string{"2026-01-10", "2025-07-15", "fetch --latest"}, false},
 		{"the latest removed it", versionsURI("1024.41"), reply{body: removed}, nil,
 			[]string{"2026-01-10 (removed)", "fetch --latest"}, false},
@@ -527,9 +527,26 @@ func TestFetchHelpGivesVerifyAndLatest(t *testing.T) {
 		"1024.30 and 1024.31 are refused first, before the lock",
 		"It holds the source's lock from the stored-state check through the write of verified_on",
 		"After the lock is released it keeps the granule",
+		// Worklist round 3, §4 (N-b): a <P> of nothing but White_Space is
+		// refused, a no-break space's too.
+		"one or more <P>s, none of only White_Space",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("fetch -h lacks %q", want)
+		}
+	}
+	// Worklist round 3, §4 (N-a, N-c): the Exit 1 list names --verify's
+	// refusal of 1024.30 and 1024.31, and scopes a name in another case to
+	// sources/, since under .cache/ it is exit 2.
+	_, exit1, _ := strings.Cut(flat, "Exit 1:")
+	exit1, _, _ = strings.Cut(exit1, "Exit 2:")
+	for _, want := range []string{
+		" under sources/, a conflict with a stored file, a symlink or a file in place of a directory, or a name that differs only in case",
+		"(under .cache/ each is exit 2, below)",
+		"1024.30 and 1024.31, refused before the lock",
+	} {
+		if !strings.Contains(exit1, want) {
+			t.Errorf("fetch -h's Exit 1 list lacks %q: %q", want, exit1)
 		}
 	}
 	if code != 0 {
@@ -864,7 +881,7 @@ func TestVerifyAdviceFollowsTheDirection(t *testing.T) {
 			t.Errorf("stderr %q lacks %q", stderr, want)
 		}
 	}
-	if code != 1 || strings.Contains(stderr, "fetch --latest") || !strings.Contains(stdout, "1024.41: version: eCFR's latest 2025-05-16, stored source_version_date 2025-07-15: differ\n") {
+	if code != 1 || strings.Contains(stderr, "fetch --latest") || !strings.Contains(stdout, "1024.41: version: eCFR's latest 2025-05-16, stored source_version_date 2025-07-15: eCFR no longer lists the stored version as latest\n") {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 1, eCFR's latest 2025-05-16, and no advice to run fetch --latest", code, stdout, stderr)
 	}
 	if !equalTrees(before, tree(t, root)) || asked(f, "/full/") {
@@ -1006,7 +1023,9 @@ func TestVerifyReadsEveryEdgeAsText(t *testing.T) {
 // TestVerifyNamesARemovalAtTheStoredDate: when eCFR's latest entry is
 // dated the stored date and removed the section, --verify says exactly
 // that, exits 1 and writes nothing, and gives no advice to run fetch
-// --latest, which would say the same (worklist round 2, §4: C-N5).
+// --latest, which would say the same (worklist round 2, §4: C-N5). Its
+// stdout line says that fact too, never that the two equal dates differ
+// (worklist round 3, §3: S1).
 func TestVerifyNamesARemovalAtTheStoredDate(t *testing.T) {
 	f, c := verifyFake(t)
 	f.set(versionsURI("1024.41"), reply{body: strings.Replace(versions41, `],"meta"`,
@@ -1018,6 +1037,9 @@ func TestVerifyNamesARemovalAtTheStoredDate(t *testing.T) {
 	const line = "stored source_version_date 2025-07-15, eCFR's latest 2025-07-15 (removed): the latest entry, at the stored date, removed the section"
 	if want := "regcorpus fetch: 1024.41: " + line + "; nothing is written (R1)\n"; code != 1 || stderr != want {
 		t.Errorf("exit %d, stderr %q; want 1 and %q", code, stderr, want)
+	}
+	if want := "1024.41: version: eCFR's latest 2025-07-15 (removed), stored source_version_date 2025-07-15: the latest entry, at the stored date, removed the section\n"; !strings.HasSuffix(stdout, want) {
+		t.Errorf("stdout %q; want it to end %q", stdout, want)
 	}
 	if strings.Contains(stdout+stderr, "fetch --latest") || !equalTrees(before, tree(t, root)) || asked(f, "/full/") {
 		t.Errorf("stdout %q: advice to run fetch --latest, files changed, or the XML fetched", stdout)
