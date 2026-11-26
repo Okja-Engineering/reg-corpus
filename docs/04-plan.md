@@ -98,7 +98,7 @@ VERSION  CHANGES.json             # after accept
 6. `regcorpus fetch --verify`: compare the version date, tree and `sha256_text`, recording `sha256_raw` as information only. Then compare the normalized text to the govinfo CFR 2026 edition and set `verified_on`. Add `regcorpus fetch --latest` (R1b).
    - A version is its date plus its normalized text: the tree's node paths in order, each node's `sha256`, and `sha256_text` (spec decision 14).
    - govinfo's granule, its layout deleted (each line break and up to 12 spaces after it), must hash to `sha256_text`; `verified_on` is the first matching run's UTC date, `null` on a mismatch.
-   - `--verify` covers 1024.41; 1024.30 and 1024.31 are step 9's. `--latest` covers all three, writes nothing, and exits 1 on a newer version.
+   - `--verify` covers 1024.41; 1024.30 and 1024.31 are step 9's. `--latest` covers all three, writes nothing, and exits 1 when eCFR's latest version is newer or older than the stored one, or removed the section.
 7. `regcorpus text <anchor>`.
 
 ### Weekend 2 (Nov 28–29): rest of L0, eval freeze, early arm (a), schema, start extraction

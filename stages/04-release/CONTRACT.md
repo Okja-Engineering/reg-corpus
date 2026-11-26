@@ -20,8 +20,10 @@ the phase-1 decision is accept (plan, "After accept").
 ## Check that ends it
 Run in this order, on the owner's machine (steps 1 and 2 need eCFR and
 govinfo, which the cloud workspace can't reach); each must exit 0:
-1. `regcorpus fetch --latest` (R1b; plan step 6). Exit 0 means no stored
-   section has a newer eCFR version and the Supplement I 41() slice is unchanged.
+1. `regcorpus fetch --latest` (R1b; spec decision 14). Exit 0 means eCFR's
+   latest version of each stored section is its stored one (a newer, an older
+   or a removed latest version exits 1) and the Supplement I 41() slice is
+   unchanged.
 2. `regcorpus fetch --verify` (R1; spec decision 14). Exit 0 means each
    stored source's normalized text still matches a fresh fetch and the
    govinfo 2026 edition, and its `verified_on` is set.

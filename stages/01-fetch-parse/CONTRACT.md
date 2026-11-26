@@ -40,8 +40,9 @@ offline, from the stored raw XML (plan step 5). It writes a source's files only 
 its parser goldens are in: today 1024.41's. It refuses 1024.30 and 1024.31 (exit 1,
 nothing written) until plan step 9.
 
-Local exploratory downloads go in `.cache/` (git-ignored); committed raw XML
-lives only under `sources/**/raw/`.
+Local exploratory downloads go in `.cache/` (git-ignored); the committed raw XML
+of L0 lives only under `sources/**/raw/`. A test fixture under `internal/*/testdata/`
+(1024.41's govinfo granule, say) is not L0 (spec decision 14).
 
 ## Check that ends it
 - `regcorpus fetch --verify` exits 0 (R1; spec decision 14). Exit 0 means eCFR's
@@ -60,9 +61,10 @@ lives only under `sources/**/raw/`.
   about R1a for that source: do not report R1a met for it; name its plan step.
   From plan step 5, exit 0 also means 1024.41's committed `tree.json`, `text.md`
   and `sha256_text` are what `regcorpus parse` makes from its raw XML.
-- `regcorpus fetch --latest` exits 0 (R1b; spec decision 14). Exit 0 means eCFR
-  lists no newer version of any stored section; a reissue of a stored date is printed
-  as information only. From plan step 8 it also means the fresh Supplement I 41()
+- `regcorpus fetch --latest` exits 0 (R1b; spec decision 14). Exit 0 means eCFR's
+  latest version of each stored section is its stored one; a newer, an older or a
+  removed latest version exits 1. A reissue of a stored date is printed as
+  information only. From plan step 8 it also means the fresh Supplement I 41()
   slice hash equals the stored one.
 
 ## Who may run it

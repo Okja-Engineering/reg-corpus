@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-25
-- **Decided by:** the owner, 2026-11-25 about 19:29 CST, in chat (answers to the chief of staff's questions), quoted on PR #10 (https://github.com/Okja-Engineering/reg-corpus/pull/10#issuecomment-7180640566): (F1) "Normalized text (Recommended)"; (F3) "Exact, with layout rule (Recommended)"; (F5) "First matching run (Recommended)"; (F7) "Report only (Recommended)". Each call is only what its option text says, read with the correction that comment records (Decision, below). The rest are agents' choices, not the owner's: the chief of staff's rulings (F2, F4, F6, F8, F9, F10, the step's mandate's assumptions 1–11, the bound of 12, and the round-1 review rulings) and the implementer's choices, each marked below.
+- **Decided by:** the owner, 2026-11-25 about 19:29 CST, in chat (answers to the chief of staff's questions), quoted on PR #10 (https://github.com/Okja-Engineering/reg-corpus/pull/10#issuecomment-7180640566): (F1) "Normalized text (Recommended)"; (F3) "Exact, with layout rule (Recommended)"; (F5) "First matching run (Recommended)"; (F7) "Report only (Recommended)". Each call is only what its option text says, read with the correction that comment records (Decision, below). The rest are agents' choices, not the owner's: the chief of staff's rulings (F2, F4, F6, F8, F9, F10, the step's mandate's assumptions 1–11, the bound of 12, and the round-1 and round-2 review rulings) and the implementer's choices, each marked below.
 
 ## Context
 Plan step 6 builds `regcorpus fetch --verify` (R1) and `regcorpus fetch
@@ -150,28 +150,34 @@ The owner decided, each call only what its option text says:
 A correction to F3's option text, recorded as ADR 0013's was, and in the
 PR comment that quotes the calls (its "Corrections to the option texts"):
 the option said a govinfo format change "can only cause a false mismatch
-(null), never a false match". That is not strictly true. The rule deletes
-only a literal line feed (a granule with a CR, or a character reference to
-a CR or an LF, is refused) and up to 12 spaces after it, in each run of
-character data on its own, and govinfo's text edges are trimmed of
-White_Space; every other character is compared. So a change in govinfo's
-layout can give a false mismatch (`verified_on: null`), and a false match
-in one way only: where govinfo wrote a literal LF, with no space before it
-and up to 12 after it, to mean the space between two words, and eCFR's
-text has no space there, the two read alike. govinfo's layout writes such a
-space as a space, before the break or as a thirteenth after it: in
-1024.41's granule no line break stands between two characters of text in
-one run.
+(null), never a false match". That is not strictly true. The rule deletes,
+in each run of character data on its own, each literal line feed and up to
+12 literal spaces after it, and nothing else: a granule with a CR is
+refused, and so is one with, inside its root, a CDATA section or a
+character reference to any White_Space character, so every LF and space
+deleted was written as itself; nothing is trimmed, and every other
+character, White_Space at a paragraph's or the heading's edge too, is
+compared, each side normalized by decision 13 alone, with the stored
+version's text. So a change in govinfo's layout can give a false mismatch
+(`verified_on: null`), and a false match in one way only: each maximal run
+of one or more literal LFs, each followed by up to 12 literal spaces,
+standing where govinfo meant a word space (between two words, or at a
+text's edge) that the stored text lacks reads as no space, as the stored
+text does. govinfo's layout writes such a space as a space, outside the
+run: before its first break, or as a thirteenth space after a break. In
+the live granules of 1024.30, 1024.31 and 1024.41, the heading and every
+paragraph equal the stored version's with nothing trimmed.
 
 The bound, 12, is the chief of staff's reading of the owner's "its
 indentation": what govinfo's pretty-printer emits before a `<P>`'s text
 (three levels of four), the deepest place text is broken; a thirteenth
-space after a break, or a space before one, is text. On 1024.41's granule
-the rule gives 75 of 75 paragraphs equal to eCFR's and `sha256_text`
+space after a break, or a space before the first break of a run, is text.
+On 1024.41's granule the rule, with nothing trimmed, gives 75 of 75
+paragraphs equal to the stored version's and `sha256_text`
 `ecda50e7ce958e2fd19a8f1843b3c60bde0dcf533cc2c313cb9c1e1960760fe1`, the
 stored one; a bound of 11 gives 25 of 75 and of 13 gives 38 of 75. It gives
-8 of 8 for 1024.30 and 24 of 24 for 1024.31 against their eCFR text (live
-granules, not committed). The rule depends on govinfo's formatter.
+8 of 8 for 1024.30 and 24 of 24 for 1024.31 against their stored raw XML's
+paragraphs (live granules, not committed). The rule depends on govinfo's formatter.
 
 So ADR 0013's F3 option text, "step 6 can compute the same hash from
 govinfo's text for verified_on", holds only with this layout rule.
@@ -197,9 +203,10 @@ bound of 12; and, on review of PR #10 (round 1):
   SECTNO not one plain run; comments and processing instructions.
 - (§4) The false-match class: a CR or a reference to a line break is
   refused; layout is deleted per run; every paragraph's edges are trimmed
-  alike; the heading and each paragraph, normalized, must equal eCFR's one
-  for one, as well as the joined hash, and a split or merged paragraph is
-  printed alone, without a cascade; the remaining false match is stated
+  alike (round 2's §1 removed the trim); the heading and each paragraph,
+  normalized, must equal eCFR's one for one (round 2's §1: the stored
+  version's), as well as the joined hash, and a split or merged paragraph
+  is printed alone, without a cascade; the remaining false match is stated
   above.
 - (§5) `--latest` takes eCFR's latest from the version list: older than
   the stored version ("eCFR no longer lists the stored version as
@@ -211,6 +218,28 @@ bound of 12; and, on review of PR #10 (round 1):
 - (§8) The reissue note covers an `issue_date` on or after `retrieved_at`'s
   day: "issued on or after the day the stored file was fetched; run
   regcorpus fetch --verify".
+
+And on review round 2:
+- (§1) govinfo is compared with the stored version that `--verify` derives
+  again, never with the fresh fetch, so a byte-only reissue never touches
+  the govinfo verdict and a stored grouping govinfo lacks is a mismatch;
+  each side is normalized by decision 13 alone, with no trim; a differing
+  heading is named.
+- (§2) Inside the root, a CDATA section and a character reference to any
+  White_Space character are refused, and the oracle refuses the same; the
+  one remaining false match is stated exactly (above); a SECTION holds one
+  or more `<P>`s, with the CITA once and last or not named in the prose
+  (the implementer's choice, below); comments and processing instructions
+  are refused inside the root.
+- (§3) Every eCFR or govinfo value printed is validated to its form first
+  or quoted, so none can forge a line of the saved output.
+- (§4) A latest entry at the stored date that removed the section is named
+  as that, exit 1, with no advice to run `fetch --latest`.
+- (§5) One reading of eCFR's latest (`Latest`: the newest date, and
+  whether an entry at it removed the section) serves plain `fetch` and
+  `--latest`; plain `fetch` still exits 2 on a removal.
+- (§6) The refusals are pinned by tests that kill their mutants (a
+  PRTPAGE in an E, two CITAs, a byte order mark, and the round's own).
 
 The implementer's choices (agents' choices, within those rulings):
 - The granule is read by a new package, `internal/govinfo`, which does no
@@ -228,17 +257,35 @@ The implementer's choices (agents' choices, within those rulings):
   its own bytes); round 1's derivation (§1) replaced it, and
   `l0.State.Stale` is now the one comparison of a source's derived files,
   for `parse`'s writes and `--verify`'s refusal.
-- govinfo's paragraphs are trimmed and eCFR's compared normalized as they
-  are, so equal paragraphs and heading give the joined hash too; an
-  alignment by longest common subsequence prints each differing run of
-  paragraphs; an `issue_date` that is empty is read as absent.
+- Each side's heading and paragraphs are compared normalized as they are
+  (round 1 trimmed govinfo's; round 2's §1 removed that), so equal
+  paragraphs and heading give the joined hash too; an alignment by longest
+  common subsequence prints each differing run of paragraphs; an
+  `issue_date` that is empty is read as absent.
 - The oracle `internal/anchors/testdata/oracle.py` is extended in place,
   not as a sibling script, since `python3 -I` doesn't put the script's
   directory on the import path: given the granule too, it decodes it with
-  Python's own XML parser, refuses a CR or a reference to a line break,
-  deletes the layout in each run, trims each text's edges and prints the
-  govinfo `sha256_text` (75 of 75 paragraphs), which a Go test pins.
+  Python's own XML parser, refuses a CR, and inside the root a CDATA
+  section or a reference to a White_Space character (found with expat's
+  byte offsets), deletes the layout in each run, trims nothing and prints
+  the govinfo `sha256_text` (75 of 75 paragraphs), which a Go test pins.
 - `.gitattributes` keeps the committed granule's bytes.
+- In round 2: the CITA is kept in the grammar, required once and last, as
+  each of the three live granules has it, rather than dropped from the
+  prose; a `<P>` of nothing but White_Space is refused, as round 1's empty
+  `<P>` was (a check, not a trim); the White_Space-reference refusal covers
+  attribute values inside the root too, and the CR refusal the whole
+  granule; the round-1 trim of a byte order mark goes, since Go's decoder
+  reads one outside the root as no text (a test pins that a granule with
+  one reads as one without); `parse.Qualified` quotes a namespace unless
+  it is made of ASCII XML-name bytes, a root's TYPE and N are quoted, a
+  URL a redirect led to must be printable ASCII or is refused, quoted, and
+  `issue_date` is printed as a date once read as one and quoted otherwise;
+  encoding/xml's own messages for XML that isn't well-formed are printed
+  as it writes them (a name there can't hold an ASCII control character);
+  `Latest` returns the date and the removal, and plain `fetch` words its
+  own exit-2 error from them; the output says "the stored version's" where
+  it said "eCFR's".
 
 ## Spec changes
 - `docs/03-spec.md`:
@@ -249,7 +296,7 @@ The implementer's choices (agents' choices, within those rulings):
     relative to `docs/`):
 
     ```
-    | 14 | What makes a re-served copy the same version, how is govinfo's text compared, what date does `verified_on` hold, and what does `fetch --latest` do past exiting non-zero? | A version is its date plus its normalized text: the tree's node paths in order, each node's `sha256`, and `sha256_text`. `fetch --verify` first derives the stored `tree.json`, `text.md` and `sha256_text` again from the raw XML, and refuses, writing nothing, when one differs; then it compares eCFR's latest version, read from its version list, which must be `source_version_date`, with them, printing both `sha256_raw` values and the nodes whose raw text differs as information only; then, only if that matches, the section's granule in the govinfo CFR 2026 annual edition (title 12, revised as of 2026-01-01), through govinfo's link service, read only in the form a granule has: each line break and up to 12 spaces after it are deleted as layout, the heading is SECTNO, one space, SUBJECT, a paragraph keeps `<E>`'s text and drops PRTPAGE, the citation note is left out, and the heading and each paragraph, normalized, must equal eCFR's, one for one, and joined and normalized as decision 13 joins them, hash to `sha256_text`. `verified_on` is the UTC date of the first matching run, kept by a later match and overwritten with `null` by a mismatch, which prints each differing paragraph and exits 1; only then is the granule kept in the git-ignored `.cache/govinfo/`, a cache, never committed. `fetch --latest` reads `titles.json`, each `meta.yaml` (checked) and the version lists, and writes nothing: eCFR's latest version newer or older than the stored one, or one that removed the section, exits 1 with the stored and latest dates; an entry for the stored date issued on or after `retrieved_at`'s day is printed as information. Stage 04's release check runs `fetch --verify` too. No schema change (the owner's calls: the normalized text as the version, govinfo compared exactly with its layout deleted, the first matching run's date, and `--latest` reporting only; the bound of 12, the granule, its form and cache, the stored files derived again, the paragraph-by-paragraph comparison, the order, the exit codes, the issue-date note and the sources each flag covers: the chief of staff's rulings). [ADR 0014](adr/0014-normalized-text-is-the-version.md) |
+    | 14 | What makes a re-served copy the same version, how is govinfo's text compared, what date does `verified_on` hold, and what does `fetch --latest` do past exiting non-zero? | A version is its date plus its normalized text: the tree's node paths in order, each node's `sha256`, and `sha256_text`. `fetch --verify` first derives the stored `tree.json`, `text.md` and `sha256_text` again from the raw XML, and refuses, writing nothing, when one differs; then it compares eCFR's latest version, read from its version list, which must be `source_version_date`, with them, printing both `sha256_raw` values and the nodes whose raw text differs as information only; then, only if that matches, the section's granule in the govinfo CFR 2026 annual edition (title 12, revised as of 2026-01-01), through govinfo's link service, read only in the form a granule has (no CR; inside its root no CDATA section and no character reference to a White_Space character; one or more `<P>`s, then the citation note once and last): each line break and up to 12 spaces after it are deleted as layout and nothing else is deleted or trimmed, the heading is SECTNO, one space, SUBJECT, a paragraph keeps `<E>`'s text and drops PRTPAGE, the citation note is left out, and the heading and each paragraph, each side normalized by decision 13 alone, must equal the stored version's, derived again, one for one, and joined and normalized as decision 13 joins them, hash to `sha256_text`; so a change in govinfo's layout can give a false match in one way only: a maximal run of one or more literal LFs, each followed by up to 12 literal spaces, standing where govinfo meant a word space that the stored text lacks. `verified_on` is the UTC date of the first matching run, kept by a later match and overwritten with `null` by a mismatch, which prints each differing paragraph and exits 1; only then is the granule kept in the git-ignored `.cache/govinfo/`, a cache, never committed. `fetch --latest` reads `titles.json`, each `meta.yaml` (checked) and the version lists, and writes nothing: eCFR's latest version newer or older than the stored one, or one that removed the section, exits 1 with the stored and latest dates; an entry for the stored date issued on or after `retrieved_at`'s day is printed as information. Stage 04's release check runs `fetch --verify` too. No schema change (the owner's calls: the normalized text as the version, govinfo compared exactly with its layout deleted, the first matching run's date, and `--latest` reporting only; the bound of 12, the granule, its form and cache, the stored files derived again, the paragraph-by-paragraph comparison with the stored version, the order, the exit codes, the issue-date note and the sources each flag covers: the chief of staff's rulings). [ADR 0014](adr/0014-normalized-text-is-the-version.md) |
     ```
   - Acceptance, "R1": "- [ ] **R1:** `regcorpus fetch --verify` exits 0:
     the version date, tree and `sha256_text` match a fresh fetch
@@ -315,8 +362,15 @@ The implementer's choices (agents' choices, within those rulings):
     `sha256_text`; `verified_on` is the first matching run's UTC date,
     `null` on a mismatch." and "   - `--verify` covers 1024.41; 1024.30
     and 1024.31 are step 9's. `--latest` covers all three, writes nothing,
-    and exits 1 on a newer version."
+    and exits 1 when eCFR's latest version is newer or older than the
+    stored one, or removed the section."
 - `stages/01-fetch-parse/CONTRACT.md`:
+  - "Local exploratory downloads go in `.cache/` (git-ignored); committed
+    raw XML lives only under `sources/**/raw/`." → "Local exploratory
+    downloads go in `.cache/` (git-ignored); the committed raw XML of L0
+    lives only under `sources/**/raw/`. A test fixture under
+    `internal/*/testdata/` (1024.41's govinfo granule, say) is not L0 (spec
+    decision 14)."
   - Inputs: "- The govinfo CFR 2026 annual edition, to set `verified_on`
     (R1)." → "- The govinfo CFR 2026 annual edition, to set `verified_on`
     (R1): each section's granule XML, through govinfo's link service, kept
@@ -338,16 +392,23 @@ The implementer's choices (agents' choices, within those rulings):
     exits 0 (R1b; built in plan step 6). Exit 0 means eCFR lists no newer
     version of any stored section, and the fresh Supplement I 41() slice
     hash equals the stored one." → "- `regcorpus fetch --latest` exits 0
-    (R1b; spec decision 14). Exit 0 means eCFR lists no newer version of
-    any stored section; a reissue of a stored date is printed as
-    information only. From plan step 8 it also means the fresh Supplement I
-    41() slice hash equals the stored one."
+    (R1b; spec decision 14). Exit 0 means eCFR's latest version of each
+    stored section is its stored one; a newer, an older or a removed latest
+    version exits 1. A reissue of a stored date is printed as information
+    only. From plan step 8 it also means the fresh Supplement I 41() slice
+    hash equals the stored one."
 - `stages/04-release/CONTRACT.md`:
   - The title's "(R6, R1b, C6 --complete)" → "(R6, R1, R1b, C6
     --complete)".
   - "Check that ends it": "(step 1 needs eCFR, which the cloud workspace
     can't reach)" → "(steps 1 and 2 need eCFR and govinfo, which the cloud
-    workspace can't reach)"; a step 2 is added after step 1: "2.
+    workspace can't reach)"; step 1, "1. `regcorpus fetch --latest` (R1b;
+    plan step 6). Exit 0 means no stored section has a newer eCFR version
+    and the Supplement I 41() slice is unchanged." → "1. `regcorpus fetch
+    --latest` (R1b; spec decision 14). Exit 0 means eCFR's latest version
+    of each stored section is its stored one (a newer, an older or a
+    removed latest version exits 1) and the Supplement I 41() slice is
+    unchanged."; a step 2 is added after step 1: "2.
     `regcorpus fetch --verify` (R1; spec decision 14). Exit 0 means each
     stored source's normalized text still matches a fresh fetch and the
     govinfo 2026 edition, and its `verified_on` is set."; the old steps 2
@@ -358,11 +419,19 @@ The implementer's choices (agents' choices, within those rulings):
     decision 14)."
 - `docs/adr/README.md`: the index line for 0014.
 - `docs/adr/0013-cites-join-as-the-document-reads.md`: an "Amended" header
-  line naming F3's option text (below, Consequences).
+  line is added after "Decided by", naming F3's option text (below,
+  Consequences) and the Decision's sentences on a name in another case
+  under `.cache/`, which exit 2 since this ADR's round-1 ruling §2, this
+  line exactly:
+
+  ```
+  - **Amended:** 2026-11-25 by ADR 0014. F3's option text "step 6 can compute the same hash from govinfo's text for verified_on" describes what the owner was told before plan step 6: govinfo's 2026 XML is pretty-printed, so it holds only with ADR 0014's layout rule (each line break and up to 12 spaces after it deleted), under which 1024.41's granule gives the stored `sha256_text`. The Decision's "Exact names (PR #9's reviews)" sentences "A source's `meta.yaml`, `tree.json`, `text.md` and `overrides.yaml` (the first review), and every directory on the way to them, from `sources/` down and under `.cache/` (the second), are found by exact name among their parent's entries; an entry whose name differs from one only in case (Unicode simple case folding, so `ſ`, U+017F, which APFS folds to `s`, too), whatever it is, is refused (exit 1)." and "The file `StoreOnce` stores (`raw/<date>.xml`, a first `meta.yaml`, `fetch --date`'s file under `.cache/`) is found by exact name too, and a name that differs from it only in case (`2025-07-15.XML`) is refused (exit 1) with nothing stored" describe `.cache/` before plan step 6: since ADR 0014 (the chief of staff's round-1 ruling §2), every refusal under `.cache/`, such a name among them, is the cache's failure, exit 2, naming the file as a disposable, git-ignored cache; under `sources/` they are still exit 1.
+  ```
 - `regcorpus help` (`cmd/regcorpus/main.go`) and `regcorpus fetch -h`
   list `--verify` and `--latest`; the package docs of `internal/ecfr`,
   `internal/l0` and `internal/anchors` say what step 6 built where they
-  said it was coming, and `internal/govinfo/doc.go` is new.
+  said it was coming, and `internal/govinfo/doc.go` is new. These are
+  code, not spec lines, and are not quoted here.
 - No other lines. The intent says nothing of how `verified_on` is
   compared; AGENTS.md names no flag of `fetch` (it stays at 99 lines); R1b
   and R6 in the spec are unchanged, since stage 04 holds the release
@@ -396,6 +465,9 @@ The implementer's choices (agents' choices, within those rulings):
   `text.md` or `sha256_text` that `regcorpus parse` wouldn't write, and a
   granule outside the form above; `--latest` exits 1 too when eCFR's list
   ends before the stored version.
+- After review round 2, a re-run at `aa2a37f` printed the same verdict,
+  "unchanged", the heading and 75 paragraphs equal to the stored
+  version's with nothing trimmed, and changed no byte.
 - The test for the layout rule pins its bound: a granule whose text
   starts in the thirteenth column after a break, or with a space removed
   between words, gives another hash; one changed only in indentation of
@@ -403,7 +475,8 @@ The implementer's choices (agents' choices, within those rulings):
 - ADR 0013 gains an "Amended" line: its F3 option text "step 6 can compute
   the same hash from govinfo's text for verified_on" describes what the
   owner was told before this step; it holds only with this ADR's layout
-  rule.
+  rule. The same line names its Decision's sentences that give a name in
+  another case under `.cache/` exit 1: since round 1's §2 it is exit 2.
 - Carried forward (spec "Carried forward"): a stored version dated after
   2026-01-01, which the 2026 edition can't hold.
 
@@ -427,18 +500,24 @@ checks; decisions 6 (CLI only), 10 (one writer of `meta.yaml`), 13
   run); `490c85b` (this ADR and its amendments); review round 1: `b73675e`
   (the tests for the reconciled worklist, red), `6d8c8b8` (its fixes,
   green), `4c9323e` (their record here and in the spec), `90bd5dd` (a test
-  pinning "a DATE only in FDSYS" on its own), and the commit that adds
-  these two to this list.
+  pinning "a DATE only in FDSYS" on its own), `f0c52a6` (adding those two
+  to this list); review round 2: `7264a39` (the tests for the reconciled
+  worklist, red), `d013da1` (its fixes, green), `aa2a37f` (tests pinning
+  the round's surviving mutants), and the commit that records round 2 here
+  and in the spec.
 - Files:
   - Code: `internal/govinfo/granule.go` and `doc.go` (new),
     `internal/ecfr/verify.go` and `newer.go` (new),
-    `internal/ecfr/client.go` (`Version.IssueDate`, `Granule`),
-    `internal/ecfr/fetch.go` (the flags, `-h`, the cache's errors),
+    `internal/ecfr/client.go` (`Version.IssueDate`, `Granule`, `Latest`,
+    a redirect's URL checked), `internal/ecfr/fetch.go` (the flags, `-h`,
+    the cache's errors), `internal/ecfr/sources.go` (a root's TYPE and N
+    quoted), `internal/parse/wellformed.go` (`Qualified` quotes a
+    namespace that isn't made of XML name bytes),
     `internal/anchors/build.go` (`JoinSection`),
     `internal/anchors/anchors.go` (`Document.Paragraphs`),
     `internal/l0/source.go` (`State.Stale`), `internal/l0/store.go`
     (`StoreOnce` compares only a regular file), `cmd/regcorpus/main.go`,
-    `.gitignore` (`__pycache__/`).
+    `.gitignore` (`__pycache__/`), `.gitattributes` (the granule's bytes).
   - Package docs: `internal/ecfr/doc.go`, `internal/l0/doc.go`,
     `internal/anchors/doc.go`.
   - Tests: `internal/govinfo/granule_test.go` and
