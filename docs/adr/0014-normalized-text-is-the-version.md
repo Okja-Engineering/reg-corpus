@@ -426,7 +426,9 @@ checks; decisions 6 (CLI only), 10 (one writer of `meta.yaml`), 13
   green); `9e74436` (1024.41's `verified_on` line, from the first live
   run); `490c85b` (this ADR and its amendments); review round 1: `b73675e`
   (the tests for the reconciled worklist, red), `6d8c8b8` (its fixes,
-  green), and the commit that records them here and in the spec.
+  green), `4c9323e` (their record here and in the spec), `90bd5dd` (a test
+  pinning "a DATE only in FDSYS" on its own), and the commit that adds
+  these two to this list.
 - Files:
   - Code: `internal/govinfo/granule.go` and `doc.go` (new),
     `internal/ecfr/verify.go` and `newer.go` (new),
