@@ -374,6 +374,8 @@ func TestReadRefusesWhatItDoesNotRead(t *testing.T) {
 		{"a zero-padded reference to a space", strings.Replace(ok, "Text two.", "Text&#0032;two.", 1)},
 		{"a reference to a space in an E", strings.Replace(ok, "Heading.</E>", "Heading.&#32;</E>", 1)},
 		{"a reference to a space in the CITA", strings.Replace(ok, "Feb. 14, 2013]", "Feb.&#32;14, 2013]", 1)},
+		{"a reference to a space in an attribute", strings.Replace(ok, `HEADING="PART 1024"`, `HEADING="PART&#32;1024"`, 1)},
+		{"a reference to a line break in an attribute", strings.Replace(ok, `SEQ="1"`, `SEQ="&#10;1"`, 1)},
 		{"a SECTION with no P", strings.Replace(ok, twoParas, "", 1)},
 		{"a SECTION with no CITA", strings.Replace(ok, "        <CITA>[78 FR 10876, Feb. 14, 2013]</CITA>\n", "", 1)},
 		{"two CITAs", strings.Replace(ok, "</CITA>", "</CITA>\n        <CITA>x</CITA>", 1)},

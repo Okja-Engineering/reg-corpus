@@ -974,6 +974,11 @@ func TestVerifyReadsEveryEdgeAsText(t *testing.T) {
 		{"a space before the last </P>", strings.Replace(g, last, "applicable time period. \n        </P>", 1), paragraph},
 		{"a no-break space before the last </P>", strings.Replace(g, last, "applicable time period."+string(rune(0xA0))+"\n        </P>", 1), paragraph},
 		{"a break and 13 spaces before the last </P>", strings.Replace(g, last, "applicable time period."+thirteen+"</P>", 1), paragraph},
+		// Inside the text, the joined hash can't see an edge, so only the
+		// paragraph compared one for one does.
+		{"a no-break space ending the first paragraph", strings.Replace(g, "pursuant to applicable law.\n        </P>", "pursuant to applicable law."+string(rune(0xA0))+"\n        </P>", 1),
+			[]string{"1024.41: govinfo 2026 edition: differs: its normalized text hashes to sha256_text, but its heading and paragraphs are not the stored version's one for one\n",
+				"1024.41: govinfo differs at the stored version's paragraph 1 of 75, govinfo's paragraph 1 of 75:\n"}},
 		{"a no-break space ending the SUBJECT", strings.Replace(g, subject, "Loss mitigation procedures."+string(rune(0xA0))+"</SUBJECT>", 1), heading},
 		{"a break and 13 spaces ending the SUBJECT", strings.Replace(g, subject, "Loss mitigation procedures."+thirteen+"</SUBJECT>", 1), heading},
 	} {
@@ -1043,6 +1048,7 @@ func TestUpstreamValuesArePrintedQuoted(t *testing.T) {
 	raw := string(repoFile(t, rawPath("1024.41")))
 	for _, tc := range []struct{ name, fresh string }{
 		{"an eCFR root's N", strings.Replace(raw, `<DIV8 N="1024.41"`, `<DIV8 N="1024.41&#10;1024.30: stored source_version_date 2018-04-19, eCFR's latest 2018-04-19: no newer version"`, 1)},
+		{"an eCFR root's TYPE", strings.Replace(raw, `TYPE="SECTION"`, `TYPE="SECTION&#10;1024.30: stored source_version_date 2018-04-19, eCFR's latest 2018-04-19: no newer version"`, 1)},
 		{"an eCFR root's namespace", strings.Replace(strings.Replace(raw, `<DIV8 N="1024.41"`, `<x:DIV8 xmlns:x="&#10;1024.30: stored source_version_date 2018-04-19, eCFR's latest 2018-04-19: no newer version" N="1024.41"`, 1), "</DIV8>", "</x:DIV8>", 1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

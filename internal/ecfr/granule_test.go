@@ -88,6 +88,15 @@ func TestAURLIsPrintedOnlyAsAURL(t *testing.T) {
 	if err == nil || strings.ContainsAny(err.Error(), string(rune(0x2028))+string(rune(0x85))) || !strings.Contains(err.Error(), strconv.Quote(c.Govinfo+govContent41+odd)) {
 		t.Errorf("Granule = %q, %v; want an error quoting the URL", from, err)
 	}
+	// A redirect to another origin is refused before it is followed, its
+	// URL quoted too.
+	other := httptest.NewServer(fake(t))
+	defer other.Close()
+	f.set(govLink41, govRedirect(other.URL+govContent41+odd))
+	_, _, err = c.Granule(context.Background(), "1024.41")
+	if err == nil || strings.ContainsAny(err.Error(), string(rune(0x2028))+string(rune(0x85))) || !strings.Contains(err.Error(), "refusing a redirect to "+strconv.Quote(other.URL+govContent41+odd)) {
+		t.Errorf("another origin: %v; want the redirect refused, its URL quoted", err)
+	}
 }
 
 func TestGranuleFollowsTheLinkServiceOnItsOrigin(t *testing.T) {
