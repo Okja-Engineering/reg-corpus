@@ -4,14 +4,21 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/okja-engineering/reg-corpus/internal/check"
+	"github.com/okja-engineering/reg-corpus/internal/ecfr"
+	"github.com/okja-engineering/reg-corpus/internal/verify"
 )
 
 const usageLine = "usage: regcorpus <command> [flags]"
@@ -63,17 +70,6 @@ func corpus(t *testing.T, unlogged bool) string {
 		}
 	}
 	return root
-}
-
-func TestHelpExitsZeroOnStdout(t *testing.T) {
-	for _, args := range [][]string{{"-h"}, {"--help"}, {"help"}} {
-		in, out, errf := files(t)
-		code := run(args, in, out, errf)
-		stdout, stderr := read(t, out), read(t, errf)
-		if code != 0 || !strings.HasPrefix(stdout, usageLine) || stderr != "" {
-			t.Errorf("%q: exit %d, stdout %q, stderr %q; want 0 and usage on stdout", args, code, stdout, stderr)
-		}
-	}
 }
 
 // TestUsageGivesEveryCommandsExitCodes: AGENTS.md says `regcorpus help` and
@@ -134,24 +130,6 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 	}
 }
 
-func TestUsageErrorsExitTwoOnStderr(t *testing.T) {
-	for _, tc := range []struct {
-		args []string
-		msg  string
-	}{
-		{nil, ""},
-		{[]string{"bogus"}, `regcorpus: unknown command "bogus"`},
-		{[]string{"inventory"}, `regcorpus: unknown command "inventory"`},
-	} {
-		in, out, errf := files(t)
-		code := run(tc.args, in, out, errf)
-		stdout, stderr := read(t, out), read(t, errf)
-		if code != 2 || stdout != "" || !strings.HasPrefix(stderr, tc.msg) || !strings.Contains(stderr, usageLine) {
-			t.Errorf("%q: exit %d, stdout %q, stderr %q; want 2, %q and usage on stderr", tc.args, code, stdout, stderr, tc.msg)
-		}
-	}
-}
-
 func TestDispatch(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
@@ -200,41 +178,260 @@ func rawControl(s string) string {
 	return ""
 }
 
-// TestEveryLineGoesThroughTheSink: run gives every command the sink for
-// stdout and stderr (internal/sink), so whatever a command prints, from a
-// flag it doesn't know to a path, no byte forges a line of the saved
-// output or moves the terminal (worklist round 3, §1). Each payload holds
-// an LF and a line of fetch's own, an escape sequence, a line separator
-// (from its code point) and a byte that isn't UTF-8.
-func TestEveryLineGoesThroughTheSink(t *testing.T) {
-	const forged = `1024.41: wrote sources/ecfr/title-12/1024.41/meta.yaml: verified_on: "2026-11-25"`
-	payload := "x\n" + forged + "\x1b[2K" + string(rune(0x2028)) + "\x9b"
-	for _, args := range [][]string{
-		{"-" + payload},
-		{"check", "-" + payload},
-		{"check", "--corpus", "--root", filepath.Join(t.TempDir(), payload)},
-		{"fetch", "-" + payload},
-		{"fetch", "--date", payload},
-		{"meta", "-" + payload},
-		{"meta", "set", "-" + payload},
-		{"parse", "-" + payload},
-		{"verify", "-" + payload},
-	} {
-		in, out, errf := files(t)
-		code := run(args, in, out, errf)
-		stdout, stderr := read(t, out), read(t, errf)
-		for _, s := range []struct{ name, out string }{{"stdout", stdout}, {"stderr", stderr}} {
-			if at := rawControl(s.out); at != "" {
-				t.Errorf("%q: %s holds %s, unescaped: %q", args, s.name, at, s.out)
-			}
-			for _, l := range strings.Split(s.out, "\n") {
-				if strings.HasPrefix(l, "1024.41: wrote") {
-					t.Errorf("%q: %s has a forged line %q", args, s.name, l)
-				}
+// forged is the line fetch --verify writes on a match: a payload that put
+// it at the start of a line of the saved output would forge the verdict.
+const forged = `1024.41: wrote sources/ecfr/title-12/1024.41/meta.yaml: verified_on: "2026-11-25"`
+
+// carried is a payload as a command writes it (raw) and as the stream must
+// hold it (escaped).
+type carried struct{ raw, escaped string }
+
+var (
+	// argPayload, given as an argument, would forge a line (an LF, then
+	// forged) and move the terminal (an escape sequence, a line separator,
+	// and 0x9b, a byte that isn't UTF-8 and a CSI to a terminal reading C1).
+	// The sink writes it escaped.
+	argPayload = carried{
+		"x\n" + forged + "\x1b[2K\u2028\x9b",
+		`x\x0a` + forged + `\x1b[2K\u2028\x9b`,
+	}
+	// quotedPayload is argPayload as a command quotes it (%q) before the
+	// sink, which writes it byte for byte.
+	quotedPayload = carried{
+		`x\n` + strings.ReplaceAll(forged, `"`, `\"`) + `\x1b[2K\u2028\x9b`,
+		`x\n` + strings.ReplaceAll(forged, `"`, `\"`) + `\x1b[2K\u2028\x9b`,
+	}
+	// namePayload is an XML name holding a line separator and a C1 control,
+	// which encoding/xml's message for raw XML that isn't well-formed holds
+	// as it is (ADR 0014, round 2). The sink writes it escaped.
+	namePayload = carried{"HEAD\u2028\u0085x", `HEAD\u2028\u0085x`}
+)
+
+// storedSource returns a maker of corpus roots, each holding 1024.41's
+// committed meta.yaml and raw XML (read, never written), the raw XML as
+// edit returns it, if edit is given, and sha256_raw its sha256.
+func storedSource(t *testing.T, edit func(string) string) func(*testing.T) string {
+	t.Helper()
+	dir, err := filepath.Abs(filepath.FromSlash("../../sources/ecfr/title-12/1024.41"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raws, err := filepath.Glob(filepath.Join(dir, "raw", "*.xml"))
+	if err != nil || len(raws) != 1 {
+		t.Fatalf("1024.41's raw XML: %q, %v; want one file", raws, err)
+	}
+	raw, err := os.ReadFile(raws[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := os.ReadFile(filepath.Join(dir, "meta.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := func(b string) string {
+		h := sha256.Sum256([]byte(b))
+		return hex.EncodeToString(h[:])
+	}
+	body := string(raw)
+	if edit != nil {
+		if body = edit(body); body == string(raw) {
+			t.Fatal("the edit changes nothing in 1024.41's raw XML")
+		}
+	}
+	if !strings.Contains(string(m), sum(string(raw))) {
+		t.Fatal("1024.41's meta.yaml doesn't hold its raw XML's sha256")
+	}
+	meta := strings.Replace(string(m), sum(string(raw)), sum(body), 1)
+	return func(t *testing.T) string {
+		t.Helper()
+		root := t.TempDir()
+		src := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
+		if err := os.MkdirAll(filepath.Join(src, "raw"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for name, b := range map[string]string{"meta.yaml": meta, filepath.Join("raw", filepath.Base(raws[0])): body} {
+			if err := os.WriteFile(filepath.Join(src, name), []byte(b), 0o644); err != nil {
+				t.Fatal(err)
 			}
 		}
-		if code == 0 {
-			t.Errorf("%q: exit 0; want a usage or root error", args)
+		return root
+	}
+}
+
+// TestEveryCommandWritesThroughTheSink: for every command run dispatches,
+// and for run's own lines, each stream holds byte for byte what the command
+// writes, a line per Write, through the sink (worklist round 4, §1). So a
+// help text, and a usage error's line and its usage, keep their lines, and
+// a payload that reaches a command's output unquoted reaches the stream
+// escaped, on its line. A row's want is what the same command writes to
+// plain buffers, its payload escaped; a row whose payload doesn't reach
+// those buffers fails, so no row passes vacuously.
+//
+// No payload can reach stdout from check (a Violation quotes its path and
+// message), meta or parse (their lines are a source's name, its paths, a
+// sha256 and a value checked to its field's form) or, offline, fetch (its
+// stdout lines come only after eCFR answers, at a fixed URL). So for each
+// command in commands one row puts a fake in its place, which writes the
+// payload to stdout and stderr: run's wiring is pinned there. verify writes
+// only fixed lines, run quotes an unknown command, and a raw file in place
+// of a sink writes a help text and those lines as the sink does: the
+// mutants that give them one (round 3's D9, D10 and D11) are equivalent.
+func TestEveryCommandWritesThroughTheSink(t *testing.T) {
+	// direct is the function each command name runs, as this test reads
+	// the dispatch.
+	direct := map[string]func(args []string, stdout, stderr io.Writer) int{
+		"check": check.Main,
+		"fetch": ecfr.Main,
+		"meta":  ecfr.MetaMain,
+		"parse": ecfr.ParseMain,
+	}
+	fake := func(_ []string, stdout, stderr io.Writer) int {
+		fmt.Fprintln(stdout, argPayload.raw)
+		fmt.Fprintln(stderr, argPayload.raw)
+		return 3
+	}
+	help := func(stdout, _ io.Writer) int { io.WriteString(stdout, usage); return 0 }
+	unknown := func(name string) func(stdout, stderr io.Writer) int {
+		return func(_, stderr io.Writer) int {
+			fmt.Fprintf(stderr, "regcorpus: unknown command %q\n", name)
+			io.WriteString(stderr, usage)
+			return 2
+		}
+	}
+	stored := storedSource(t, nil)
+	badName := storedSource(t, func(raw string) string {
+		return strings.Replace(raw, "<HEAD>", "<"+namePayload.raw+">", 1)
+	})
+	notRoot := filepath.Join(t.TempDir(), argPayload.raw)
+	faked := map[string]bool{}
+	for _, tc := range []struct {
+		name string
+		args []string
+		root func(*testing.T) string // a corpus root to run in, made afresh for each run
+		fake bool                    // the command is replaced by fake
+		// own is what run itself writes, for a row whose command isn't in
+		// direct.
+		own            func(stdout, stderr io.Writer) int
+		stdout, stderr carried // the payload each stream carries, if any
+		lines          bool    // the command writes stdout lines: none fails
+	}{
+		{name: "help", args: []string{"help"}, own: help},
+		{name: "-h", args: []string{"-h"}, own: help},
+		{name: "--help", args: []string{"--help"}, own: help},
+		{name: "no command", own: func(_, stderr io.Writer) int { io.WriteString(stderr, usage); return 2 }},
+		{name: "an unknown command", args: []string{"bogus"}, own: unknown("bogus")},
+		{name: "a command not built yet", args: []string{"inventory"}, own: unknown("inventory")},
+		{name: "an unknown command, quoted", args: []string{argPayload.raw}, own: unknown(argPayload.raw), stderr: quotedPayload},
+		{name: "verify without a terminal", args: []string{"verify", "RX-41-TEST-01"},
+			own: func(_, stderr io.Writer) int { fmt.Fprintln(stderr, verify.ErrNoTerminal); return 2 }},
+
+		{name: "check -h", args: []string{"check", "-h"}, lines: true},
+		{name: "check: a flag it doesn't know", args: []string{"check", "--bogus"}},
+		{name: "check: an argument", args: []string{"check", "--corpus", "extra"}},
+		{name: "check: no --corpus", args: []string{"check"}},
+		{name: "check: a clean corpus", args: []string{"check", "--corpus", "--root", corpus(t, false)}, lines: true},
+		{name: "check: a violation", args: []string{"check", "--corpus", "--root", corpus(t, true)}, lines: true},
+		{name: "check: a payload flag", args: []string{"check", "-" + argPayload.raw}, stderr: argPayload},
+		{name: "check: a payload root", args: []string{"check", "--corpus", "--root", notRoot}, stderr: argPayload},
+		{name: "check: the sinks", args: []string{"check"}, fake: true, stdout: argPayload, stderr: argPayload},
+
+		{name: "fetch -h", args: []string{"fetch", "-h"}, lines: true},
+		{name: "fetch: a flag it doesn't know", args: []string{"fetch", "--bogus"}},
+		{name: "fetch: a flag after a section", args: []string{"fetch", "1024.41", "--verify"}},
+		{name: "fetch: two modes", args: []string{"fetch", "--verify", "--latest"}},
+		{name: "fetch: an unknown section", args: []string{"fetch", "1024.99"}},
+		{name: "fetch: a payload flag", args: []string{"fetch", "-" + argPayload.raw}, stderr: argPayload},
+		{name: "fetch: a payload date", args: []string{"fetch", "--date", argPayload.raw}, stderr: quotedPayload},
+		{name: "fetch: the sinks", args: []string{"fetch"}, fake: true, stdout: argPayload, stderr: argPayload},
+
+		{name: "meta -h", args: []string{"meta", "-h"}, lines: true},
+		{name: "meta set -h", args: []string{"meta", "set", "-h"}, lines: true},
+		{name: "meta: no subcommand", args: []string{"meta"}},
+		{name: "meta: an unknown subcommand", args: []string{"meta", "get"}},
+		{name: "meta: set alone", args: []string{"meta", "set"}},
+		{name: "meta: a value not a date", args: []string{"meta", "set", "1024.41", "version_effective_date", "2025-7-15"}},
+		{name: "meta: an unknown section", args: []string{"meta", "set", "1024.99", "version_effective_date", "2025-07-15"}},
+		{name: "meta: a payload flag", args: []string{"meta", "set", "-" + argPayload.raw, "x"}, stderr: quotedPayload},
+		{name: "meta: a stored field", args: []string{"meta", "set", "1024.41", "version_effective_date", "2025-07-15"}, root: stored, lines: true},
+		{name: "meta: a payload name in the raw XML", args: []string{"meta", "set", "1024.41", "version_fr_citations", "90 FR 20792"},
+			root: badName, stderr: namePayload},
+		{name: "meta: the sinks", args: []string{"meta"}, fake: true, stdout: argPayload, stderr: argPayload},
+
+		{name: "parse -h", args: []string{"parse", "-h"}, lines: true},
+		{name: "parse: no section", args: []string{"parse"}},
+		{name: "parse: a flag", args: []string{"parse", "--all"}},
+		{name: "parse: an unknown section", args: []string{"parse", "1024.99"}},
+		{name: "parse: a payload flag", args: []string{"parse", "-" + argPayload.raw}, stderr: quotedPayload},
+		{name: "parse: a stored source", args: []string{"parse", "1024.41"}, root: stored, lines: true},
+		{name: "parse: a payload name in the raw XML", args: []string{"parse", "1024.41"}, root: badName, stderr: namePayload},
+		{name: "parse: the sinks", args: []string{"parse"}, fake: true, stdout: argPayload, stderr: argPayload},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := tc.own
+			switch {
+			case tc.fake:
+				name := tc.args[0]
+				orig, ok := commands[name]
+				if !ok {
+					t.Fatalf("run doesn't call %s from commands, with the sinks", name)
+				}
+				commands[name] = fake
+				t.Cleanup(func() { commands[name] = orig })
+				faked[name] = true
+				want = func(stdout, stderr io.Writer) int { return fake(tc.args[1:], stdout, stderr) }
+			case want == nil:
+				cmd, ok := direct[tc.args[0]]
+				if !ok {
+					t.Fatalf("no function for %q", tc.args)
+				}
+				want = func(stdout, stderr io.Writer) int { return cmd(tc.args[1:], stdout, stderr) }
+			}
+			if tc.root != nil {
+				t.Chdir(tc.root(t))
+			}
+			in, out, errf := files(t)
+			code := run(tc.args, in, out, errf)
+			if tc.root != nil { // afresh: the run may have written in its root
+				t.Chdir(tc.root(t))
+			}
+			var stdout, stderr strings.Builder
+			wantCode := want(&stdout, &stderr)
+			if code != wantCode {
+				t.Errorf("exit %d; want %d", code, wantCode)
+			}
+			if tc.lines && strings.Count(stdout.String(), "\n") == 0 {
+				t.Fatalf("the command writes no stdout line: the row tests nothing")
+			}
+			for _, s := range []struct {
+				name, got, want string
+				payload         carried
+			}{
+				{"stdout", read(t, out), stdout.String(), tc.stdout},
+				{"stderr", read(t, errf), stderr.String(), tc.stderr},
+			} {
+				if s.payload != (carried{}) {
+					if !strings.Contains(s.want, s.payload.raw) {
+						t.Fatalf("%s: the payload %q doesn't reach the command's output %q", s.name, s.payload.raw, s.want)
+					}
+					s.want = strings.ReplaceAll(s.want, s.payload.raw, s.payload.escaped)
+				}
+				if s.got != s.want {
+					t.Errorf("%s:\n%q\nwant, a line per line the command writes:\n%q", s.name, s.got, s.want)
+				}
+				if at := rawControl(s.got); at != "" {
+					t.Errorf("%s holds %s, unescaped", s.name, at)
+				}
+				for _, l := range strings.Split(s.got, "\n") {
+					if strings.HasPrefix(l, forged) {
+						t.Errorf("%s has a forged line %q", s.name, l)
+					}
+				}
+			}
+		})
+	}
+	for name := range commands {
+		if !faked[name] {
+			t.Errorf("no row puts a fake in place of %s: run's wiring of it is not pinned", name)
 		}
 	}
 }

@@ -10,6 +10,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/okja-engineering/reg-corpus/internal/check"
@@ -20,6 +21,16 @@ import (
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+// commands are the commands given nothing but their arguments and the two
+// sinks: run calls each at one place, so none can be given a file to write
+// past the sink (worklist round 4, §1).
+var commands = map[string]func(args []string, stdout, stderr io.Writer) int{
+	"check": check.Main,
+	"fetch": ecfr.Main,
+	"meta":  ecfr.MetaMain,
+	"parse": ecfr.ParseMain,
 }
 
 // run dispatches args and returns the exit code: the command's own, 0 for
@@ -34,15 +45,10 @@ func run(args []string, stdin, stdoutFile, stderrFile *os.File) int {
 		sink.Print(stderr, usage)
 		return 2
 	}
+	if cmd, ok := commands[args[0]]; ok {
+		return cmd(args[1:], stdout, stderr)
+	}
 	switch args[0] {
-	case "check":
-		return check.Main(args[1:], stdout, stderr)
-	case "fetch":
-		return ecfr.Main(args[1:], stdout, stderr)
-	case "meta":
-		return ecfr.MetaMain(args[1:], stdout, stderr)
-	case "parse":
-		return ecfr.ParseMain(args[1:], stdout, stderr)
 	case "verify":
 		return verify.Main(args[1:], stdin, stdoutFile, stderr)
 	case "-h", "--help", "help":
