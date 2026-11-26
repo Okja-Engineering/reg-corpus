@@ -176,6 +176,9 @@ func (st State) TreeJSON(root string, s Source) ([]byte, bool, error) {
 	return b, true, nil
 }
 
+// ErrNotRoot is not built yet (round 1 of PR #11, §2; red).
+var ErrNotRoot = errors.New("l0: not a corpus root")
+
 // CorpusRoot returns nil when root is a corpus root: one with a real
 // directory at dir, the slash path every source is under
 // (sources/ecfr/title-12), reached through real directories by exact name

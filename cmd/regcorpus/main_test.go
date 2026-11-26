@@ -6,7 +6,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,7 +20,6 @@ import (
 	"github.com/okja-engineering/reg-corpus/internal/check"
 	"github.com/okja-engineering/reg-corpus/internal/ecfr"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
-	"github.com/okja-engineering/reg-corpus/internal/parse"
 	"github.com/okja-engineering/reg-corpus/internal/verify"
 )
 
@@ -131,6 +129,8 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		"the one exit 1 that writes is fetch --verify's govinfo mismatch, which writes verified_on: null",
 		"2 anything that stops the command (usage, network, eCFR, govinfo,",
 		"an anchor text can't print (no such anchor, or one a later plan step builds)",
+		"an argument that names no source, not the corpus root,",
+		"a stdout that can't be written",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("usage lacks %q", want)
@@ -269,60 +269,42 @@ func storedSource(t *testing.T, edit func(string) string) func(*testing.T) strin
 	}
 }
 
-// storedTree returns a maker of corpus roots, each holding 1024.41's
-// committed meta.yaml and tree.json (read, never written); with text given,
-// 1024-41-b-2-i-B's own text is text, and its sha256 and sha256_text agree
-// with it, so text prints it.
-func storedTree(t *testing.T, text string) func(*testing.T) string {
+// derivedSource returns a maker of corpus roots, each a storedSource(t,
+// edit) root beside what regcorpus parse derives from its raw XML: its
+// tree.json and text.md, and sha256_text in its meta.yaml, so text prints
+// its anchors.
+func derivedSource(t *testing.T, edit func(string) string) func(*testing.T) string {
 	t.Helper()
-	dir := filepath.FromSlash("../../sources/ecfr/title-12/1024.41")
-	tb, err := os.ReadFile(filepath.Join(dir, "tree.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mb, err := os.ReadFile(filepath.Join(dir, "meta.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if text != "" {
-		var tr parse.Tree
-		if err := json.Unmarshal(tb, &tr); err != nil {
+	stored := storedSource(t, edit)
+	return func(t *testing.T) string {
+		t.Helper()
+		root := stored(t)
+		src := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
+		raws, err := filepath.Glob(filepath.Join(src, "raw", "*.xml"))
+		if err != nil || len(raws) != 1 {
+			t.Fatalf("the raw XML: %q, %v; want one file", raws, err)
+		}
+		raw, err := os.ReadFile(raws[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := anchors.Build(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mb, err := os.ReadFile(filepath.Join(src, "meta.yaml"))
+		if err != nil {
 			t.Fatal(err)
 		}
 		m, err := meta.Parse(mb)
 		if err != nil {
 			t.Fatal(err)
 		}
-		found := false
-		for _, n := range anchors.NewDocument(&tr).Nodes() {
-			if anchors.ID(tr.Section, n.Path) == "1024-41-b-2-i-B" {
-				n.Text, found = text, true
-				if n.SHA256, err = anchors.Hash(text); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-		if !found {
-			t.Fatal("1024.41's tree.json has no 1024-41-b-2-i-B")
-		}
-		if m.SHA256Text, err = anchors.SHA256Text(&tr); err != nil {
-			t.Fatal(err)
-		}
-		if tb, err = anchors.EncodeTree(&tr); err != nil {
-			t.Fatal(err)
-		}
+		m.SHA256Text = d.SHA256Text
 		if mb, err = meta.Marshal(m); err != nil {
 			t.Fatal(err)
 		}
-	}
-	return func(t *testing.T) string {
-		t.Helper()
-		root := t.TempDir()
-		src := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
-		if err := os.MkdirAll(src, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for name, b := range map[string][]byte{"tree.json": tb, "meta.yaml": mb} {
+		for name, b := range map[string][]byte{"tree.json": d.TreeJSON, "text.md": d.TextMD, "meta.yaml": mb} {
 			if err := os.WriteFile(filepath.Join(src, name), b, 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -344,9 +326,11 @@ func storedTree(t *testing.T, text string) func(*testing.T) string {
 // message), meta or parse (their lines are a source's name, its paths, a
 // sha256 and a value checked to its field's form) or, offline, fetch (its
 // stdout lines come only after eCFR answers, at a fixed URL). text's can: it
-// prints an anchor's own text as tree.json stores it, so a row puts the
-// payload there, its hashes agreeing with it (textPayload: it holds no byte
-// that isn't UTF-8, which anchors.Hash refuses). So for each
+// prints an anchor's own text as regcorpus parse derives it from the raw
+// XML, which may hold DEL and a C1 control (XML holds them; parse refuses
+// a line break, and XML holds no other C0 control but a tab), so a row
+// puts the payload in the raw XML, its files derived from it (textPayload).
+// So for each
 // command in commands one row puts a fake in its place, which writes the
 // payload to stdout and stderr: run's wiring is pinned there. verify writes
 // only fixed lines, run quotes an unknown command, and a raw file in place
@@ -380,20 +364,22 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		return strings.Replace(raw, "<HEAD>", "<"+namePayload.raw+">", 1)
 	})
 	notRoot := filepath.Join(t.TempDir(), argPayload.raw)
-	// textPayload is an own text that would forge a line and move the
-	// terminal, as argPayload, every character of it UTF-8: an LF, then
-	// forged, an escape sequence, a line separator and NEL, a C1 control,
-	// each separator and control written from its code point.
+	// textPayload is what of an own text could move a terminal that the
+	// raw XML can hold: a tab, DEL, and the C1 control sequence
+	// introducer, U+009B, then "2K" (erase the line), each control written
+	// from its code point.
 	textPayload := carried{
-		"(B) x\n" + forged + "\x1b[2K" + string(rune(0x2028)) + string(rune(0x85)),
-		`(B) x\x0a` + forged + `\x1b[2K` + `\` + "u2028" + `\` + "u0085",
+		"\t\x7f" + string(rune(0x9b)) + "2K",
+		`\x09\x7f` + `\` + "u009b" + "2K",
 	}
 	// jsonPayload is what of textPayload reaches the sink raw with --json:
-	// NEL, which encoding/json leaves as it is, and the sink writes as
-	// \u0085, a JSON escape of itself; JSON escapes the rest.
-	jsonPayload := carried{string(rune(0x85)), `\` + "u0085"}
-	tree := storedTree(t, "")
-	payloadTree := storedTree(t, textPayload.raw)
+	// U+009B, which encoding/json leaves as it is, and the sink writes as
+	// \u009b, a JSON escape of itself; JSON escapes the rest.
+	jsonPayload := carried{string(rune(0x9b)), `\` + "u009b"}
+	tree := derivedSource(t, nil)
+	payloadTree := derivedSource(t, func(raw string) string {
+		return strings.Replace(raw, "(B) Notify the borrower", "(B) Notify"+textPayload.raw+" the borrower", 1)
+	})
 	faked := map[string]bool{}
 	for _, tc := range []struct {
 		name string
@@ -541,6 +527,45 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		if !faked[name] {
 			t.Errorf("no row puts a fake in place of %s: run's wiring of it is not pinned", name)
 		}
+	}
+}
+
+// TestAStdoutThatCantBeWrittenExits2: exit 0 means the output was written
+// (round 1 of PR #11, §3). run decides it once, for every command and its
+// own help, from the stdout sink's first error: a stdout that can't be
+// written exits 2, whatever the command's own code, with a line on stderr
+// naming the failure; nothing else changes.
+func TestAStdoutThatCantBeWrittenExits2(t *testing.T) {
+	tree := derivedSource(t, nil)
+	for _, tc := range []struct {
+		name string
+		args []string
+		root func(*testing.T) string
+		code int // with a stdout that can be written
+	}{
+		{"help", []string{"help"}, nil, 0},
+		{"text -h", []string{"text", "-h"}, nil, 0},
+		{"text", []string{"text", "1024-41-b-2-i-B"}, tree, 0},
+		{"text --json", []string{"text", "--json", "1024-41-b-2"}, tree, 0},
+		{"check, clean", []string{"check", "--corpus", "--root", corpus(t, false)}, nil, 0},
+		{"check, a violation", []string{"check", "--corpus", "--root", corpus(t, true)}, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.root != nil {
+				t.Chdir(tc.root(t))
+			}
+			in, out, errf := files(t)
+			if code := run(tc.args, in, out, errf); code != tc.code || read(t, out) == "" {
+				t.Fatalf("a stdout that can be written: exit %d, stdout %q; want %d and output", code, read(t, out), tc.code)
+			}
+			in, out, errf = files(t)
+			out.Close()
+			code := run(tc.args, in, out, errf)
+			stderr := read(t, errf)
+			if code != 2 || !strings.Contains(stderr, "regcorpus: writing stdout: ") {
+				t.Errorf("stdout closed: exit %d, stderr %q; want 2 and regcorpus: writing stdout", code, stderr)
+			}
+		})
 	}
 }
 

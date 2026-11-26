@@ -12,6 +12,9 @@ type Written struct {
 	SHA256Text meta.SHA256
 }
 
+// Stale is not built yet (round 1 of PR #11, §1; red).
+func (d *Derived) Stale(root string, s l0.Source, st l0.State) ([]string, error) { return nil, nil }
+
 // Write derives s's files under root from its stored raw XML, offline,
 // through l0.Update (ADRs 0010, 0013): under s's lock, after the
 // stored-state check (l0's Stored), it builds from the raw XML that check

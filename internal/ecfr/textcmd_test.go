@@ -41,14 +41,16 @@ func tree41(t *testing.T) (*parse.Tree, []*parse.Node) {
 
 // TestTextReadsTheSourceTable: text's corpus is the source table, each
 // source by its name and stored form, its anchors pending until its parser
-// goldens are in (the table's Goldens), under sources/ecfr/title-12.
+// goldens are in (the table's Goldens), and the plan step that builds
+// Supplement I's comment anchors on it, if any (the table's Comments),
+// under sources/ecfr/title-12.
 func TestTextReadsTheSourceTable(t *testing.T) {
 	c := corpus("r")
 	if c.Root != "r" || c.Dir != sourcesDir || len(c.Sources) != len(sources) {
 		t.Fatalf("corpus: %+v", c)
 	}
 	for i, s := range sources {
-		want := lookup.Source{Name: s.Name, Stored: s.stored(), Pending: s.Goldens}
+		want := lookup.Source{Name: s.Name, Stored: s.stored(), Pending: s.Goldens, Comments: s.Comments}
 		if !reflect.DeepEqual(c.Sources[i], want) {
 			t.Errorf("source %d: %+v; want %+v", i, c.Sources[i], want)
 		}
@@ -158,8 +160,10 @@ func TestTextRoundTripsSHA256Text(t *testing.T) {
 }
 
 // TestTextRefusesWhatIsNotBuilt: through the source table, 1024.30's and
-// 1024.31's anchors are plan step 9's and a comment anchor plan step 8's
-// (exit 1); a string that names no source exits 2.
+// 1024.31's anchors are plan step 9's and a comment anchor on 1024.41 plan
+// step 8's (exit 1); a section's own ID and an interp segment under 1024.30
+// or 1024.31, where plan step 8 builds none, are no anchor (exit 1; round
+// 1, §5); a string that names no source exits 2.
 func TestTextRefusesWhatIsNotBuilt(t *testing.T) {
 	for _, tc := range []struct {
 		anchor string
@@ -169,6 +173,10 @@ func TestTextRefusesWhatIsNotBuilt(t *testing.T) {
 		{"1024-31-day", 1, "anchors for 1024.31 are plan step 9's"},
 		{"1024-30-a", 1, "anchors for 1024.30 are plan step 9's"},
 		{"1024-41-b-2-i-interp-1", 1, "Supplement I comment anchors are plan step 8's"},
+		{"1024-31", 1, `no anchor "1024-31" in 1024.31`},
+		{"1024-41", 1, `no anchor "1024-41" in 1024.41`},
+		{"1024-31-interp-1", 1, `no anchor "1024-31-interp-1" in 1024.31`},
+		{"1024-30-a-interp-1", 1, `no anchor "1024-30-a-interp-1" in 1024.30`},
 		{"1024.41(b)(2)(i)(B)", 2, "names no source"},
 	} {
 		code, stdout, stderr := textAt(t, tc.anchor)

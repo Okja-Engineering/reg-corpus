@@ -70,6 +70,8 @@ type Source struct {
 	// writes none of its derived files (stage 01: until a source's goldens
 	// exist, make test says nothing about R1a for it; ADR 0013).
 	Goldens string
+	// Comments is not built yet (round 1 of PR #11, §5; red).
+	Comments string
 }
 
 // sources is the fixed source table, in fetch order (R1; spec "Upstream" and

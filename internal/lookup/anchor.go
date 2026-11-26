@@ -22,6 +22,8 @@ type Source struct {
 	Name    string    // the section, e.g. "1024.41"; its anchor IDs start with anchors.ID(Name, nil), "1024-41"
 	Stored  l0.Source // its directory, and who its meta.yaml must say it is
 	Pending string    // the plan step that builds its anchors (the table's Goldens), "" once they are built
+	// Comments is not built yet (round 1 of PR #11, §5; red).
+	Comments string
 }
 
 // Corpus is the L0 a lookup reads: the corpus root, the slash path from it
@@ -52,6 +54,8 @@ var (
 	ErrNoSource = errors.New("lookup: an anchor ID that names no source")
 	ErrNotBuilt = errors.New("lookup: an anchor a later plan step builds")
 	ErrNoAnchor = errors.New("lookup: no such anchor")
+	// ErrNotRoot is not built yet (round 1 of PR #11, §2; red).
+	ErrNotRoot = errors.New("lookup: not the corpus root")
 )
 
 // miss is an error of one of the kinds above, with its own message.

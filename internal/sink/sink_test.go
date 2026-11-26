@@ -6,8 +6,11 @@ package sink_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/okja-engineering/reg-corpus/internal/sink"
 )
@@ -81,5 +84,128 @@ func TestPrintWritesItsTextALineAtATime(t *testing.T) {
 	sink.Print(&plain, help)
 	if b.String() != help || plain.String() != help {
 		t.Errorf("Print through the sink wrote %q, to a buffer %q; want %q both", b.String(), plain.String(), help)
+	}
+}
+
+// failing fails each Write from the after-th on (counting from 0), each with
+// its own error.
+type failing struct {
+	after, n int
+}
+
+func (f *failing) Write(p []byte) (int, error) {
+	defer func() { f.n++ }()
+	if f.n >= f.after {
+		return 0, fmt.Errorf("write %d failed", f.n)
+	}
+	return len(p), nil
+}
+
+// TestWriterKeepsItsFirstError: a Writer keeps the first error its stream
+// gave (Err), whichever call made the Write and whether or not that call
+// looked at the error, so cmd/regcorpus decides once, for every command,
+// that output that wasn't written is not exit 0 (round 1, §3). Err is nil
+// until a Write fails, and a later Write, failing or not, never changes it.
+func TestWriterKeepsItsFirstError(t *testing.T) {
+	w := sink.New(&failing{after: 2})
+	fmt.Fprintln(w, "one")
+	sink.Print(w, "two\n")
+	if err := w.Err(); err != nil {
+		t.Fatalf("Err after two written lines: %v; want nil", err)
+	}
+	if _, err := w.Write([]byte("three\n")); err == nil {
+		t.Fatal("Write to a failing stream: no error")
+	}
+	fmt.Fprintln(w, "four")
+	sink.Print(w, "five\n")
+	if err := w.Err(); err == nil || err.Error() != "write 2 failed" {
+		t.Errorf("Err: %v; want the first failure, write 2 failed", err)
+	}
+	if err := sink.New(&bytes.Buffer{}).Err(); err != nil {
+		t.Errorf("Err of a Writer never written: %v", err)
+	}
+}
+
+// jsonCases are the output hunter's (PR #11, round 1): every C0 control,
+// DEL, every C1 control, U+2028, U+2029, U+FFFD, U+FEFF, U+200B, a
+// backslash, a quotation mark, "<>&", the text \x7f and \u0085 as six
+// characters each, an emoji and a no-break space, each written from its
+// code point.
+func jsonCases() []string {
+	var cases []string
+	for r := rune(0); r < 0x20; r++ {
+		cases = append(cases, string(r))
+	}
+	cases = append(cases, "\x7f")
+	for r := rune(0x80); r <= 0x9f; r++ {
+		cases = append(cases, string(r))
+	}
+	return append(cases, lineSep, paraSep, string(rune(0xfffd)), string(rune(0xfeff)), string(rune(0x200b)),
+		`\`, `"`, "<>&", `\`+"x7f", `\`+"u0085", string(rune(0x1f600)), string(rune(0xa0)))
+}
+
+// rawControl says where s, as a stream holds it, has a character that
+// could end a line or move a terminal: a C0 control but LF, DEL, a C1
+// control, U+2028 or U+2029, or a byte that isn't UTF-8; "" when none.
+func rawControl(s string) string {
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && n == 1 || r < 0x20 && r != '\n' || r == 0x7f || 0x80 <= r && r <= 0x9f || r == 0x2028 || r == 0x2029 {
+			return fmt.Sprintf("%q at byte %d", s[i:i+n], i)
+		}
+		i += n
+	}
+	return ""
+}
+
+// TestJSONIsOneLineThatDecodes: JSON writes a value through the sink as one
+// line, in one Write, of JSON that decodes to the value, for each of the
+// output hunter's 77 cases inside a string (round 1, §4): the stream holds
+// no character that could end a line or move a terminal, and nothing is
+// HTML-escaped ("<>&" as they are).
+func TestJSONIsOneLineThatDecodes(t *testing.T) {
+	cases := jsonCases()
+	if len(cases) != 77 {
+		t.Fatalf("%d cases; want the output hunter's 77", len(cases))
+	}
+	type value struct {
+		Text string   `json:"text"`
+		List []string `json:"list"`
+	}
+	for _, c := range cases {
+		in := value{"a" + c + "b", []string{c}}
+		var lines writes
+		if err := sink.JSON(sink.New(&lines), in); err != nil {
+			t.Errorf("JSON(%q): %v", c, err)
+			continue
+		}
+		if len(lines.got) != 1 {
+			t.Errorf("JSON(%q): %d Writes %q; want one", c, len(lines.got), lines.got)
+			continue
+		}
+		line := lines.got[0]
+		var out value
+		if err := json.Unmarshal([]byte(line), &out); err != nil || out.Text != in.Text || len(out.List) != 1 || out.List[0] != c {
+			t.Errorf("JSON(%q) wrote %q, which decodes to %+v, %v; want %+v", c, line, out, err, in)
+		}
+		if strings.Count(line, "\n") != 1 || !strings.HasSuffix(line, "\n") {
+			t.Errorf("JSON(%q) wrote %q; want one line", c, line)
+		}
+		if at := rawControl(line); at != "" {
+			t.Errorf("JSON(%q) wrote %q, holding %s", c, line, at)
+		}
+	}
+	var lines writes
+	if err := sink.JSON(sink.New(&lines), value{Text: "a<b>&c"}); err != nil || strings.Join(lines.got, "") != `{"text":"a<b>&c","list":null}`+"\n" {
+		t.Errorf("JSON wrote %q, %v; want <, > and & as they are", lines.got, err)
+	}
+}
+
+// TestJSONWritesNothingItCantEncode: a value encoding/json can't encode is
+// an error, and nothing is written.
+func TestJSONWritesNothingItCantEncode(t *testing.T) {
+	var lines writes
+	if err := sink.JSON(sink.New(&lines), map[string]any{"f": func() {}}); err == nil || len(lines.got) != 0 {
+		t.Errorf("JSON of a func: %v, wrote %q; want an error and nothing written", err, lines.got)
 	}
 }

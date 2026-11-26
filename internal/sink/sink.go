@@ -47,6 +47,12 @@ func escape(s string) string {
 	return b.String()
 }
 
+// Err is not built yet (round 1 of PR #11, §3; red).
+func (s *Writer) Err() error { return nil }
+
+// JSON is not built yet (round 1 of PR #11, §4; red).
+func JSON(w io.Writer, v any) error { return fmt.Errorf("sink: JSON is not built") }
+
 // Text is regcorpus's own text of one or more lines, a help text: a
 // constant, or a value converted to one where it is written.
 type Text string

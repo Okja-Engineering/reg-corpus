@@ -127,14 +127,14 @@ func TestCorpusRootNeedsTheSourcesDirectory(t *testing.T) {
 	var c *Conflict
 	empty := t.TempDir()
 	err := CorpusRoot(empty, "sources/ecfr/title-12", "text")
-	if want := empty + " is not a corpus root (no sources/ecfr/title-12/ directory); run text from the corpus root"; err == nil || err.Error() != want || errors.As(err, &c) {
-		t.Errorf("CorpusRoot: %v; want %q, not a conflict", err, want)
+	if want := empty + " is not a corpus root (no sources/ecfr/title-12/ directory); run text from the corpus root"; err == nil || err.Error() != want || errors.As(err, &c) || !errors.Is(err, ErrNotRoot) {
+		t.Errorf("CorpusRoot: %v; want %q, ErrNotRoot (errors.Is), not a conflict", err, want)
 	}
 	linked := t.TempDir()
 	if err := os.Symlink(filepath.Join(root, "sources"), filepath.Join(linked, "sources")); err != nil {
 		t.Fatal(err)
 	}
-	if err := CorpusRoot(linked, "sources", "text"); !errors.As(err, &c) {
-		t.Errorf("CorpusRoot through a symlink: %v; want a conflict", err)
+	if err := CorpusRoot(linked, "sources", "text"); !errors.As(err, &c) || errors.Is(err, ErrNotRoot) {
+		t.Errorf("CorpusRoot through a symlink: %v; want a conflict, not ErrNotRoot", err)
 	}
 }
