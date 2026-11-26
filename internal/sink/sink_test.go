@@ -41,6 +41,7 @@ func TestAWriteIsOneLine(t *testing.T) {
 		{"a next line, C1", "a\u0085b\n", `a\u0085b` + "\n"},
 		{"the first C1 control", "a\u0080b\n", `a\u0080b` + "\n"},
 		{"a control sequence introducer, C1", "a\u009b2Kb\n", `a\u009b2Kb` + "\n"},
+		{"the last C1 control", "a\u009fb\n", `a\u009fb` + "\n"},
 		{"a line separator", "a" + lineSep + "b\n", "a" + lineSepText + "b\n"},
 		{"a paragraph separator", "a" + paraSep + "b\n", "a" + paraSepText + "b\n"},
 		{"a byte that isn't UTF-8", "a\x9bb\xffc\n", `a\x9bb\xffc` + "\n"},
