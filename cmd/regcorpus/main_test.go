@@ -381,11 +381,17 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 	})
 	notRoot := filepath.Join(t.TempDir(), argPayload.raw)
 	// textPayload is an own text that would forge a line and move the
-	// terminal, as argPayload, every character of it UTF-8.
+	// terminal, as argPayload, every character of it UTF-8: an LF, then
+	// forged, an escape sequence, a line separator and NEL, a C1 control,
+	// each separator and control written from its code point.
 	textPayload := carried{
-		"(B) x\n" + forged + "\x1b[2K \u0085",
-		`(B) x\x0a` + forged + `\x1b[2K \u0085`,
+		"(B) x\n" + forged + "\x1b[2K" + string(rune(0x2028)) + string(rune(0x85)),
+		`(B) x\x0a` + forged + `\x1b[2K` + `\` + "u2028" + `\` + "u0085",
 	}
+	// jsonPayload is what of textPayload reaches the sink raw with --json:
+	// NEL, which encoding/json leaves as it is, and the sink writes as
+	// \u0085, a JSON escape of itself; JSON escapes the rest.
+	jsonPayload := carried{string(rune(0x85)), `\` + "u0085"}
 	tree := storedTree(t, "")
 	payloadTree := storedTree(t, textPayload.raw)
 	faked := map[string]bool{}
@@ -465,7 +471,7 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		{name: "text: a payload in the stored text", args: []string{"text", "1024-41-b-2-i-B"}, root: payloadTree,
 			stdout: textPayload, lines: true},
 		{name: "text: a payload in the stored text, --json", args: []string{"text", "--json", "1024-41-b-2-i-B"}, root: payloadTree,
-			lines: true},
+			stdout: jsonPayload, lines: true},
 		{name: "text: the sinks", args: []string{"text"}, fake: true, stdout: argPayload, stderr: argPayload},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

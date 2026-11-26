@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -254,19 +252,12 @@ func each1(err error) []error {
 }
 
 // checkRoot returns nil when root is a corpus root: one with a real
-// sources/ecfr/title-12/ directory. l0.RealDirs alone judges what is on the way
-// (a symlink or a file: a *l0.Conflict, exit 1), here as under every
-// source; then a root without it is not the corpus root (exit 2), and the
-// error says to run cmd from there.
-func checkRoot(root, cmd string) error {
-	if err := l0.RealDirs(root, sourcesDir); err != nil {
-		return err
-	}
-	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(sourcesDir))); err != nil {
-		return fmt.Errorf("%s is not a corpus root (no %s/ directory); run %s from the corpus root", root, sourcesDir, cmd)
-	}
-	return nil
-}
+// sources/ecfr/title-12/ directory (l0.CorpusRoot, which internal/lookup's
+// commands share). l0.RealDirs alone judges what is on the way (a symlink
+// or a file: a *l0.Conflict, exit 1), here as under every source; then a
+// root without it is not the corpus root (exit 2), and the error says to
+// run cmd from there.
+func checkRoot(root, cmd string) error { return l0.CorpusRoot(root, sourcesDir, cmd) }
 
 // latest stores s's latest eCFR version under sources/, and its meta.yaml
 // when that is missing, and returns the lines to print. It succeeds only when,

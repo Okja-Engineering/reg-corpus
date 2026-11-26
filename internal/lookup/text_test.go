@@ -383,17 +383,25 @@ func mustParse(t *testing.T, b []byte) meta.Meta {
 	return m
 }
 
+// The line separator U+2028 and the C1 control NEL (U+0085), and how the
+// sink writes each: as text, a backslash and u and four hex digits. Each is
+// written from its code point, so no invisible character is in this file.
+var (
+	lineSep, nel         = string(rune(0x2028)), string(rune(0x85))
+	lineSepText, nelText = `\` + "u2028", `\` + "u0085"
+)
+
 // TestTextEscapesWhatItPrints: an own text holding an LF, ESC, U+2028, DEL
 // and a C1 control, with hashes that agree with it, prints on its one line
 // with each written escaped by the sink; with --json, as one line of JSON
 // that decodes to the stored text exactly.
 func TestTextEscapesWhatItPrints(t *testing.T) {
-	text := "(B) A\nline\x1b[2K and\x7fthe\u0085rest."
+	text := "(B) A\nline\x1b[2K" + lineSep + "and\x7fthe" + nel + "rest."
 	root := fixture(t, func(tr *parse.Tree, m *meta.Meta) { setText(t, tr, m, "1024-41-b-2-i-B", text) })
 
 	code, stdout, stderr, _ := run(corpus(root), "1024-41-b-2-i-B")
 	lines := strings.Split(stdout, "\n")
-	if want := `(B) A\x0aline\x1b[2K and\x7fthe\u0085rest.`; code != 0 || stderr != "" || len(lines) < 2 || lines[1] != want {
+	if want := `(B) A\x0aline\x1b[2K` + lineSepText + `and\x7fthe` + nelText + `rest.`; code != 0 || stderr != "" || len(lines) < 2 || lines[1] != want {
 		t.Fatalf("exit %d, stderr %q, stdout:\n%s\nwant line 2 %q", code, stderr, stdout, want)
 	}
 
@@ -405,7 +413,7 @@ func TestTextEscapesWhatItPrints(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || got.Text != text {
 		t.Errorf("--json: %s decodes to %q, %v; want the stored text %q", stdout, got.Text, err, text)
 	}
-	for _, raw := range []string{"\x1b", " ", "\x7f", "\u0085"} {
+	for _, raw := range []string{"\x1b", lineSep, "\x7f", nel} {
 		if strings.Contains(stdout, raw) {
 			t.Errorf("--json holds %q unescaped: %s", raw, stdout)
 		}

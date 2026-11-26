@@ -137,14 +137,59 @@ func Read(root string, s Source) (State, error) {
 	return st, nil
 }
 
-// Names is not built yet (plan step 7, red).
-func (st State) Names(s Source) error { return nil }
+// Names is the first check every command that reads or writes a source's
+// meta.yaml makes: st has one (Read has parsed it), and it names s as the
+// source table does (Identity: cfr, tier, role, source and official).
+// Anything else is a *Conflict. Stored makes it before checking raw/, and
+// `regcorpus text` (plan step 7, ADR 0015), which reads no raw XML, makes it
+// alone.
+func (st State) Names(s Source) error {
+	m := st.Meta
+	if m == nil {
+		return Conflictf("%s does not exist: run regcorpus fetch first; only a meta.yaml fetch wrote is read or changed (R1)", s.MetaPath())
+	}
+	if have, want := identityOf(*m), identityOf(s.Identity()); have != want {
+		return Conflictf("%s says %s, but the source table gives %s: it describes another source, and no command reads it as this one or writes to it (R1)",
+			s.MetaPath(), have, want)
+	}
+	return nil
+}
 
-// TreeJSON is not built yet (plan step 7, red).
-func (st State) TreeJSON(root string, s Source) ([]byte, bool, error) { return nil, false, nil }
+// TreeJSON is s's tree.json as Read found it, by exact name: its bytes and
+// true when it is a regular file; none and false, with no error, when
+// there is none. Anything else there (a directory, a symlink, even to a
+// regular file) is a *Conflict, as Stale finds it; one it can't read is an
+// error as is. It is how a reader of a stored tree reads it (`regcorpus
+// text`, plan step 7, ADR 0015); a writer compares one through Stale.
+func (st State) TreeJSON(root string, s Source) ([]byte, bool, error) {
+	e, ok := st.files[treeName]
+	switch {
+	case !ok:
+		return nil, false, nil
+	case !e.Type().IsRegular():
+		return nil, false, Conflictf("%s is not a regular file (a symlink or a directory, say); a derived file is read only as one (R1)", s.TreePath())
+	}
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.TreePath())))
+	if err != nil {
+		return nil, false, err
+	}
+	return b, true, nil
+}
 
-// CorpusRoot is not built yet (plan step 7, red).
-func CorpusRoot(root, dir, cmd string) error { return nil }
+// CorpusRoot returns nil when root is a corpus root: one with a real
+// directory at dir, the slash path every source is under
+// (sources/ecfr/title-12), reached through real directories by exact name
+// (RealDirs, whose *Conflict it returns). Without one the error, not a
+// *Conflict, says so and to run cmd from the corpus root.
+func CorpusRoot(root, dir, cmd string) error {
+	if err := RealDirs(root, dir); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(dir))); err != nil {
+		return fmt.Errorf("%s is not a corpus root (no %s/ directory); run %s from the corpus root", root, dir, cmd)
+	}
+	return nil
+}
 
 // Overrides reports whether the source's directory holds an entry named
 // exactly overrides.yaml, whatever it is (a file, an empty one, a
@@ -166,18 +211,14 @@ func readDir(root, dir string) ([]fs.DirEntry, error) {
 
 // Stored checks what every writer of a meta.yaml checks before writing
 // anything, and returns the raw XML that meta.yaml describes. The check:
-// st has a meta.yaml (Read has parsed it); it names s (Identity); and raw/
+// st has a meta.yaml (Read has parsed it) that names s (Names); and raw/
 // holds exactly raw/<source_version_date>.xml, a regular file with
 // sha256_raw's bytes. Anything else is a *Conflict.
 func (st State) Stored(root string, s Source) ([]byte, error) {
+	if err := st.Names(s); err != nil {
+		return nil, err
+	}
 	m := st.Meta
-	if m == nil {
-		return nil, Conflictf("%s does not exist: run regcorpus fetch first; only a meta.yaml fetch wrote is changed (R1)", s.MetaPath())
-	}
-	if have, want := identityOf(*m), identityOf(s.Identity()); have != want {
-		return nil, Conflictf("%s says %s, but the source table gives %s: it describes another source, and no command writes to it (R1)",
-			s.MetaPath(), have, want)
-	}
 	raw := s.RawPath(m.SourceVersionDate)
 	name := path.Base(raw)
 	var others []string

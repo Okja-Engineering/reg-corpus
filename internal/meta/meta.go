@@ -1,6 +1,9 @@
 package meta
 
 import (
+	"bytes"
+	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -127,12 +130,14 @@ type Meta struct {
 
 // field is one meta.yaml key: whether every meta.yaml has it, and how its
 // value is written and read. render returns the value as written, ok false
-// when absent, or an error when the value can't be written; parse reads a
-// value as written into m.
+// when absent, or an error when the value can't be written; value is the
+// value as JSON holds it, read only once render has written it; parse reads
+// a value as written into m.
 type field struct {
 	key      string
 	required bool
 	render   func(m *Meta) (v string, ok bool, err error)
+	value    func(m *Meta) any
 	parse    func(m *Meta, v string) error
 }
 
@@ -146,6 +151,7 @@ var schema = []field{
 	word("source", func(m *Meta) *Source { return &m.Source }, SourceECFR),
 	{key: "official", required: true,
 		render: func(m *Meta) (string, bool, error) { return strconv.FormatBool(m.Official), true, nil },
+		value:  func(m *Meta) any { return m.Official },
 		parse: func(m *Meta, v string) error {
 			switch v {
 			case "true", "false":
@@ -156,10 +162,17 @@ var schema = []field{
 		}},
 	text("source_version_date", true, func(m *Meta) *Date { return &m.SourceVersionDate }, ParseDate),
 	text("version_effective_date", false, func(m *Meta) *Date { return &m.VersionEffectiveDate }, ParseDate),
-	{key: "version_fr_citations", render: renderCitations, parse: parseCitations},
+	{key: "version_fr_citations", render: renderCitations, parse: parseCitations,
+		value: func(m *Meta) any { return m.VersionFRCitations }},
 	text("retrieved_at", true, func(m *Meta) *Date { return &m.RetrievedAt }, ParseDate),
 	text("ecfr_up_to_date_as_of", true, func(m *Meta) *Date { return &m.ECFRUpToDateAsOf }, ParseDate),
-	{key: "verified_on", render: renderVerifiedOn, parse: parseVerifiedOn},
+	{key: "verified_on", render: renderVerifiedOn, parse: parseVerifiedOn,
+		value: func(m *Meta) any {
+			if !m.VerifiedOn.Valid {
+				return nil
+			}
+			return m.VerifiedOn.Date
+		}},
 	text("sha256_raw", true, func(m *Meta) *SHA256 { return &m.SHA256Raw }, parseSHA256),
 	text("sha256_text", false, func(m *Meta) *SHA256 { return &m.SHA256Text }, parseSHA256),
 }
@@ -189,6 +202,7 @@ func text[T ~string](key string, required bool, p func(*Meta) *T, parse func(str
 			q, err := quote(string(v))
 			return q, true, err
 		},
+		value: func(m *Meta) any { return string(*p(m)) },
 		parse: func(m *Meta, v string) error {
 			u, err := unquote(v)
 			if err != nil {
@@ -222,6 +236,7 @@ func word[T ~string](key string, p func(*Meta) *T, words ...T) field {
 			}
 			return v, true, check(v)
 		},
+		value: func(m *Meta) any { return string(*p(m)) },
 		parse: func(m *Meta, v string) error {
 			if err := check(v); err != nil {
 				return err
@@ -354,26 +369,70 @@ func parseVerifiedOn(m *Meta, v string) error {
 // writes always parses back to m.
 func Marshal(m Meta) ([]byte, error) {
 	var b strings.Builder
+	err := written(&m, func(f field, v string) { b.WriteString(f.key + ": " + v + "\n") })
+	if err != nil {
+		return nil, err
+	}
+	return []byte(b.String()), nil
+}
+
+// JSON writes m as one compact JSON object (`regcorpus text --json`, plan
+// step 7, ADR 0015): the fields Marshal writes, keyed and ordered as there,
+// each value as its type is: a string for a text or word field, a boolean
+// for official, an array of strings for version_fr_citations, and
+// verified_on a string or null. Nothing is HTML-escaped. It refuses what
+// Marshal refuses, so the fields are always those of a meta.yaml Marshal
+// could write.
+func JSON(m Meta) ([]byte, error) {
+	var b bytes.Buffer
+	var encErr error
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	b.WriteByte('{')
+	err := written(&m, func(f field, _ string) {
+		if b.Len() > 1 {
+			b.WriteByte(',')
+		}
+		for i, v := range []any{f.key, f.value(&m)} {
+			if i > 0 {
+				b.WriteByte(':')
+			}
+			if err := enc.Encode(v); err != nil {
+				encErr = cmp.Or(encErr, err)
+				continue
+			}
+			b.Truncate(b.Len() - 1) // Encode ends each value with an LF
+		}
+	})
+	if err = cmp.Or(err, encErr); err != nil {
+		return nil, err
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+// written calls emit with each field m holds, in the spec's order, and its
+// value as Marshal writes it. It refuses (an error naming the fields) a Meta
+// lacking a field every meta.yaml has, or holding a value Parse would
+// refuse; it is the one walk of the schema Marshal and JSON both make.
+func written(m *Meta, emit func(f field, v string)) error {
 	var missing, bad []string
 	for _, f := range schema {
-		v, ok, err := f.render(&m)
+		v, ok, err := f.render(m)
 		switch {
 		case err != nil:
 			bad = append(bad, f.key+": "+err.Error())
 		case ok:
-			b.WriteString(f.key + ": " + v + "\n")
+			emit(f, v)
 		case f.required:
 			missing = append(missing, "no "+f.key)
 		}
 	}
 	if problems := append(missing, bad...); len(problems) > 0 {
-		return nil, errors.New(strings.Join(problems, "; "))
+		return errors.New(strings.Join(problems, "; "))
 	}
-	return []byte(b.String()), nil
+	return nil
 }
-
-// JSON is not built yet (plan step 7, red).
-func JSON(m Meta) ([]byte, error) { return nil, errors.New("meta: JSON is not built yet") }
 
 // Parse reads b, a meta.yaml, only when it is exactly what Marshal writes:
 // lines "key: value" ending in a newline, known keys in the spec's order,
