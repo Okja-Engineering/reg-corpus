@@ -315,6 +315,13 @@ func TestReadRefusesWhatItDoesNotRead(t *testing.T) {
 		{"a DATE in the root", strings.Replace(ok, "</FDSYS>", "</FDSYS>\n    <DATE>2026-01-01</DATE>", 1)},
 		{"a DATE in the ANCESTORS", strings.Replace(ok, "<ANCESTORS>", "<ANCESTORS><DATE>2026-01-01</DATE>", 1)},
 		{"a DATE in the SECTION", strings.Replace(ok, "<SUBJECT>", "<DATE>2026-01-01</DATE><SUBJECT>", 1)},
+		// A DATE outside FDSYS where the order of the elements alone would
+		// admit it, last in its parent: only "a DATE only in FDSYS" refuses
+		// these (worklist round 1, §3 and §10).
+		{"a DATE after the SECTION", strings.Replace(ok, "</SECTION>", "</SECTION>\n    <DATE>2026-01-01</DATE>", 1)},
+		{"a DATE after the CITA", strings.Replace(ok, "</CITA>", "</CITA>\n        <DATE>2026-01-01</DATE>", 1)},
+		{"a DATE after the PARENT", strings.Replace(ok, "</PARENT>", "</PARENT><DATE>2026-01-01</DATE>", 1)},
+		{"a DATE in a P", strings.Replace(ok, "(b) Text two.</P>", "(b) Text two.<DATE>2026-01-01</DATE></P>", 1)},
 		{"an attribute on a P", strings.Replace(ok, "<P>(b) Text two.</P>", `<P ID="x">(b) Text two.</P>`, 1)},
 		{"an attribute on the SECTION", strings.Replace(ok, "<SECTION>", `<SECTION TYPE="x">`, 1)},
 		{"an attribute on the SECTNO", strings.Replace(ok, "<SECTNO>", `<SECTNO X="1">`, 1)},
