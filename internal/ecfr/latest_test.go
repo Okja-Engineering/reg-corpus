@@ -112,7 +112,7 @@ func TestLatestReadsEcfrsLatestFromTheList(t *testing.T) {
 			"stored source_version_date 2025-07-15, eCFR's latest 2025-05-16: eCFR no longer lists the stored version as latest"},
 		{"the stored date's entry removed it", strings.Replace(versions41, `],"meta"`,
 			`,{"date":"2025-07-15","issue_date":"2025-08-01","identifier":"1024.41","removed":true}],"meta"`, 1),
-			"stored source_version_date 2025-07-15, eCFR's latest 2025-07-15 (removed): the latest version removed it"},
+			"stored source_version_date 2025-07-15, eCFR's latest 2025-07-15 (removed): the latest entry, at the stored date, removed the section"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.list == versions41 {
@@ -172,8 +172,9 @@ func TestLatestNotesAReissueOfTheStoredDate(t *testing.T) {
 }
 
 // TestLatestNotesAMalformedIssueDate: issue_date is read only for
-// --latest's note, so one that isn't a date there prints a note and
-// doesn't fail (worklist round 1, §6).
+// --latest's note, so one that isn't a date there prints a note, the value
+// quoted as listed (worklist round 2, §3), and doesn't fail (worklist round
+// 1, §6).
 func TestLatestNotesAMalformedIssueDate(t *testing.T) {
 	for _, issued := range []string{`"2025-8-1"`, `"2025-02-30"`, `20250801`} {
 		f, c := newFake(t)
@@ -181,10 +182,53 @@ func TestLatestNotesAMalformedIssueDate(t *testing.T) {
 		f.set(versionsURI("1024.41"), reply{body: strings.Replace(versions41, `],"meta"`,
 			`,{"date":"2025-07-15","issue_date":`+issued+`,"identifier":"1024.41","removed":false}],"meta"`, 1)})
 		code, stdout, stderr := latestAt(t, root, c, "1024.41")
-		note := "1024.41: information: eCFR lists 2025-07-15 with issue_date " + strings.Trim(issued, `"`) + ", not a YYYY-MM-DD date, so whether it was reissued since it was fetched is unknown; run regcorpus fetch --verify 1024.41\n"
+		note := "1024.41: information: eCFR lists 2025-07-15 with issue_date \"" + strings.Trim(issued, `"`) + "\", not a YYYY-MM-DD date, so whether it was reissued since it was fetched is unknown; run regcorpus fetch --verify 1024.41\n"
 		if code != 0 || stderr != "" || !strings.Contains(stdout, note) {
 			t.Errorf("issue_date %s: exit %d, stdout %q, stderr %q; want 0 and the note %q", issued, code, stdout, stderr, note)
 		}
+	}
+}
+
+// TestFetchAndLatestReadEcfrsLatestAlike: plain fetch and --latest read
+// eCFR's latest from the version list by one rule: its newest date, and
+// whether an entry at that date removed the section, in whatever order the
+// list gives them. Plain fetch keeps its behaviour, a removal there exit 2
+// with nothing stored; --latest reports it, exit 1 (worklist round 2, §5:
+// C-N8).
+func TestFetchAndLatestReadEcfrsLatestAlike(t *testing.T) {
+	const removed = `{"date":"2025-07-15","issue_date":"2025-08-01","identifier":"1024.41","removed":true}`
+	for _, tc := range []struct {
+		name, list      string
+		fetch, latest   int
+		fetchOut, notes string
+	}{
+		{"the newest date's second entry removed it", strings.Replace(versions41, `],"meta"`, ","+removed+`],"meta"`, 1),
+			2, 1, "eCFR's latest version of 1024.41, 2025-07-15, removed it", "eCFR's latest 2025-07-15 (removed)"},
+		{"the newest date's first entry removed it", strings.Replace(versions41, `{"content_versions":[`, `{"content_versions":[`+removed+",", 1),
+			2, 1, "eCFR's latest version of 1024.41, 2025-07-15, removed it", "eCFR's latest 2025-07-15 (removed)"},
+		{"an older entry removed it", strings.Replace(versions41, `"date":"2017-01-01","amendment_date":"2017-01-01","issue_date":"2017-01-01","identifier":"1024.41","substantive":true,"removed":false`,
+			`"date":"2017-01-01","amendment_date":"2017-01-01","issue_date":"2017-01-01","identifier":"1024.41","substantive":true,"removed":true`, 1),
+			0, 0, "1024.41 2025-07-15: stored " + rawPath("1024.41"), "eCFR's latest 2025-07-15: no newer version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.list == versions41 {
+				t.Fatal("the case doesn't change the list")
+			}
+			f, c := newFake(t)
+			f.set(versionsURI("1024.41"), reply{body: tc.list})
+			root := corpusRoot(t)
+			code, stdout, stderr := fetchAt(t, root, c, "2026-11-25", "1024.41")
+			if code != tc.fetch || !strings.Contains(stdout+stderr, tc.fetchOut) {
+				t.Errorf("fetch: exit %d, stdout %q, stderr %q; want %d and %q", code, stdout, stderr, tc.fetch, tc.fetchOut)
+			}
+			if tc.fetch != 0 && len(tree(t, root)) != len(tree(t, corpusRoot(t))) {
+				t.Errorf("fetch stored something")
+			}
+			code, stdout, stderr = latestAt(t, storedAll(t), c, "1024.41")
+			if code != tc.latest || !strings.Contains(stdout, tc.notes) {
+				t.Errorf("--latest: exit %d, stdout %q, stderr %q; want %d and %q", code, stdout, stderr, tc.latest, tc.notes)
+			}
+		})
 	}
 }
 

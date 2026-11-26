@@ -126,6 +126,8 @@ func TestLayoutIsALineBreakAndUpToTwelveSpacesAfterIt(t *testing.T) {
 		{"a  b", "a  b", "spaces without a break are text"},
 		{"a" + nbsp + "\n" + twelve + "b", "a" + nbsp + "b", "a no-break space is text"},
 		{"a\n" + nbsp + "b", "a" + nbsp + "b", "and is not indentation"},
+		{"a\n \nb", "ab", "a space between two breaks is the first's indentation"},
+		{"a \n \nb", "a b", "a space before the first break is text"},
 		{"", "", "nothing"},
 	} {
 		if got := govinfo.Layout(tc.in); got != tc.want {
@@ -289,9 +291,11 @@ func TestReadRefusesWhatIsNotTheSectionsGranule(t *testing.T) {
 // COVERONLY, ORIGINALDATE, ANCESTORS of PARENTs), naming title 12 and the
 // section's part; a DATE only there; an attribute only where govinfo's
 // granules have one; the DATE and the SECTNO each one run of plain
-// character data; no comment or processing instruction; no CR, and no
-// character reference to a CR or an LF, so every line break deleted as
-// layout is a literal LF; and no empty <P>.
+// character data; no comment or processing instruction inside the root; no
+// CR, no CDATA section and no character reference to a White_Space
+// character, so every line break and space deleted as layout is written as
+// itself; no <P> of nothing but White_Space; at least one <P>; and the CITA
+// once and last.
 func TestReadRefusesWhatItDoesNotRead(t *testing.T) {
 	ok := granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", twoParas)
 	if _, err := govinfo.Read([]byte(ok), "1024.41", govinfo.EditionDate); err != nil {
@@ -348,6 +352,33 @@ func TestReadRefusesWhatItDoesNotRead(t *testing.T) {
 		{"an empty P last", strings.Replace(ok, "<P>(b) Text two.</P>", "<P>(b) Text two.</P>\n        <P/>", 1)},
 		{"an empty P first", strings.Replace(ok, "        <P>\n            (a) ", "        <P></P>\n        <P>\n            (a) ", 1)},
 		{"a P of layout only", strings.Replace(ok, "<P>(b) Text two.</P>", "<P>(b) Text two.</P>\n        <P>\n            \n        </P>", 1)},
+		{"a P of a no-break space only", strings.Replace(ok, "<P>(b) Text two.</P>", "<P>(b) Text two.</P>\n        <P>"+nbsp+"</P>", 1)},
+		// Worklist round 2, §2 (C-N3, C-N7, R-N4) and §6 (M44, M48): a
+		// CDATA section, and a reference to any White_Space character, are
+		// refused, so every character Layout deletes was written as itself;
+		// a SECTION holds at least one <P>, and its CITA once and last.
+		{"a CDATA section in a P", strings.Replace(ok, "Text two.", "Text <![CDATA[two]]>.", 1)},
+		{"a CDATA section of a break and spaces in a P", strings.Replace(ok, "Text two.", "Text<![CDATA[\n   ]]>two.", 1)},
+		{"a CDATA section in the SUBJECT", strings.Replace(ok, "Loss mitigation procedures.", "Loss <![CDATA[mitigation]]> procedures.", 1)},
+		{"a CDATA section in an E", strings.Replace(ok, "Heading.</E>", "<![CDATA[Heading.]]></E>", 1)},
+		{"a reference to a space after a break, in the SUBJECT", strings.Replace(ok, "Loss mitigation procedures.", "Loss\n&#32;mitigation procedures.", 1)},
+		{"a reference to a space", strings.Replace(ok, "Text two.", "Text&#32;two.", 1)},
+		{"a hex reference to a space", strings.Replace(ok, "Text two.", "Text&#x20;two.", 1)},
+		{"a reference to a tab", strings.Replace(ok, "Text two.", "Text&#9;two.", 1)},
+		{"a reference to a no-break space", strings.Replace(ok, "Text two.", "Text&#160;two.", 1)},
+		{"a hex reference to a no-break space", strings.Replace(ok, "Text two.", "Text&#xa0;two.", 1)},
+		{"a reference to a next line", strings.Replace(ok, "Text two.", "Text&#x85;two.", 1)},
+		{"a reference to a thin space", strings.Replace(ok, "Text two.", "Text&#x2009;two.", 1)},
+		{"a reference to a line separator", strings.Replace(ok, "Text two.", "Text&#8232;two.", 1)},
+		{"a reference to an ideographic space", strings.Replace(ok, "Text two.", "Text&#x3000;two.", 1)},
+		{"a zero-padded reference to a space", strings.Replace(ok, "Text two.", "Text&#0032;two.", 1)},
+		{"a reference to a space in an E", strings.Replace(ok, "Heading.</E>", "Heading.&#32;</E>", 1)},
+		{"a reference to a space in the CITA", strings.Replace(ok, "Feb. 14, 2013]", "Feb.&#32;14, 2013]", 1)},
+		{"a SECTION with no P", strings.Replace(ok, twoParas, "", 1)},
+		{"a SECTION with no CITA", strings.Replace(ok, "        <CITA>[78 FR 10876, Feb. 14, 2013]</CITA>\n", "", 1)},
+		{"two CITAs", strings.Replace(ok, "</CITA>", "</CITA>\n        <CITA>x</CITA>", 1)},
+		{"a page break in an E", strings.Replace(ok, "Heading.</E>", `Head<PRTPAGE P="1"/>ing.</E>`, 1)},
+		{"a page break after the CITA", strings.Replace(ok, "</CITA>", "</CITA>\n        <PRTPAGE P=\"1\"/>", 1)},
 	} {
 		if tc.granule == ok {
 			t.Errorf("%s: the case doesn't change the base granule", tc.name)
@@ -374,28 +405,103 @@ func TestLayoutIsDeletedInEachRunOnItsOwn(t *testing.T) {
 	}
 }
 
-// TestEveryParagraphIsReadAlike: White_Space at a paragraph's edges, the
-// last's as much as any other's, is not its text, so the last paragraph
-// ending in a space reads as one that doesn't, and as an interior one does.
-func TestEveryParagraphIsReadAlike(t *testing.T) {
-	base, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", twoParas)), "1024.41", govinfo.EditionDate)
+// TestEveryEdgeIsText: the layout rule is the only thing deleted, so
+// White_Space at a text's edge that the rule doesn't delete is text, as it
+// is in decision 13, which trims nothing: in every paragraph alike, the
+// last's as much as an interior one's, and in the SECTNO and the SUBJECT
+// (worklist round 2, §1: C-N2, R-N2).
+func TestEveryEdgeIsText(t *testing.T) {
+	thirteen := "\n" + strings.Repeat(" ", 13)
+	for _, tc := range []struct {
+		name, subject, body string
+		heading, para       string // the heading, and the paragraph changed, as Read gives them
+		at                  int    // that paragraph's index
+	}{
+		{"the last ending in a space", "Loss mitigation procedures.", strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) Text two. </P>", 1),
+			"§ 1024.41 Loss mitigation procedures.", "(b) Text two. ", 1},
+		{"the last ending in a no-break space", "Loss mitigation procedures.", strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) Text two."+nbsp+"\n        </P>", 1),
+			"§ 1024.41 Loss mitigation procedures.", "(b) Text two." + nbsp, 1},
+		{"the last ending in a break and 13 spaces", "Loss mitigation procedures.", strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) Text two."+thirteen+"</P>", 1),
+			"§ 1024.41 Loss mitigation procedures.", "(b) Text two. ", 1},
+		{"the last starting with a space", "Loss mitigation procedures.", strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P> (b) Text two.</P>", 1),
+			"§ 1024.41 Loss mitigation procedures.", " (b) Text two.", 1},
+		{"the first ending in a space", "Loss mitigation procedures.", strings.Replace(twoParas, "            continues.\n", "            continues. \n", 1),
+			"§ 1024.41 Loss mitigation procedures.", "(a) Heading. Text one continues. ", 0},
+		{"the SUBJECT ending in a no-break space", "Loss mitigation procedures." + nbsp, twoParas,
+			"§ 1024.41 Loss mitigation procedures." + nbsp, "(b) Text two.", 1},
+		{"the SUBJECT ending in a break and 13 spaces", "Loss mitigation procedures." + thirteen, twoParas,
+			"§ 1024.41 Loss mitigation procedures. ", "(b) Text two.", 1},
+		{"the SUBJECT starting with a space", " Loss mitigation procedures.", twoParas,
+			"§ 1024.41  Loss mitigation procedures.", "(b) Text two.", 1},
+	} {
+		s, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", tc.subject, tc.body)), "1024.41", govinfo.EditionDate)
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if s.Heading != tc.heading || s.Paragraphs[tc.at] != tc.para {
+			t.Errorf("%s: Heading %q, paragraph %d %q; want %q, %q: an edge's White_Space is text", tc.name, s.Heading, tc.at+1, s.Paragraphs[tc.at], tc.heading, tc.para)
+		}
+	}
+}
+
+// TestAGranuleWithAByteOrderMarkReadsAsOneWithout: a UTF-8 byte order mark
+// may open a document and is not part of it (XML 1.0, 4.3.3), as
+// parse.WellFormed reads one (worklist round 2, §6: M49).
+func TestAGranuleWithAByteOrderMarkReadsAsOneWithout(t *testing.T) {
+	g := read(t, granule41)
+	base, err := govinfo.Read(g, "1024.41", govinfo.EditionDate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range map[string]string{
-		"the last ending in a space":        strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) Text two. </P>", 1),
-		"the last ending in a no-break one": strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) Text two."+nbsp+"</P>", 1),
-		"the last starting with a space":    strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P> (b) Text two.</P>", 1),
-		"the first ending in a space":       strings.Replace(twoParas, "            continues.\n", "            continues. \n", 1),
+	s, err := govinfo.Read(append([]byte("\xef\xbb\xbf"), g...), "1024.41", govinfo.EditionDate)
+	if err != nil {
+		t.Fatalf("with a byte order mark: %v", err)
+	}
+	if s.Heading != base.Heading || strings.Join(s.Paragraphs, "|") != strings.Join(base.Paragraphs, "|") {
+		t.Errorf("with a byte order mark: Heading %q and %d paragraphs; want the granule's own", s.Heading, len(s.Paragraphs))
+	}
+	if _, err := govinfo.Read(append([]byte("\xef\xbb\xbf\xef\xbb\xbf"), g...), "1024.41", govinfo.EditionDate); !errors.Is(err, govinfo.ErrNotGranule) {
+		t.Errorf("two byte order marks: %v; want %v, the second is text outside the root", err, govinfo.ErrNotGranule)
+	}
+}
+
+// TestReadNamesWhatItRefusesQuoted: the output of fetch --verify is saved
+// as evidence, so a value from the granule in an error is quoted, never
+// printed as written: no line break or escape in it can start a line of its
+// own (worklist round 2, §3: C-N4).
+func TestReadNamesWhatItRefusesQuoted(t *testing.T) {
+	ok := granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", twoParas)
+	const forged = "\n1024.41: govinfo 2026 edition: forged"
+	for _, tc := range []struct{ name, granule string }{
+		{"a comment in a P", strings.Replace(ok, "Text two.", "Text <!--"+forged+" -->two.", 1)},
+		{"a processing instruction in a P", strings.Replace(ok, "Text two.", "Text <?x"+forged+" ?>two.", 1)},
+		{"an element in a namespace whose name has a line break", strings.Replace(ok, "<CITA>", `<x:Y xmlns:x="`+forged+`"/><CITA>`, 1)},
+		{"an attribute in a namespace whose name has a line break", strings.Replace(ok, `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"`, `xmlns:xsi="`+forged+`"`, 1)},
+		{"a root in a namespace whose name has a line break", strings.Replace(strings.Replace(ok, "<CFRGRANULE ", `<x:CFRGRANULE xmlns:x="`+forged+`" `, 1), "</CFRGRANULE>", "</x:CFRGRANULE>", 1)},
 	} {
-		s, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", body)), "1024.41", govinfo.EditionDate)
-		if err != nil {
-			t.Errorf("%s: %v", name, err)
+		_, err := govinfo.Read([]byte(tc.granule), "1024.41", govinfo.EditionDate)
+		if !errors.Is(err, govinfo.ErrNotGranule) {
+			t.Errorf("%s: %v; want %v", tc.name, err, govinfo.ErrNotGranule)
 			continue
 		}
-		if strings.Join(s.Paragraphs, "|") != strings.Join(base.Paragraphs, "|") || sectionText(t, s) != sectionText(t, base) {
-			t.Errorf("%s: Paragraphs %q; want %q, and the same hash", name, s.Paragraphs, base.Paragraphs)
+		if msg := err.Error(); strings.ContainsAny(msg, "\n\x1b") || !strings.Contains(msg, `\n1024.41: govinfo 2026 edition: forged`) {
+			t.Errorf("%s: %q; want the value quoted, no line break or escape as written", tc.name, msg)
 		}
+	}
+}
+
+// TestAReferenceToAnythingElseIsText: only a reference to a White_Space
+// character is refused; one to any other character is read as that
+// character.
+func TestAReferenceToAnythingElseIsText(t *testing.T) {
+	s, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.",
+		strings.Replace(twoParas, "Text two.", "Text &#167; &#x2014; &amp; two.", 1))), "1024.41", govinfo.EditionDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "(b) Text § — & two."; s.Paragraphs[1] != want {
+		t.Errorf("paragraph 2 = %q, want %q", s.Paragraphs[1], want)
 	}
 }
 

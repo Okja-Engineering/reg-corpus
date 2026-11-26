@@ -9,13 +9,16 @@ package ecfr
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/okja-engineering/reg-corpus/internal/anchors"
 	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 	"github.com/okja-engineering/reg-corpus/internal/parse"
@@ -92,7 +95,7 @@ func verifyLines(t *testing.T, c *Client, cacheVerb, metaVerb, verified string) 
 		"1024.41: sha256_text: equal, " + text41 + "\n" +
 		"1024.41: sha256_raw: fresh " + raw41 + ", stored " + raw41 + " (information only)\n" +
 		"1024.41: govinfo: " + c.Govinfo + govContent41 + " (DATE 2026-01-01, sha256 " + g + ")\n" +
-		"1024.41: govinfo 2026 edition: the heading and each of the 75 paragraphs equal eCFR's, normalized, and the text hashes to sha256_text\n" +
+		"1024.41: govinfo 2026 edition: the heading and each of the 75 paragraphs equal the stored version's, normalized, and the text hashes to sha256_text\n" +
 		"1024.41: " + metaVerb + " " + metaPath("1024.41") + ": verified_on: " + verified + "\n" +
 		"1024.41: govinfo: " + cacheVerb + " " + cache41(g) + "\n"
 }
@@ -282,8 +285,8 @@ func TestVerifyGovinfoMismatchWritesNull(t *testing.T) {
 		for _, want := range []string{
 			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to ",
 			", not sha256_text " + text41 + "\n",
-			"1024.41: govinfo differs at eCFR's paragraph 3 of 75, govinfo's paragraph 3 of 75:\n",
-			`1024.41:   eCFR:    "(2) Review of loss mitigation application submission-(i) Requirements. If a servicer receives a loss mitigation application 45 days or more`,
+			"1024.41: govinfo differs at the stored version's paragraph 3 of 75, govinfo's paragraph 3 of 75:\n",
+			`1024.41:   stored:  "(2) Review of loss mitigation application submission-(i) Requirements. If a servicer receives a loss mitigation application 45 days or more`,
 			`1024.41:   govinfo: "(2) Review of loss mitigation application submission-(i) Requirements. If a servicer receives a loss mitigation application 46 days or more`,
 			"1024.41: " + verb + " " + metaPath("1024.41") + ": verified_on: null\n",
 		} {
@@ -518,6 +521,12 @@ func TestFetchHelpGivesVerifyAndLatest(t *testing.T) {
 		"eCFR no longer lists the stored version as latest",
 		"a cache file under .cache/ that can't be kept",
 		"a disposable cache, which may be deleted",
+		// Worklist round 2, §1 and §7 (R-N8): what is compared with
+		// govinfo, and where the lock starts and ends.
+		"must equal the stored version's, one for one",
+		"1024.30 and 1024.31 are refused first, before the lock",
+		"It holds the source's lock from the stored-state check through the write of verified_on",
+		"After the lock is released it keeps the granule",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("fetch -h lacks %q", want)
@@ -690,12 +699,11 @@ func TestVerifyDecidesBeforeTheCache(t *testing.T) {
 }
 
 // TestVerifyComparesParagraphByParagraph: govinfo's paragraphs must equal
-// eCFR's one for one, normalized, besides the joined text hashing to
-// sha256_text (worklist round 1, §4 d and h; G3, G5). A paragraph split in
-// two, or two merged, hashes alike when joined but is a mismatch, and only
-// the paragraphs affected are printed, never a cascade; an empty <P> is a
-// structure the reader doesn't read (exit 2); the last paragraph ending in
-// White_Space reads as any other does.
+// the stored version's one for one, normalized, besides the joined text
+// hashing to sha256_text (worklist round 1, §4 d and h; G3, G5). A
+// paragraph split in two, or two merged, hashes alike when joined but is a
+// mismatch, and only the paragraphs affected are printed, never a cascade;
+// an empty <P> is a structure the reader doesn't read (exit 2).
 func TestVerifyComparesParagraphByParagraph(t *testing.T) {
 	g := string(repoFile(t, granule41))
 	const (
@@ -709,20 +717,17 @@ func TestVerifyComparesParagraphByParagraph(t *testing.T) {
 		stdout        []string
 	}{
 		{"a paragraph split in two", strings.Replace(g, promptly, "<P>(A) Promptly upon receipt of a loss mitigation application,</P>\n        <P>review", 1), 1, []string{
-			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to sha256_text, but its paragraphs are not eCFR's one for one\n",
-			"1024.41: govinfo 2026 edition: 76 paragraphs, eCFR's 75\n",
-			"1024.41: govinfo differs at eCFR's paragraph 4 of 75, govinfo's paragraphs 4-5 of 76:\n",
+			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to sha256_text, but its heading and paragraphs are not the stored version's one for one\n",
+			"1024.41: govinfo 2026 edition: 76 paragraphs, the stored version's 75\n",
+			"1024.41: govinfo differs at the stored version's paragraph 4 of 75, govinfo's paragraphs 4-5 of 76:\n",
 		}},
 		{"two paragraphs merged", strings.Replace(g, shall, "a servicer shall: (A) Promptly", 1), 1, []string{
-			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to sha256_text, but its paragraphs are not eCFR's one for one\n",
-			"1024.41: govinfo 2026 edition: 74 paragraphs, eCFR's 75\n",
-			"1024.41: govinfo differs at eCFR's paragraphs 3-4 of 75, govinfo's paragraph 3 of 74:\n",
+			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to sha256_text, but its heading and paragraphs are not the stored version's one for one\n",
+			"1024.41: govinfo 2026 edition: 74 paragraphs, the stored version's 75\n",
+			"1024.41: govinfo differs at the stored version's paragraphs 3-4 of 75, govinfo's paragraph 3 of 74:\n",
 		}},
 		{"an empty P in the middle", strings.Replace(g, promptly, "<P/>\n        "+promptly, 1), 2, nil},
 		{"an empty P last", strings.Replace(g, last, "applicable time period.\n        </P>\n        <P></P>\n        <CITA>", 1), 2, nil},
-		{"the last P ending in a space", strings.Replace(g, last, "applicable time period. \n        </P>\n        <CITA>", 1), 0, []string{
-			"1024.41: wrote " + metaPath("1024.41") + ": verified_on: \"2026-11-25\"\n",
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.granule == g {
@@ -864,5 +869,194 @@ func TestVerifyAdviceFollowsTheDirection(t *testing.T) {
 	}
 	if !equalTrees(before, tree(t, root)) || asked(f, "/full/") {
 		t.Errorf("files changed, or the XML fetched")
+	}
+}
+
+// storeVersion puts raw into root as 1024.41's stored version, beside the
+// tree.json, text.md and sha256_text regcorpus parse derives from it and
+// its own sha256_raw: a stored state --verify's derivation accepts.
+func storeVersion(t *testing.T, root, raw string) {
+	t.Helper()
+	d, err := anchors.Build([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored41(t, root, nil)
+	writeFile(t, root, rawPath("1024.41"), raw)
+	writeFile(t, root, dir41+"tree.json", string(d.TreeJSON))
+	writeFile(t, root, dir41+"text.md", string(d.TextMD))
+	m, err := meta.Parse([]byte(readFile(t, root, metaPath("1024.41"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SHA256Raw, m.SHA256Text = meta.SHA256(sha(raw)), d.SHA256Text
+	b, err := meta.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, metaPath("1024.41"), string(b))
+}
+
+// TestVerifyComparesGovinfoWithTheStoredVersion: verified_on says the
+// stored version reads as govinfo prints it, so govinfo is compared with
+// the stored version --verify derived again, never with the fresh fetch,
+// whose bytes may differ from it (F1: A). A stored grouping of nodes into
+// <P>s that govinfo doesn't have is a mismatch even when eCFR serves
+// govinfo's; a fresh fetch grouped otherwise, or one with a space before
+// </HEAD>, is a byte-only reissue that doesn't touch the govinfo verdict
+// (worklist round 2, §1: C-N1, C-N2).
+func TestVerifyComparesGovinfoWithTheStoredVersion(t *testing.T) {
+	raw := string(repoFile(t, rawPath("1024.41")))
+	regrouped := strings.Replace(raw, "loss mitigation options.</I> (A) Notwithstanding", "loss mitigation options.</I> </P>\n<P>(A) Notwithstanding", 1)
+	headSpace := strings.Replace(raw, "Loss mitigation procedures.</HEAD>", "Loss mitigation procedures. </HEAD>", 1)
+	if regrouped == raw || headSpace == raw {
+		t.Fatal("a case doesn't change the raw XML")
+	}
+	for _, tc := range []struct {
+		name, stored, fresh string
+		code                int
+		verified            string
+		stdout              []string
+	}{
+		{"the stored version in 76 <P>s, eCFR serving govinfo's 75", regrouped, raw, 1, "null", []string{
+			"1024.41: govinfo 2026 edition: 75 paragraphs, the stored version's 76\n",
+			"1024.41: govinfo differs at the stored version's paragraphs 15-16 of 76, govinfo's paragraph 15 of 75:\n",
+		}},
+		{"the fresh fetch in 76 <P>s, the stored version in govinfo's 75", raw, regrouped, 0, `"2026-11-25"`, []string{
+			"1024.41: govinfo 2026 edition: the heading and each of the 75 paragraphs equal the stored version's, normalized, and the text hashes to sha256_text\n",
+		}},
+		{"the fresh fetch with a space before </HEAD>", raw, headSpace, 0, `"2026-11-25"`, []string{
+			"1024.41: sha256_text: equal, " + text41 + "\n",
+			"1024.41: govinfo 2026 edition: the heading and each of the 75 paragraphs equal the stored version's, normalized, and the text hashes to sha256_text\n",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, c := verifyFake(t)
+			f.set(xmlURI("2025-07-15", "1024.41"), reply{body: tc.fresh})
+			root := corpusRoot(t)
+			storeVersion(t, root, tc.stored)
+			code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+			if code != tc.code || !strings.Contains(stdout, "1024.41: tree: equal") {
+				t.Errorf("exit %d, want %d and the trees equal; stdout\n%s\nstderr %q", code, tc.code, stdout, stderr)
+			}
+			for _, want := range append(tc.stdout, "1024.41: wrote "+metaPath("1024.41")+": verified_on: "+tc.verified+"\n") {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("stdout lacks %q\n%s", want, stdout)
+				}
+			}
+		})
+	}
+}
+
+// TestVerifyReadsEveryEdgeAsText: decision 13 trims nothing, and neither
+// side is trimmed before it, so White_Space at an edge that the layout rule
+// doesn't delete (a no-break space, a space before a break, a thirteenth
+// after one) is text: at the last paragraph's edge, or the SUBJECT's, it is
+// a mismatch that writes null, and a heading that differs is printed
+// (worklist round 2, §1: R-N2, M22).
+func TestVerifyReadsEveryEdgeAsText(t *testing.T) {
+	g := string(repoFile(t, granule41))
+	const (
+		last    = "applicable time period.\n        </P>"
+		subject = "Loss mitigation procedures.</SUBJECT>"
+	)
+	thirteen := "\n" + strings.Repeat(" ", 13)
+	heading := []string{
+		"1024.41: govinfo differs at the heading:\n",
+		"1024.41:   stored:  \"§ 1024.41 Loss mitigation procedures.\"\n",
+		"1024.41:   govinfo: \"§ 1024.41 Loss mitigation procedures. \"\n",
+	}
+	paragraph := []string{"1024.41: govinfo differs at the stored version's paragraph 75 of 75, govinfo's paragraph 75 of 75:\n"}
+	for _, tc := range []struct {
+		name, granule string
+		stdout        []string
+	}{
+		{"a space before the last </P>", strings.Replace(g, last, "applicable time period. \n        </P>", 1), paragraph},
+		{"a no-break space before the last </P>", strings.Replace(g, last, "applicable time period."+string(rune(0xA0))+"\n        </P>", 1), paragraph},
+		{"a break and 13 spaces before the last </P>", strings.Replace(g, last, "applicable time period."+thirteen+"</P>", 1), paragraph},
+		{"a no-break space ending the SUBJECT", strings.Replace(g, subject, "Loss mitigation procedures."+string(rune(0xA0))+"</SUBJECT>", 1), heading},
+		{"a break and 13 spaces ending the SUBJECT", strings.Replace(g, subject, "Loss mitigation procedures."+thirteen+"</SUBJECT>", 1), heading},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.granule == g {
+				t.Fatal("the case doesn't change the granule")
+			}
+			f, c := verifyFake(t)
+			f.set(govContent41, reply{body: tc.granule})
+			root := corpusRoot(t)
+			stored41(t, root, &meta.NullDate{Date: "2026-11-20", Valid: true})
+			code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+			if code != 1 || !strings.Contains(stderr, "null") {
+				t.Errorf("exit %d, stderr %q; want 1, a mismatch\n%s", code, stderr, stdout)
+			}
+			for _, want := range append(tc.stdout, "1024.41: wrote "+metaPath("1024.41")+": verified_on: null\n") {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("stdout lacks %q\n%s", want, stdout)
+				}
+			}
+		})
+	}
+}
+
+// TestVerifyNamesARemovalAtTheStoredDate: when eCFR's latest entry is
+// dated the stored date and removed the section, --verify says exactly
+// that, exits 1 and writes nothing, and gives no advice to run fetch
+// --latest, which would say the same (worklist round 2, §4: C-N5).
+func TestVerifyNamesARemovalAtTheStoredDate(t *testing.T) {
+	f, c := verifyFake(t)
+	f.set(versionsURI("1024.41"), reply{body: strings.Replace(versions41, `],"meta"`,
+		`,{"date":"2025-07-15","issue_date":"2025-08-01","identifier":"1024.41","removed":true}],"meta"`, 1)})
+	root := corpusRoot(t)
+	stored41(t, root, nil)
+	before := tree(t, root)
+	code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+	const line = "stored source_version_date 2025-07-15, eCFR's latest 2025-07-15 (removed): the latest entry, at the stored date, removed the section"
+	if want := "regcorpus fetch: 1024.41: " + line + "; nothing is written (R1)\n"; code != 1 || stderr != want {
+		t.Errorf("exit %d, stderr %q; want 1 and %q", code, stderr, want)
+	}
+	if strings.Contains(stdout+stderr, "fetch --latest") || !equalTrees(before, tree(t, root)) || asked(f, "/full/") {
+		t.Errorf("stdout %q: advice to run fetch --latest, files changed, or the XML fetched", stdout)
+	}
+}
+
+// TestUpstreamValuesArePrintedQuoted: the output is saved as evidence, so
+// an eCFR or govinfo value printed in it is validated to its form first or
+// quoted: no line break or escape in one can start a line of its own
+// (worklist round 2, §3: C-N4).
+func TestUpstreamValuesArePrintedQuoted(t *testing.T) {
+	const forged = "\n1024.30: stored source_version_date 2018-04-19, eCFR's latest 2018-04-19: no newer version"
+	quoted := strconv.Quote(forged)
+	quoted = quoted[1 : len(quoted)-1]
+	t.Run("an issue_date", func(t *testing.T) {
+		for _, issued := range []string{forged, "\x1b[2K\x1b[1A" + forged} {
+			b, _ := json.Marshal(issued)
+			f, c := newFake(t)
+			root := storedAll(t)
+			f.set(versionsURI("1024.41"), reply{body: strings.Replace(versions41, `],"meta"`,
+				`,{"date":"2025-07-15","issue_date":`+string(b)+`,"identifier":"1024.41","removed":false}],"meta"`, 1)})
+			code, stdout, stderr := latestAt(t, root, c, "1024.41")
+			if code != 0 || strings.ContainsAny(stdout, "\x1b") || strings.Contains(stdout, forged) || !strings.Contains(stdout, "issue_date "+strconv.Quote(issued)+", not a YYYY-MM-DD date") {
+				t.Errorf("issue_date %q: exit %d, stdout %q, stderr %q; want 0 and it quoted", issued, code, stdout, stderr)
+			}
+		}
+	})
+	raw := string(repoFile(t, rawPath("1024.41")))
+	for _, tc := range []struct{ name, fresh string }{
+		{"an eCFR root's N", strings.Replace(raw, `<DIV8 N="1024.41"`, `<DIV8 N="1024.41&#10;1024.30: stored source_version_date 2018-04-19, eCFR's latest 2018-04-19: no newer version"`, 1)},
+		{"an eCFR root's namespace", strings.Replace(strings.Replace(raw, `<DIV8 N="1024.41"`, `<x:DIV8 xmlns:x="&#10;1024.30: stored source_version_date 2018-04-19, eCFR's latest 2018-04-19: no newer version" N="1024.41"`, 1), "</DIV8>", "</x:DIV8>", 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.fresh == raw {
+				t.Fatal("the case doesn't change the raw XML")
+			}
+			f, c := verifyFake(t)
+			f.set(xmlURI("2025-07-15", "1024.41"), reply{body: tc.fresh})
+			root := corpusRoot(t)
+			stored41(t, root, nil)
+			code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+			if code != 2 || strings.Contains(stdout+stderr, forged) || !strings.Contains(stderr, quoted) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 2 and the value quoted", code, stdout, stderr)
+			}
+		})
 	}
 }

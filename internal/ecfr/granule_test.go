@@ -72,6 +72,21 @@ func TestGranuleErrorsNameTheURLThatFailed(t *testing.T) {
 	}
 }
 
+// TestAURLIsPrintedOnlyAsAURL: the URL a body came from is printed in the
+// saved output, so one led to by a redirect must be a URL, printable ASCII
+// as RFC 3986 writes one; any other is refused, quoted, before it is
+// printed (worklist round 2, §3: C-N4).
+func TestAURLIsPrintedOnlyAsAURL(t *testing.T) {
+	const odd = "?x= y\u0085z"
+	f, c := newFake(t)
+	f.set(govLink41, govRedirect(govContent41+odd))
+	f.set(govContent41+odd, reply{body: string(repoFile(t, granule41))})
+	from, _, err := c.Granule(context.Background(), "1024.41")
+	if err == nil || strings.ContainsAny(err.Error(), " \u0085") || !strings.Contains(err.Error(), ` y\u0085z`) {
+		t.Errorf("Granule = %q, %v; want an error quoting the URL", from, err)
+	}
+}
+
 func TestGranuleFollowsTheLinkServiceOnItsOrigin(t *testing.T) {
 	ctx := context.Background()
 	t.Run("the granule", func(t *testing.T) {
