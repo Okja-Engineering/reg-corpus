@@ -112,17 +112,19 @@ func WellFormed(b []byte, root func(xml.StartElement) error) error {
 				return malformed(start+int64(len(written)-len(text)), "text outside the root element: %s", Snippet(written))
 			}
 		case xml.ProcInst:
+			// A token named in a message is quoted as written (Snippet), so
+			// a line break or an escape in it stays on the message's line.
 			if !strings.EqualFold(t.Target, "xml") {
 				break
 			}
 			if !first || t.Target != "xml" {
-				return malformed(start, "<?%s %s?> is not an XML declaration, <?xml version=...?> at the very start", t.Target, t.Inst)
+				return malformed(start, "%s is not an XML declaration, <?xml version=...?> at the very start", Snippet(in[start:d.InputOffset()]))
 			}
 			if err := xmlDeclaration(t.Inst); err != nil {
-				return malformed(start, "XML declaration <?xml %s?>: %v", t.Inst, err)
+				return malformed(start, "XML declaration %s: %v", Snippet(in[start:d.InputOffset()]), err)
 			}
 		case xml.Directive:
-			return malformed(start, "<!%s>", t)
+			return malformed(start, "%s", Snippet(in[start:d.InputOffset()]))
 		}
 	}
 	if roots == 0 {
@@ -179,12 +181,25 @@ func xmlDeclaration(inst []byte) error {
 }
 
 // Qualified is n with its namespace, if any, before a colon: how a message,
-// here or in fetch, names an element or attribute.
+// here or in fetch, names an element or attribute. encoding/xml has checked
+// n.Local as an XML name, but a namespace it has resolved is an xmlns
+// attribute's value, which may hold anything: so a namespace is written as
+// it is only when it is made of the ASCII bytes of an XML name (a prefix,
+// say, or "urn:x"), and is quoted otherwise (strconv.Quote), so that no
+// line break or escape in it reaches a message as written.
 func Qualified(n xml.Name) string {
-	if n.Space != "" {
+	switch {
+	case n.Space == "":
+		return n.Local
+	case strings.IndexFunc(n.Space, func(r rune) bool { return !nameByte(r) }) < 0:
 		return n.Space + ":" + n.Local
 	}
-	return n.Local
+	return strconv.Quote(n.Space) + ":" + n.Local
+}
+
+// nameByte reports whether r is an ASCII character of an XML name.
+func nameByte(r rune) bool {
+	return 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || strings.ContainsRune("_:.-", r)
 }
 
 // Snippet quotes up to the first 300 bytes of b for a message, with "..."

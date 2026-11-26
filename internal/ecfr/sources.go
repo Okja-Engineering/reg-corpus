@@ -3,6 +3,7 @@ package ecfr
 import (
 	"net/url"
 	"path"
+	"strconv"
 
 	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
@@ -21,13 +22,16 @@ const KindSection Kind = "section"
 // N="1024.41">.
 type rootElement struct{ Name, Type, N string }
 
+// String writes the root element as a message names it: its name as
+// parse.Qualified gives it and each value quoted (strconv.Quote), since a
+// served root's are eCFR's (worklist round 2, §3).
 func (r rootElement) String() string {
 	s := "<" + r.Name
 	if r.Type != "" {
-		s += ` TYPE="` + r.Type + `"`
+		s += " TYPE=" + strconv.Quote(r.Type)
 	}
 	if r.N != "" {
-		s += ` N="` + r.N + `"`
+		s += " N=" + strconv.Quote(r.N)
 	}
 	return s + ">"
 }

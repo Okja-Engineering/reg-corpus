@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007–0012; 2026-11-24 by ADR 0013
+- **Amended:** 2026-11-22 by ADRs 0007–0012; 2026-11-24 by ADR 0013; 2026-11-25 by ADR 0014
 - **Intent:** `docs/01-intent.md` (accepted 2026-11-21)
 
 ## Decisions on the intent's open questions
@@ -24,6 +24,7 @@ Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no
 | 11 | Which page does `version_fr_citations` record, and for which sources does plan step 3 set the version fields? | For 1024.41, 1024.30 and 1024.31: the amendment page, as the citation note (`<CITA>`) of the stored raw XML cites it, and plan step 3 sets both version fields for all three. Supplement I is open until plan step 8. [ADR 0011](adr/0011-fr-citation-is-the-amendment-page.md) |
 | 12 | Where does a label count, and how is an (i), (v) or (x) that could be either a letter or a roman decided? | A label counts in a paragraph's lead: at the start of the `<P>`, right after a heading past the dash or space that ends it, or right after another lead label; the lead ends at the first other text. When (i)/(v)/(x) could be either a letter or a roman, the parser looks at the next label: the next letter means letter; the next roman, e.g. (ii), means roman; if there is no next label or it's neither, the parse fails (as carried out: the reading after which the next label can be placed is taken, so the same letter again, as in (h)(1)(i) then (i), means roman; with no next label, or one placed after neither reading, the parse fails; the chief of staff's choice). [ADR 0012](adr/0012-labels-count-in-the-paragraph-lead.md) |
 | 13 | How is text normalized, which anchors are operative, how does a multi-anchor cite join, and what do the hashes cover? | Normalized text is NFC, then the curly quotes U+2018, U+2019, U+201C and U+201D mapped to ASCII and the en and em dashes to `-`, then every run of Unicode White_Space collapsed to one space, never trimmed. An anchor is operative when its own text, minus its label, the one space before its heading, the heading, and the one dash or space that ends the heading (one `-` or one space, read on the whole own text normalized as one string), is non-empty. A multi-anchor cite joins own texts in document order with nothing between two in one `<P>` and one space between `<P>`s, and is normalized after joining. A node's `sha256` covers its whole normalized own text, a heading's separator included; `sha256_text` covers the section heading, one space and every anchor joined, normalized as one string, not the citation note; for the Supplement I 41() slice it is open until plan step 8 (the owner's calls; the normalization detail, the separator read normalized, `text.md`'s form, and the offline `regcorpus parse` that writes `tree.json`, `text.md` and `sha256_text`: the chief of staff's choices). [ADR 0013](adr/0013-cites-join-as-the-document-reads.md) |
+| 14 | What makes a re-served copy the same version, how is govinfo's text compared, what date does `verified_on` hold, and what does `fetch --latest` do past exiting non-zero? | A version is its date plus its normalized text: the tree's node paths in order, each node's `sha256`, and `sha256_text`. `fetch --verify` first derives the stored `tree.json`, `text.md` and `sha256_text` again from the raw XML, and refuses, writing nothing, when one differs; then it compares eCFR's latest version, read from its version list, which must be `source_version_date`, with them, printing both `sha256_raw` values and the nodes whose raw text differs as information only; then, only if that matches, the section's granule in the govinfo CFR 2026 annual edition (title 12, revised as of 2026-01-01), through govinfo's link service, read only in the form a granule has (no CR; inside its root no CDATA section and no character reference to a White_Space character; one or more `<P>`s, then the citation note once and last): each line break and up to 12 spaces after it are deleted as layout and nothing else is deleted or trimmed, the heading is SECTNO, one space, SUBJECT, a paragraph keeps `<E>`'s text and drops PRTPAGE, the citation note is left out, and the heading and each paragraph, each side normalized by decision 13 alone, must equal the stored version's, derived again, one for one, and joined and normalized as decision 13 joins them, hash to `sha256_text`; so a change in govinfo's layout can give a false match in one way only: a maximal run of one or more literal LFs, each followed by up to 12 literal spaces, standing where govinfo meant a word space that the stored text lacks. `verified_on` is the UTC date of the first matching run, kept by a later match and overwritten with `null` by a mismatch, which prints each differing paragraph and exits 1; only then is the granule kept in the git-ignored `.cache/govinfo/`, a cache, never committed. `fetch --latest` reads `titles.json`, each `meta.yaml` (checked) and the version lists, and writes nothing: eCFR's latest version newer or older than the stored one, or one that removed the section, exits 1 with the stored and latest dates; an entry for the stored date issued on or after `retrieved_at`'s day is printed as information. Stage 04's release check runs `fetch --verify` too. No schema change (the owner's calls: the normalized text as the version, govinfo compared exactly with its layout deleted, the first matching run's date, and `--latest` reporting only; the bound of 12, the granule, its form and cache, the stored files derived again, the paragraph-by-paragraph comparison with the stored version, the order, the exit codes, the issue-date note and the sources each flag covers: the chief of staff's rulings; the citation note once and last in the granule's form: the implementer's choice). [ADR 0014](adr/0014-normalized-text-is-the-version.md) |
 
 ## Definitions
 - **Anchor:** a stable ID for one labeled unit of L0 text: a regulation paragraph at any depth (`1024-41-b-2-i-B`), one official comment (`1024-41-b-2-i-interp-1`), or a definition (`1024-31-day`).
@@ -67,7 +68,7 @@ Rows 1–5 answer the intent's open questions, and row 6 settles its CLI-only no
 - **fails** on any skipped, repeated or out-of-order label, and on any label it can't place; it never guesses
 - **Supplement I:** comment headings ("41(x)…" or "Paragraph 41(x)…") must resolve to an existing regulation anchor and may skip; comment numbers ("1.", then "i.") are sequential within a heading
 - **1024.31:** anchors each unlabeled definition paragraph by its defined term (`1024-31-day`), and fails on a definition paragraph with no recognizable term
-- **Overrides:** a source defect is fixed only through a reviewed `overrides.yaml` entry (location, replacement, reason) applied before parsing, and listed by `fetch --verify`; never in parser code
+- **Overrides:** a source defect is fixed only through a reviewed `overrides.yaml` entry (location, replacement, reason) applied before parsing, and listed by `fetch --verify` once applying overrides is built (until then `fetch --verify` refuses a source with an `overrides.yaml`; decision 14); never in parser code
 - **Goldens** are built from eCFR or official-edition XML only, never from secondary sites
 
 **R1b Newer-version check.** `regcorpus fetch --latest` exits non-zero in either case:
@@ -156,7 +157,7 @@ A fresh agent session with no prior context must reach the right stage and its c
 Each item lists the command or evidence that proves it.
 
 **Decision gate (by 2026-12-20)**
-- [ ] **R1:** `regcorpus fetch --verify` exits 0: the version date, tree and `sha256_text` match a fresh fetch (`sha256_raw` is informational). `verified_on` is set by comparing normalized text to the govinfo 2026 edition. The output is saved.
+- [ ] **R1:** `regcorpus fetch --verify` exits 0: eCFR's latest version is dated `source_version_date`, and its tree (node paths in order, each node's `sha256`) and `sha256_text` match a fresh fetch (`sha256_raw` is informational). `verified_on` is set by comparing normalized text to the govinfo 2026 edition, its layout deleted first (decision 14). The output is saved.
 - [ ] **R1a:** `make test` passes these goldens:
   - letter (i) after (h), and roman (i)
   - a heading-dash chained label ((b)(2)(i)(B)) and (c)(2)(iv)
@@ -207,7 +208,7 @@ version_effective_date: <YYYY-MM-DD>   # effective date of the change that produ
 version_fr_citations: ["<vol> FR <page>"]  # 1024.41, 1024.30, 1024.31: the amendment page the raw XML's citation note (<CITA>) cites (decision 11); Supplement I: open until plan step 8
 retrieved_at: <YYYY-MM-DD>
 ecfr_up_to_date_as_of: <YYYY-MM-DD>
-verified_on: <YYYY-MM-DD or null>  # normalized text matched the govinfo annual edition; null on mismatch, diff recorded
+verified_on: <YYYY-MM-DD or null>  # UTC date of the first run whose normalized text matched the govinfo 2026 edition (decision 14); null on mismatch, the diff in the saved output
 sha256_raw: <hash>                 # informational
 sha256_text: <hash>                # normalized source
 ```
@@ -350,8 +351,8 @@ Records are derived from cites, so each entry carries only a `reviewed` sign-off
   - `make build LOOKUP_ONLY=1` omits `check`; eval arm (b) uses this build.
 
 ### Upstream
-- **Rule text:** fetched point-in-time from the eCFR versioner API. `fetch --latest` (R1b) detects newer versions.
-- **Official-edition check:** govinfo's annual edition, for `verified_on`.
+- **Rule text:** fetched point-in-time from the eCFR versioner API. `fetch --latest` (R1b) detects newer versions by date; a reissue of a stored date is compared by `fetch --verify` (decision 14).
+- **Official-edition check:** govinfo's CFR 2026 annual edition, for `verified_on`: each section's granule XML, through govinfo's link service, kept at run time only in the git-ignored `.cache/govinfo/`, a cache never committed; a granule may be committed apart from that as a test fixture, as 1024.41's is (decision 14).
 - **Change labels:** the Federal Register supplies the effective date and the amending document; for 1024.41, 1024.30 and 1024.31, `version_fr_citations` records the amendment page as the stored raw XML's citation note cites it (decision 11).
 - **Network:** eCFR, govinfo and the Federal Register API are blocked from the cloud workspace, so fetch steps run on the owner's machine.
 - **Carried forward:** a Federal Register watch for future-effective rules.
@@ -403,3 +404,4 @@ Records are derived from cites, so each entry carries only a `reviewed` sign-off
 | Investor-guide tier records | phase 2+ |
 | C1 pattern expansion from `topics.yaml`, and C1 recall measured on the fixture's labeled claims | after the decision |
 | `regcorpus init` (writes the consumer hook) | first non-fixture consumer |
+| Whether `fetch --verify` against a stored version dated after the govinfo edition's 2026-01-01 records `verified_on: null` or refuses, since that edition can't hold it (moot while every stored version predates 2026-01-01; decision 14) | the first stored version after 2026-01-01 |

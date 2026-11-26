@@ -131,9 +131,21 @@ func shown(where, text string) error {
 // the whole document joined as one run of a cite joins (Join: nothing
 // inside a <P>, one space between <P>s). The CITA is left out, so the hash
 // changes only when the rule's words do. It is raw; SHA256Text normalizes
-// it as one string (N6), the HEAD and the space after it included.
+// it as one string (N6), the HEAD and the space after it included. It is
+// JoinSection of the HEAD and the document's Paragraphs.
 func SectionText(t *parse.Tree) string {
-	return t.Heading + " " + joinRun(NewDocument(t).nodes)
+	return JoinSection(t.Heading, NewDocument(t).Paragraphs())
+}
+
+// JoinSection is what sha256_text hashes, given a section's heading and
+// its paragraphs' texts, each raw: the heading, one space, then the
+// paragraphs with one space between them, normalized after, as one string
+// (N6). It is the one definition of that text, for eCFR's tree
+// (SectionText) and for the official edition fetch --verify compares with
+// it (plan step 6, ADR 0014), whose heading and paragraphs come from
+// another schema.
+func JoinSection(heading string, paragraphs []string) string {
+	return heading + " " + strings.Join(paragraphs, " ")
 }
 
 // SHA256Text is meta.yaml's sha256_text for t: Hash of SectionText.

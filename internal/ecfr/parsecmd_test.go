@@ -199,7 +199,9 @@ func TestParseUsage(t *testing.T) {
 		{"help", root, []string{"-h"}, 0, "usage: regcorpus parse", ""},
 		{"--help", root, []string{"--help"}, 0, "usage: regcorpus parse", ""},
 		{"no section", root, nil, 2, "", "regcorpus parse: no section"},
-		{"a flag", root, []string{"--all"}, 2, "", `regcorpus parse: "--all": parse takes no flags`},
+		// A usage error's line, then the usage (worklist round 3, §1: the
+		// usage is written apart, a line at a time).
+		{"a flag", root, []string{"--all"}, 2, "", "regcorpus parse: \"--all\": parse takes no flags\nusage: regcorpus parse"},
 		{"a flag after a section", root, []string{"1024.41", "-n"}, 2, "", `regcorpus parse: "-n": parse takes no flags`},
 		{"unknown section", root, []string{"1024.99"}, 2, "", `regcorpus parse: unknown section "1024.99" (known: 1024.41, 1024.30, 1024.31)`},
 		{"not the corpus root", t.TempDir(), []string{"1024.41"}, 2, "", "regcorpus parse: "},

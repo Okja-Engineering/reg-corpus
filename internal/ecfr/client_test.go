@@ -108,14 +108,15 @@ func fake(t *testing.T) *fakeECFR {
 	}}
 }
 
-// serve returns a client for the started server srv. Its transport adds no
+// serve returns a client for the started server srv, which stands in for
+// both eCFR (under apiPath) and govinfo (at its root). Its transport adds no
 // Accept-Encoding of its own, so the fake sees only what the client asks for.
 func serve(t *testing.T, srv *httptest.Server) *Client {
 	t.Helper()
 	t.Cleanup(srv.Close)
 	hc := srv.Client()
 	hc.Transport.(*http.Transport).DisableCompression = true
-	return &Client{BaseURL: srv.URL + apiPath, HTTP: hc}
+	return &Client{BaseURL: srv.URL + apiPath, HTTP: hc, Govinfo: srv.URL}
 }
 
 func (f *fakeECFR) set(uri string, r reply) {
@@ -212,19 +213,19 @@ func TestVersionsAndLatestPickTheLatestDate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", tc.id, err)
 		}
-		v, err := Latest(vs)
+		d, removed, err := Latest(vs)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.id, err)
 		}
-		if string(v.Date) != tc.want {
-			t.Errorf("%s: latest %s, want %s", tc.id, v.Date, tc.want)
+		if string(d) != tc.want || removed {
+			t.Errorf("%s: latest %s, removed %t; want %s, not removed", tc.id, d, removed, tc.want)
 		}
 	}
 }
 
 // TestLatestReadsRemovedThroughTheVersionList: a version that removed the
-// section is read from eCFR's JSON; only a removal at the latest date stops
-// the fetch.
+// section is read from eCFR's JSON; only a removal at the latest date is
+// one (plain fetch stores nothing then; TestFetchAndLatestReadEcfrsLatestAlike).
 func TestLatestReadsRemovedThroughTheVersionList(t *testing.T) {
 	entry := func(date string, removed bool) string {
 		return `{"date":"` + date + `","identifier":"1024.41","removed":` + strconv.FormatBool(removed) + `}`
@@ -232,14 +233,14 @@ func TestLatestReadsRemovedThroughTheVersionList(t *testing.T) {
 	list := func(es ...string) string { return `{"content_versions":[` + strings.Join(es, ",") + `]}` }
 	for _, tc := range []struct {
 		name, body string
-		want       string // the latest date, or "" for an error naming the removal
+		removed    bool // whether the latest date, 2025-07-15, removed it
 	}{
-		{"none removed", list(entry("2017-01-01", false), entry("2025-07-15", false)), "2025-07-15"},
-		{"an earlier version removed", list(entry("2017-01-01", true), entry("2025-07-15", false)), "2025-07-15"},
-		{"the latest removed", list(entry("2017-01-01", false), entry("2025-07-15", true)), ""},
-		{"the latest removed, listed first", list(entry("2025-07-15", true), entry("2017-01-01", false)), ""},
-		{"two at the latest date, the second removed", list(entry("2025-07-15", false), entry("2025-07-15", true)), ""},
-		{"two at the latest date, the first removed", list(entry("2025-07-15", true), entry("2025-07-15", false)), ""},
+		{"none removed", list(entry("2017-01-01", false), entry("2025-07-15", false)), false},
+		{"an earlier version removed", list(entry("2017-01-01", true), entry("2025-07-15", false)), false},
+		{"the latest removed", list(entry("2017-01-01", false), entry("2025-07-15", true)), true},
+		{"the latest removed, listed first", list(entry("2025-07-15", true), entry("2017-01-01", false)), true},
+		{"two at the latest date, the second removed", list(entry("2025-07-15", false), entry("2025-07-15", true)), true},
+		{"two at the latest date, the first removed", list(entry("2025-07-15", true), entry("2025-07-15", false)), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
@@ -249,16 +250,13 @@ func TestLatestReadsRemovedThroughTheVersionList(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			v, err := Latest(vs)
-			switch {
-			case tc.want != "" && (err != nil || string(v.Date) != tc.want):
-				t.Errorf("latest %s, %v; want %s", v.Date, err, tc.want)
-			case tc.want == "" && (err == nil || !strings.Contains(err.Error(), "removed")):
-				t.Errorf("latest %s, %v; want an error naming the removal", v.Date, err)
+			d, removed, err := Latest(vs)
+			if err != nil || d != "2025-07-15" || removed != tc.removed {
+				t.Errorf("latest %s, removed %t, %v; want 2025-07-15, removed %t", d, removed, err, tc.removed)
 			}
 		})
 	}
-	if _, err := Latest(nil); err == nil || !strings.Contains(err.Error(), "no versions") {
+	if _, _, err := Latest(nil); err == nil || !strings.Contains(err.Error(), "no versions") {
 		t.Errorf("empty list: err %v, want one naming no versions", err)
 	}
 }
@@ -515,6 +513,17 @@ func TestOnlyA200IsABody(t *testing.T) {
 		_, err := c.XML(context.Background(), s, "2025-07-15")
 		if err == nil || !strings.Contains(err.Error(), "503") {
 			t.Errorf("err %v; want one naming 503", err)
+		}
+	})
+	// The status line's reason phrase is the server's text, so the status
+	// is printed quoted: a CR or an escape sequence in it stays on the
+	// error's line (worklist round 3, §1).
+	t.Run("a reason phrase with a CR and an escape sequence", func(t *testing.T) {
+		const status = "404 Not\rFound\x1b[2K\x1b[1A"
+		u := statusServer(t, "HTTP/1.1 "+status)
+		_, err := (&Client{BaseURL: u}).XML(context.Background(), s, "2025-07-15")
+		if err == nil || strings.ContainsAny(err.Error(), "\r\x1b") || !strings.Contains(err.Error(), ": "+strconv.Quote(status)+": ") {
+			t.Errorf("err %q; want one quoting the status, %q", err, status)
 		}
 	})
 	t.Run("a 200 whose body is cut short", func(t *testing.T) {

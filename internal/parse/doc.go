@@ -25,7 +25,8 @@
 // fails as Malformed with its message: XML that is not well-formed, an XML
 // declaration that breaks its grammar, a duplicate attribute on any element
 // (the DIV8's too), text or a second element outside the root, and a
-// declaration such as <!DOCTYPE>. Parse's own rules above then apply. It lives
+// declaration such as <!DOCTYPE>; such text, declaration or PI is named as
+// written, quoted. Parse's own rules above then apply. It lives
 // here because fetch may import parse but parse must not import internal/ecfr,
 // which holds the network client, and a package of its own isn't needed for
 // one function. The root element is left to the caller: fetch checks it is the

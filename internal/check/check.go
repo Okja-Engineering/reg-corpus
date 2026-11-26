@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/okja-engineering/reg-corpus/internal/sink"
 )
 
 // Violation is one failed rule at one path. String renders the line the
@@ -158,14 +160,16 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	tree := fl.String("tree", "", "")
 	if err := fl.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(stdout, usage)
+			sink.Print(stdout, usage)
 			return 0
 		}
-		fmt.Fprintf(stderr, "regcorpus check: %v\n%s", err, usage)
+		fmt.Fprintf(stderr, "regcorpus check: %v\n", err)
+		sink.Print(stderr, usage)
 		return 2
 	}
 	if fl.NArg() != 0 {
-		fmt.Fprintf(stderr, "regcorpus check: unexpected argument %q\n%s", fl.Arg(0), usage)
+		fmt.Fprintf(stderr, "regcorpus check: unexpected argument %q\n", fl.Arg(0))
+		sink.Print(stderr, usage)
 		return 2
 	}
 	if !*corpus {

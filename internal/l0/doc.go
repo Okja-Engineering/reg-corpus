@@ -2,9 +2,12 @@
 // sources/ is stored, read and checked, and the one file-level writer of
 // meta.yaml, whose schema internal/meta owns. Every command that writes a
 // stored L0 file goes through it: fetch (internal/ecfr), meta set (plan
-// step 3) and parse (internal/anchors: tree.json, text.md and sha256_text,
-// plan step 5) now; fetch --verify (verified_on, plan step 6) later. It
-// imports only internal/meta.
+// step 3), parse (internal/anchors: tree.json, text.md and sha256_text,
+// plan step 5) and fetch --verify (verified_on, plan step 6, ADR 0014),
+// which compares tree.json and text.md with what is derived from the raw
+// XML again through State.Stale, the comparison Update's writes make, and
+// then keeps the govinfo granule it compared under .cache/govinfo/
+// (StoreOnce), a git-ignored cache. It imports only internal/meta.
 //
 //   - Every directory on the way must be a real one below the root, not a
 //     symlink or a file, reached with no "." or ".." and found by its exact
@@ -15,7 +18,8 @@
 //     name APFS takes as another by a fold of one character into two ("ß"
 //     and "ss", "ﬁ" and "fi") is not refused. No name the corpus uses holds
 //     such a character. StoreOnce stores a file that is not there yet, by hard link,
-//     and never overwrites one: fetch stores raw XML so, and a source's
+//     and never overwrites one; one there is compared only as a regular
+//     file, never through a symlink: fetch stores raw XML so, and a source's
 //     first meta.yaml. It finds that file by exact name too, and refuses a
 //     name that differs from it only in case ("2025-07-15.XML"), whatever it
 //     is, so what it stores or finds unchanged is the name git records. An
@@ -47,7 +51,7 @@
 //
 // The source table (cfr, tier, role per source) is unexported, in
 // internal/ecfr (sources.go); a caller passes each Source from it. fetch,
-// meta set, parse and fetch --verify (plan step 6) have their handlers in
+// meta set, parse, fetch --verify and fetch --latest have their handlers in
 // internal/ecfr; parse's passes its Source to internal/anchors, which does
 // the work, so the table stays where it is (the chief of staff's choice,
 // ADR 0013). A refusal is a *Conflict (exit 1). It holds no rule content.

@@ -24,6 +24,16 @@ func TestWellFormedErrors(t *testing.T) {
 		{"a duplicate attribute", "\n<a b=\"1\" b=\"2\"/>", "not well-formed XML: line 2: duplicate attribute b on <a>", 1},
 		// The decoder's own error, whole, at the start of the token it was reading.
 		{"a decoder error", "<a>", "not well-formed XML: XML syntax error on line 1: unexpected EOF", 3},
+		// A declaration or PI it refuses is named as written, quoted, so a
+		// line break in one stays on the message's line (worklist round 3,
+		// §1): a document's, eCFR's or govinfo's, is upstream bytes.
+		{"a DOCTYPE", "<!DOCTYPE a\n1024.41: wrote x>\n<a/>", `not well-formed XML: line 2: "<!DOCTYPE a\n1024.41: wrote x>"`, 0},
+		{"a second XML declaration", "<a/><?xml version=\"1.0\"\n1024.41: wrote x?>",
+			`not well-formed XML: line 2: "<?xml version=\"1.0\"\n1024.41: wrote x?>" is not an XML declaration, <?xml version=...?> at the very start`, 4},
+		{"a PI named XML in another case", "<a><?XML x\n1024.41: wrote x?></a>",
+			`not well-formed XML: line 2: "<?XML x\n1024.41: wrote x?>" is not an XML declaration, <?xml version=...?> at the very start`, 3},
+		{"an XML declaration that breaks its grammar", "<?xml version=\"1.0\"\n1024.41: wrote x?><a/>",
+			`not well-formed XML: line 2: XML declaration "<?xml version=\"1.0\"\n1024.41: wrote x?>": unexpected "1024.41: wrote x"`, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := parse.WellFormed([]byte(c.data), nil)

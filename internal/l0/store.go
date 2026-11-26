@@ -43,7 +43,10 @@ const TempPattern = ".fetch-*"
 // found by exact name among its directory's entries (exactly): an entry
 // whose name differs from p's only in case ("2025-07-15.XML"), whatever it
 // is, is a *Conflict and nothing is stored, so what StoreOnce reports
-// storing, or finding with the same bytes, is the name git records.
+// storing, or finding with the same bytes, is the name git records. What
+// is at p is compared only as a regular file: a symlink there, even to the
+// same bytes, or a directory, is a *Conflict, so nothing is read, or found
+// unchanged, through a link.
 func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 	dir := path.Dir(p)
 	if err := RealDirs(root, dir); err != nil {
@@ -53,8 +56,12 @@ func StoreOnce(root, p string, body []byte) (stored bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := exactly(ents, dir, path.Base(p)); err != nil {
+	e, err := exactly(ents, dir, path.Base(p))
+	if err != nil {
 		return false, err
+	}
+	if e != nil && !e.Type().IsRegular() {
+		return false, Conflictf("%s is not a regular file (a symlink or a directory, say); a file is stored, and compared, only as one (R1)", p)
 	}
 	full := filepath.Join(root, filepath.FromSlash(p))
 	have, err := os.ReadFile(full)

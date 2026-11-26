@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/okja-engineering/reg-corpus/internal/govinfo"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 	"github.com/okja-engineering/reg-corpus/internal/parse"
 )
@@ -36,31 +37,60 @@ type Date = meta.Date
 func ParseDate(s string) (Date, error) { return meta.ParseDate(s) }
 
 // Version is one entry of a source's eCFR version list: the date eCFR serves
-// it at (full/{date}), and whether that version removed the source.
+// it at (full/{date}), whether that version removed the source, and the
+// date eCFR issued that entry, later than Date when eCFR reissued the
+// version. IssueDate is as listed, unchecked: a JSON string's value, any
+// other JSON value's text, "" when the list doesn't say. Only fetch
+// --latest's note reads it, and checks it there (ParseDate), so a list
+// whose issue_date isn't a date fails nothing else, as before plan step 6.
 type Version struct {
 	Date       Date
 	Identifier string
 	Removed    bool
+	IssueDate  string
 }
 
-// Client calls the eCFR versioner API at BaseURL. A nil HTTP is an
-// http.Client with defaultTimeout. Whichever is used, the redirect policy is
-// get's own (sameOrigin).
+// Client calls the eCFR versioner API at BaseURL, and govinfo, for the
+// official edition fetch --verify compares with, at Govinfo. A nil HTTP is
+// an http.Client with defaultTimeout. Whichever is used, the redirect
+// policy is get's own (sameOrigin), for both hosts.
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	Govinfo string // govinfo's base URL; "" asks govinfo nothing
 }
 
 // defaultTimeout bounds each request of a Client with no HTTP client.
 const defaultTimeout = 2 * time.Minute
 
-// NewClient returns a client for DefaultBaseURL.
+// NewClient returns a client for DefaultBaseURL and govinfo.DefaultBaseURL.
 func NewClient() *Client {
-	return &Client{BaseURL: DefaultBaseURL}
+	return &Client{BaseURL: DefaultBaseURL, Govinfo: govinfo.DefaultBaseURL}
+}
+
+// Granule returns section's granule XML in govinfo's annual edition of
+// title 12 for govinfo.EditionYear, and the URL it came from: it asks
+// govinfo's link service (govinfo.LinkPath), whose redirect get follows on
+// govinfo's own origin, and returns the body as served, after get's checks
+// (status, size cap, gzip). govinfo.Read checks what it is. A client with
+// no Govinfo asks nothing and errs.
+func (c *Client) Granule(ctx context.Context, section string) (from string, body []byte, err error) {
+	if c.Govinfo == "" {
+		return "", nil, errors.New("no govinfo base URL: the client asks govinfo nothing")
+	}
+	p, err := govinfo.LinkPath(title, section, govinfo.EditionYear)
+	if err != nil {
+		return "", nil, err
+	}
+	body, at, err := c.getFrom(ctx, c.Govinfo+p)
+	if err != nil {
+		return "", nil, err
+	}
+	return at, body, nil
 }
 
 // Versions returns s's version list, every entry checked: a YYYY-MM-DD date
-// and s's own identifier.
+// and s's own identifier. Its issue_date is kept as listed (Version).
 func (c *Client) Versions(ctx context.Context, s Source) ([]Version, error) {
 	u := c.url("/versions/title-"+title+".json", s.query())
 	body, err := c.get(ctx, u)
@@ -69,9 +99,10 @@ func (c *Client) Versions(ctx context.Context, s Source) ([]Version, error) {
 	}
 	var doc struct {
 		ContentVersions *[]struct {
-			Date       string `json:"date"`
-			Identifier string `json:"identifier"`
-			Removed    bool   `json:"removed"`
+			Date       string          `json:"date"`
+			Identifier string          `json:"identifier"`
+			Removed    bool            `json:"removed"`
+			IssueDate  json.RawMessage `json:"issue_date"`
 		} `json:"content_versions"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
@@ -89,30 +120,41 @@ func (c *Client) Versions(ctx context.Context, s Source) ([]Version, error) {
 		if v.Identifier != s.Identifier {
 			return nil, fmt.Errorf("GET %s: content_versions[%d]: identifier %q, want %q", u, i, v.Identifier, s.Identifier)
 		}
-		out[i] = Version{Date: d, Identifier: v.Identifier, Removed: v.Removed}
+		out[i] = Version{Date: d, Identifier: v.Identifier, Removed: v.Removed, IssueDate: listed(v.IssueDate)}
 	}
 	return out, nil
 }
 
-// Latest returns the version with the latest date in vs. It fails on an empty
-// list, and when an entry at that date removed the source: there is no text
-// to store.
-func Latest(vs []Version) (Version, error) {
-	if len(vs) == 0 {
-		return Version{}, errors.New("eCFR lists no versions")
-	}
-	latest := vs[0]
-	for _, v := range vs[1:] {
-		if v.Date > latest.Date { // YYYY-MM-DD orders as text
-			latest = v
+// listed is a JSON value as a list gives it: a string's value, null as "",
+// anything else as its JSON text.
+func listed(v json.RawMessage) string {
+	var s *string
+	if json.Unmarshal(v, &s) == nil {
+		if s == nil {
+			return ""
 		}
+		return *s
+	}
+	return string(v)
+}
+
+// Latest is eCFR's latest version in vs, the one reading of it that plain
+// fetch and fetch --verify and --latest share (standOf): the list's newest
+// date, and whether an entry at that date removed the source, whatever the
+// order the list gives them in. An empty list is an error. What a removal
+// means is the caller's: plain fetch has no text to store (exit 2), while
+// --verify and --latest report it as a finding.
+func Latest(vs []Version) (latest Date, removed bool, err error) {
+	if len(vs) == 0 {
+		return "", false, errors.New("eCFR lists no versions")
 	}
 	for _, v := range vs {
-		if v.Date == latest.Date && v.Removed {
-			return Version{}, fmt.Errorf("eCFR's latest version of %s, %s, removed it", v.Identifier, v.Date)
-		}
+		latest = max(latest, v.Date) // YYYY-MM-DD orders as text
 	}
-	return latest, nil
+	for _, v := range vs {
+		removed = removed || v.Date == latest && v.Removed
+	}
+	return latest, removed, nil
 }
 
 // XML returns s's point-in-time XML at date: the decoded response body exactly
@@ -194,33 +236,52 @@ const maxBody = 64 << 20
 // bytes returned are exactly what was served. It follows a redirect only to
 // u's own scheme and host, so every body comes from the origin asked. Any
 // status but 200 is an error, decided before the body is read, quoting the
-// start of the body, which is where eCFR puts its reason.
+// status and the start of the body, which is where eCFR puts its reason.
 func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
+	body, _, err := c.getFrom(ctx, u)
+	return body, err
+}
+
+// getFrom is get, also returning the URL the body came from: u, or where
+// u's redirects, all on u's origin, led. Each error names the URL that
+// failed: that one, and u too when a redirect led there. A URL a redirect
+// led to is printed in the saved output, so it must be one as RFC 3986
+// writes it, printable ASCII; any other is refused, quoted (worklist round
+// 2, §3). u is the client's own.
+func (c *Client) getFrom(ctx context.Context, u string) (body []byte, from string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", u, err)
+		return nil, "", fmt.Errorf("GET %s: %w", u, err)
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("User-Agent", userAgent)
 	hc := c.httpClient()
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, err // already names the method and URL
+		return nil, "", err // already names the method and the URL that failed, quoted
 	}
 	defer resp.Body.Close()
+	from = resp.Request.URL.String()
+	if strings.IndexFunc(from, func(r rune) bool { return r <= ' ' || r > '~' }) >= 0 {
+		return nil, "", fmt.Errorf("GET %s: redirected to %q, which is not a URL of printable ASCII, so it is not read", u, from)
+	}
+	got := from
+	if from != u {
+		got += " (redirected from " + u + ")"
+	}
 	enc := resp.Header.Get("Content-Encoding")
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s: %s", u, resp.Status, errorSnippet(enc, resp.Body))
+		// The status's reason phrase is the server's text: quoted.
+		return nil, "", fmt.Errorf("GET %s: %q: %s", got, resp.Status, errorSnippet(enc, resp.Body))
 	}
 	raw, err := readCapped(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: reading body: %w", u, err)
+		return nil, "", fmt.Errorf("GET %s: reading body: %w", got, err)
 	}
-	body, err := decode(enc, raw)
-	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", u, err)
+	if body, err = decode(enc, raw); err != nil {
+		return nil, "", fmt.Errorf("GET %s: %w", got, err)
 	}
-	return body, nil
+	return body, from, nil
 }
 
 // httpClient is the client get uses: a copy of c.HTTP, or one with
@@ -240,7 +301,7 @@ func (c *Client) httpClient() http.Client {
 func sameOrigin(req *http.Request, via []*http.Request) error {
 	from := via[0].URL
 	if req.URL.Scheme != from.Scheme || !strings.EqualFold(req.URL.Host, from.Host) {
-		return fmt.Errorf("refusing a redirect to %s: only %s://%s is trusted", req.URL, from.Scheme, from.Host)
+		return fmt.Errorf("refusing a redirect to %q: only %s://%s is trusted", req.URL, from.Scheme, from.Host)
 	}
 	if len(via) >= 10 {
 		return errors.New("stopped after 10 redirects")

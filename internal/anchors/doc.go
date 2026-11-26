@@ -67,8 +67,13 @@
 // 9) extend them.
 //
 // This package imports internal/parse, internal/l0, internal/meta and
-// x/text, never internal/ecfr, so plan step 6's `fetch --verify`
-// (internal/ecfr) can rebuild a fetched source with Build and compare.
+// x/text, never internal/ecfr, so `fetch --verify` (internal/ecfr, plan
+// step 6, ADR 0014) builds the stored raw XML again with Build, refusing
+// stored files that aren't Build's, rebuilds a fresh fetch with Build and
+// compares its nodes with the stored tree's, compares govinfo's paragraphs
+// with Document.Paragraphs one by one, and hashes govinfo's heading and
+// paragraphs as sha256_text is (JoinSection, the one join SectionText uses
+// too).
 //
 // Not built here: applying overrides (the first source that needs one);
 // Supplement I's comment anchors (plan step 8); 1024.30's and 1024.31's

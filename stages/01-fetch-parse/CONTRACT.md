@@ -10,7 +10,9 @@ This stage records what the source says. It never decides what the source means.
   Supplement I to Part 1024 (sliced to its 41() comments), 1024.30 and 1024.31
   (plan, upstream calls). These hosts are blocked from the cloud workspace, so
   fetches run on the owner's machine.
-- The govinfo CFR 2026 annual edition, to set `verified_on` (R1).
+- The govinfo CFR 2026 annual edition, to set `verified_on` (R1): each section's granule
+  XML, through govinfo's link service, kept in the git-ignored `.cache/govinfo/` (spec
+  decision 14).
 - The Federal Register, for `version_effective_date` and the amending document (R1).
   For 1024.41, 1024.30 and 1024.31, `version_fr_citations` records the amendment page
   as the stored raw XML's citation note (`<CITA>`) cites it (spec decision 11), and
@@ -38,13 +40,19 @@ offline, from the stored raw XML (plan step 5). It writes a source's files only 
 its parser goldens are in: today 1024.41's. It refuses 1024.30 and 1024.31 (exit 1,
 nothing written) until plan step 9.
 
-Local exploratory downloads go in `.cache/` (git-ignored); committed raw XML
-lives only under `sources/**/raw/`.
+Local exploratory downloads go in `.cache/` (git-ignored); the committed raw XML
+of L0 lives only under `sources/**/raw/`. A test fixture under `internal/*/testdata/`
+(1024.41's govinfo granule, say) is not L0 (spec decision 14).
 
 ## Check that ends it
-- `regcorpus fetch --verify` exits 0 (R1; built in plan step 6). Exit 0 means the
-  version date, tree and `sha256_text` match a fresh fetch (`sha256_raw` is
-  informational), `verified_on` is set, and every override is listed. Save the output.
+- `regcorpus fetch --verify` exits 0 (R1; spec decision 14). Exit 0 means eCFR's
+  latest version is dated `source_version_date`, its tree (node paths in order, each
+  node's `sha256`) and `sha256_text` match a fresh fetch (`sha256_raw` is
+  informational), the govinfo 2026 edition's text, its layout deleted, hashes to
+  `sha256_text`, `verified_on` is set, and there is no `overrides.yaml` (it prints
+  "overrides: none"; one is refused until applying overrides is built, R1a). It covers
+  1024.41 today: 1024.30 and 1024.31 are refused, exit 1, until plan step 9, and
+  Supplement I is plan step 8's. Save the output.
 - `make test` exits 0 with the parser goldens in it (R1a). Exit 0 then means
   every golden passes and the corrupted-sequence fixture is rejected. Each
   source has its own goldens: 1024.41 in plan step 4, Supplement I in plan
@@ -53,8 +61,10 @@ lives only under `sources/**/raw/`.
   about R1a for that source: do not report R1a met for it; name its plan step.
   From plan step 5, exit 0 also means 1024.41's committed `tree.json`, `text.md`
   and `sha256_text` are what `regcorpus parse` makes from its raw XML.
-- `regcorpus fetch --latest` exits 0 (R1b; built in plan step 6). Exit 0 means eCFR
-  lists no newer version of any stored section, and the fresh Supplement I 41()
+- `regcorpus fetch --latest` exits 0 (R1b; spec decision 14). Exit 0 means eCFR's
+  latest version of each stored section is its stored one; a newer, an older or a
+  removed latest version exits 1. A reissue of a stored date is printed as
+  information only. From plan step 8 it also means the fresh Supplement I 41()
   slice hash equals the stored one.
 
 ## Who may run it

@@ -40,3 +40,4 @@ the sentences that now describe the past, and leaves them as written.
 | [0011](0011-fr-citation-is-the-amendment-page.md) | `version_fr_citations` cites the amendment page the stored XML cites; step 3 covers 1024.30 and 1024.31 | Accepted |
 | [0012](0012-labels-count-in-the-paragraph-lead.md) | A label counts in a paragraph's lead; the next label decides (i)/(v)/(x) | Accepted |
 | [0013](0013-cites-join-as-the-document-reads.md) | A cite joins as the document reads; a heading's separator is not operative text | Accepted |
+| [0014](0014-normalized-text-is-the-version.md) | Normalized text is the version; govinfo is compared exactly, its layout deleted | Accepted |
