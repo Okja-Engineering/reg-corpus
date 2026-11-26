@@ -93,7 +93,7 @@ func metaMain(root string, args []string, stdout, stderr io.Writer) int {
 			return usageError(fmt.Errorf("%q: meta set takes no flags", a))
 		}
 	}
-	s, ok := lookup(args[1])
+	s, ok := sourceNamed(args[1])
 	if !ok {
 		fmt.Fprintf(stderr, "regcorpus meta: unknown section %q (known: %s)\n", args[1], strings.Join(names(), ", "))
 		return 2

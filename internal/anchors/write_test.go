@@ -268,6 +268,89 @@ func TestWriteRefusesWhatIsNotARegularFile(t *testing.T) {
 	}
 }
 
+// TestStaleNamesWhatIsNotDerived: Derived.Stale is the one comparison of a
+// source's stored L0 with what Build derives from its raw XML, which fetch
+// --verify and regcorpus text both make (round 1 of PR #11, §1): none on
+// the committed 1024.41; otherwise tree.json, text.md and meta.yaml's
+// sha256_text, each that differs, by slash path, a missing file among them;
+// a tree.json that isn't a regular file is a conflict.
+func TestStaleNamesWhatIsNotDerived(t *testing.T) {
+	d := build41(t)
+	committed := func(t *testing.T) string {
+		root := t.TempDir()
+		for _, f := range []string{raw41, tree41, text41, meta41} {
+			put(t, root, f, readRepo(t, f))
+		}
+		return root
+	}
+	stale := func(t *testing.T, root string) ([]string, error) {
+		t.Helper()
+		st, err := l0.Read(root, src41)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d.Stale(root, src41, st)
+	}
+	setText := func(t *testing.T, root string, sum meta.SHA256) {
+		m, err := meta.Parse(readRepo(t, meta41))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.SHA256Text = sum
+		b, err := meta.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		put(t, root, meta41, b)
+	}
+	for _, tc := range []struct {
+		name  string
+		spoil func(t *testing.T, root string)
+		want  []string
+	}{
+		{"the committed files", func(*testing.T, string) {}, nil},
+		{"tree.json edited", func(t *testing.T, root string) {
+			put(t, root, tree41, append(readRepo(t, tree41), ' '))
+		}, []string{tree41}},
+		{"text.md missing", func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(text41))); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{text41}},
+		{"sha256_text another", func(t *testing.T, root string) {
+			setText(t, root, meta.SHA256(strings.Repeat("0", 64)))
+		}, []string{meta41 + "'s sha256_text"}},
+		{"no sha256_text", func(t *testing.T, root string) { setText(t, root, "") }, []string{meta41 + "'s sha256_text"}},
+		{"all three", func(t *testing.T, root string) {
+			put(t, root, tree41, []byte("{}\n"))
+			put(t, root, text41, []byte("x\n"))
+			setText(t, root, "")
+		}, []string{tree41, text41, meta41 + "'s sha256_text"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := committed(t)
+			tc.spoil(t, root)
+			got, err := stale(t, root)
+			if err != nil || strings.Join(got, "|") != strings.Join(tc.want, "|") {
+				t.Errorf("Stale: %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+	t.Run("a directory where tree.json goes", func(t *testing.T) {
+		root := committed(t)
+		p := filepath.Join(root, filepath.FromSlash(tree41))
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := stale(t, root); !isConflict(err) {
+			t.Errorf("Stale: %v; want a conflict", err)
+		}
+	})
+}
+
 // TestWriteMakesTheStoredStateCheck: Write goes through l0.Update, so a
 // meta.yaml whose sha256_raw is not the raw file's is refused first.
 func TestWriteMakesTheStoredStateCheck(t *testing.T) {

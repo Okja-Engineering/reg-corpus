@@ -28,7 +28,7 @@ func govRedirect(to string) reply {
 
 func TestVersionsReadEachIssueDate(t *testing.T) {
 	_, c := newFake(t)
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	vs, err := c.Versions(context.Background(), s)
 	if err != nil {
 		t.Fatal(err)

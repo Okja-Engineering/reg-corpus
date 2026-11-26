@@ -137,6 +137,51 @@ func Read(root string, s Source) (State, error) {
 	return st, nil
 }
 
+// Names is the first check every command that reads or writes a source's
+// meta.yaml makes, Stored's first: st has one (Read has parsed it), and it
+// names s as the source table does (Identity: cfr, tier, role, source and
+// official). Anything else is a *Conflict.
+func (st State) Names(s Source) error {
+	m := st.Meta
+	if m == nil {
+		return Conflictf("%s does not exist: run regcorpus fetch first; only a meta.yaml fetch wrote is read or changed (R1)", s.MetaPath())
+	}
+	if have, want := identityOf(*m), identityOf(s.Identity()); have != want {
+		return Conflictf("%s says %s, but the source table gives %s: it describes another source, and no command reads it as this one or writes to it (R1)",
+			s.MetaPath(), have, want)
+	}
+	return nil
+}
+
+// ErrNotRoot is what CorpusRoot's error for a root that isn't the corpus
+// root is (errors.Is), so a caller tells it from a *Conflict on the way and
+// from a directory it can't read (round 1 of PR #11, §2).
+var ErrNotRoot = errors.New("l0: not the corpus root")
+
+// notRoot is CorpusRoot's error for a root without the directory: its own
+// message, and ErrNotRoot to errors.Is.
+type notRoot struct{ msg string }
+
+func (e *notRoot) Error() string { return e.msg }
+func (e *notRoot) Unwrap() error { return ErrNotRoot }
+
+// CorpusRoot returns nil when root is a corpus root: one with a real
+// directory at dir, the slash path every source is under
+// (sources/ecfr/title-12), reached through real directories by exact name
+// (RealDirs, whose *Conflict it returns, and whose error for a directory it
+// can't read it returns as is). Without one the error, ErrNotRoot
+// (errors.Is) and not a *Conflict, says so and to run cmd from the corpus
+// root.
+func CorpusRoot(root, dir, cmd string) error {
+	if err := RealDirs(root, dir); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(dir))); err != nil {
+		return &notRoot{fmt.Sprintf("%s is not a corpus root (no %s/ directory); run %s from the corpus root", root, dir, cmd)}
+	}
+	return nil
+}
+
 // Overrides reports whether the source's directory holds an entry named
 // exactly overrides.yaml, whatever it is (a file, an empty one, a
 // directory, a symlink), as Read found it: the one record of that.
@@ -157,18 +202,14 @@ func readDir(root, dir string) ([]fs.DirEntry, error) {
 
 // Stored checks what every writer of a meta.yaml checks before writing
 // anything, and returns the raw XML that meta.yaml describes. The check:
-// st has a meta.yaml (Read has parsed it); it names s (Identity); and raw/
+// st has a meta.yaml (Read has parsed it) that names s (Names); and raw/
 // holds exactly raw/<source_version_date>.xml, a regular file with
 // sha256_raw's bytes. Anything else is a *Conflict.
 func (st State) Stored(root string, s Source) ([]byte, error) {
+	if err := st.Names(s); err != nil {
+		return nil, err
+	}
 	m := st.Meta
-	if m == nil {
-		return nil, Conflictf("%s does not exist: run regcorpus fetch first; only a meta.yaml fetch wrote is changed (R1)", s.MetaPath())
-	}
-	if have, want := identityOf(*m), identityOf(s.Identity()); have != want {
-		return nil, Conflictf("%s says %s, but the source table gives %s: it describes another source, and no command writes to it (R1)",
-			s.MetaPath(), have, want)
-	}
 	raw := s.RawPath(m.SourceVersionDate)
 	name := path.Base(raw)
 	var others []string
@@ -300,9 +341,11 @@ func Update(root string, s Source, set func(m *meta.Meta, raw []byte, st State) 
 // text.md, that doesn't hold d's bytes: missing, as Read found it, or a
 // regular file with other bytes. It is the one comparison of a source's
 // derived files with what is derived from its raw XML: Update writes the
-// files it names, and fetch --verify (plan step 6, ADR 0014) refuses to
-// vouch while it names any. Anything else where one goes (a symlink, a
-// directory) is a *Conflict; one it can't read is an error as is.
+// files it names, and through anchors.Derived.Stale fetch --verify (plan
+// step 6, ADR 0014) refuses to vouch, and `regcorpus text` (plan step 7,
+// ADR 0015) to print, while it names any. Anything else where one goes (a
+// symlink, a directory) is a *Conflict; one it can't read is an error as
+// is.
 func (st State) Stale(root string, s Source, d Derived) ([]string, error) {
 	var stale []string
 	for _, f := range []struct {

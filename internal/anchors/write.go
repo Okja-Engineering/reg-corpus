@@ -12,6 +12,28 @@ type Written struct {
 	SHA256Text meta.SHA256
 }
 
+// Stale names, by slash path, each of s's stored derived values under root
+// that isn't d's, d being what Build derived from s's stored raw XML: its
+// tree.json and text.md as Read found them (st; l0.State.Stale: missing,
+// or other bytes), then meta.yaml's sha256_text ("<meta.yaml>'s
+// sha256_text", missing or another hash). None means the stored L0 is
+// what regcorpus parse writes from that raw XML. It is the one comparison
+// a reader of stored L0 makes before vouching for it: fetch --verify
+// (internal/ecfr, plan step 6, ADR 0014) and `regcorpus text`
+// (internal/lookup, plan step 7, ADR 0015). What l0.State.Stale refuses (a
+// symlink or a directory where a derived file goes, a *l0.Conflict) or
+// can't read is its error.
+func (d *Derived) Stale(root string, s l0.Source, st l0.State) ([]string, error) {
+	stale, err := st.Stale(root, s, l0.Derived{Tree: d.TreeJSON, Text: d.TextMD})
+	if err != nil {
+		return nil, err
+	}
+	if st.Meta == nil || st.Meta.SHA256Text != d.SHA256Text {
+		stale = append(stale, s.MetaPath()+"'s sha256_text")
+	}
+	return stale, nil
+}
+
 // Write derives s's files under root from its stored raw XML, offline,
 // through l0.Update (ADRs 0010, 0013): under s's lock, after the
 // stored-state check (l0's Stored), it builds from the raw XML that check

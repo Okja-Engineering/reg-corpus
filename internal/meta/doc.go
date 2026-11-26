@@ -13,6 +13,11 @@
 //     quoted "<vol> FR <page>", each once (ParseCitations).
 //     Rendered with the standard library only, as the owner decided on
 //     issue #5 (ADR 0010).
+//   - JSON writes the fields Marshal writes as one compact JSON object,
+//     keyed and ordered as there, each value as its type is (official a
+//     boolean, version_fr_citations an array, verified_on null when null),
+//     for `regcorpus text --json` (plan step 7, ADR 0015). Marshal and JSON
+//     make one walk of the schema, so JSON refuses what Marshal refuses.
 //   - Parse reads a file only when it is exactly what Marshal writes: known
 //     keys, in the spec's order, each once, each value of its type and
 //     written the one way. So parsing, setting a field and marshalling

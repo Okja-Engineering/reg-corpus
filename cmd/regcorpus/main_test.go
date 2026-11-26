@@ -16,8 +16,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/okja-engineering/reg-corpus/internal/anchors"
 	"github.com/okja-engineering/reg-corpus/internal/check"
 	"github.com/okja-engineering/reg-corpus/internal/ecfr"
+	"github.com/okja-engineering/reg-corpus/internal/meta"
 	"github.com/okja-engineering/reg-corpus/internal/verify"
 )
 
@@ -81,8 +83,8 @@ func TestUsageGivesEveryCommandsExitCodes(t *testing.T) {
 	run([]string{"help"}, in, out, errf)
 	u := read(t, out)
 	for _, want := range []string{
-		`"regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h" and`,
-		`"regcorpus parse -h" show their flags and their exit codes`,
+		`"regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h",`,
+		`"regcorpus parse -h" and "regcorpus text -h" show their flags and their`,
 		"verify exits 2 without an interactive terminal and 1 until it is built",
 		"A missing or unknown command exits 2.",
 	} {
@@ -104,6 +106,7 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		"meta set <section> version_effective_date YYYY-MM-DD",
 		`meta set <section> version_fr_citations "<vol> FR <page>" ...`,
 		"parse <section> ...",
+		"text [--json] <anchor>",
 		"verify <ID>",
 		"not implemented yet (plan step 19)",
 	} {
@@ -111,8 +114,10 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 			t.Errorf("usage %q lacks %q", u, want)
 		}
 	}
-	if strings.Contains(u, "plan step 6") {
-		t.Errorf("usage %q still says plan step 6 builds what it built", u)
+	for _, stale := range []string{"plan step 6", "plan step 7"} {
+		if strings.Contains(u, stale) {
+			t.Errorf("usage %q still says %s builds what it built", u, stale)
+		}
 	}
 	// The exit summary names fetch's findings, the one exit 1 that writes,
 	// and govinfo among what stops a command (worklist round 1, L3), read
@@ -123,6 +128,9 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		"a finding of fetch --verify or --latest",
 		"the one exit 1 that writes is fetch --verify's govinfo mismatch, which writes verified_on: null",
 		"2 anything that stops the command (usage, network, eCFR, govinfo,",
+		"an anchor text can't print (no such anchor, or one a later plan step builds)",
+		"an argument that names no source, not the corpus root,",
+		"a stdout that can't be written",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("usage lacks %q", want)
@@ -149,6 +157,9 @@ func TestDispatch(t *testing.T) {
 			`regcorpus meta: unknown section "1024.99"`},
 		{"parse help", []string{"parse", "-h"}, 0, "usage: regcorpus parse", ""},
 		{"parse unknown section", []string{"parse", "1024.99"}, 2, "", `regcorpus parse: unknown section "1024.99"`},
+		{"text help", []string{"text", "-h"}, 0, "usage: regcorpus text [--json] <anchor>\n", ""},
+		{"text no anchor", []string{"text"}, 2, "", "regcorpus text: no anchor"},
+		{"text not a corpus", []string{"text", "1024-41-b-2-i-B"}, 2, "", "regcorpus text: . is not a corpus root"},
 		{"verify without a terminal", []string{"verify", "RX-41-TEST-01"}, 2, "",
 			"regcorpus verify requires an interactive terminal (R2a); a person runs it\n"},
 	} {
@@ -258,6 +269,50 @@ func storedSource(t *testing.T, edit func(string) string) func(*testing.T) strin
 	}
 }
 
+// derivedSource returns a maker of corpus roots, each a storedSource(t,
+// edit) root beside what regcorpus parse derives from its raw XML: its
+// tree.json and text.md, and sha256_text in its meta.yaml, so text prints
+// its anchors.
+func derivedSource(t *testing.T, edit func(string) string) func(*testing.T) string {
+	t.Helper()
+	stored := storedSource(t, edit)
+	return func(t *testing.T) string {
+		t.Helper()
+		root := stored(t)
+		src := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
+		raws, err := filepath.Glob(filepath.Join(src, "raw", "*.xml"))
+		if err != nil || len(raws) != 1 {
+			t.Fatalf("the raw XML: %q, %v; want one file", raws, err)
+		}
+		raw, err := os.ReadFile(raws[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := anchors.Build(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mb, err := os.ReadFile(filepath.Join(src, "meta.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := meta.Parse(mb)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.SHA256Text = d.SHA256Text
+		if mb, err = meta.Marshal(m); err != nil {
+			t.Fatal(err)
+		}
+		for name, b := range map[string][]byte{"tree.json": d.TreeJSON, "text.md": d.TextMD, "meta.yaml": mb} {
+			if err := os.WriteFile(filepath.Join(src, name), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return root
+	}
+}
+
 // TestEveryCommandWritesThroughTheSink: for every command run dispatches,
 // and for run's own lines, each stream holds byte for byte what the command
 // writes, a line per Write, through the sink (worklist round 4, §1). So a
@@ -270,7 +325,12 @@ func storedSource(t *testing.T, edit func(string) string) func(*testing.T) strin
 // No payload can reach stdout from check (a Violation quotes its path and
 // message), meta or parse (their lines are a source's name, its paths, a
 // sha256 and a value checked to its field's form) or, offline, fetch (its
-// stdout lines come only after eCFR answers, at a fixed URL). So for each
+// stdout lines come only after eCFR answers, at a fixed URL). text's can: it
+// prints an anchor's own text as regcorpus parse derives it from the raw
+// XML, which may hold DEL and a C1 control (XML holds them; parse refuses
+// a line break, and XML holds no other C0 control but a tab), so a row
+// puts the payload in the raw XML, its files derived from it (textPayload).
+// So for each
 // command in commands one row puts a fake in its place, which writes the
 // payload to stdout and stderr: run's wiring is pinned there. verify writes
 // only fixed lines, run quotes an unknown command, and a raw file in place
@@ -284,6 +344,7 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		"fetch": ecfr.Main,
 		"meta":  ecfr.MetaMain,
 		"parse": ecfr.ParseMain,
+		"text":  ecfr.TextMain,
 	}
 	fake := func(_ []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, argPayload.raw)
@@ -303,6 +364,22 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		return strings.Replace(raw, "<HEAD>", "<"+namePayload.raw+">", 1)
 	})
 	notRoot := filepath.Join(t.TempDir(), argPayload.raw)
+	// textPayload is what of an own text could move a terminal that the
+	// raw XML can hold: a tab, DEL, and the C1 control sequence
+	// introducer, U+009B, then "2K" (erase the line), each control written
+	// from its code point.
+	textPayload := carried{
+		"\t\x7f" + string(rune(0x9b)) + "2K",
+		`\x09\x7f` + `\` + "u009b" + "2K",
+	}
+	// jsonPayload is what of textPayload reaches the sink raw with --json:
+	// U+009B, which encoding/json leaves as it is, and the sink writes as
+	// \u009b, a JSON escape of itself; JSON escapes the rest.
+	jsonPayload := carried{string(rune(0x9b)), `\` + "u009b"}
+	tree := derivedSource(t, nil)
+	payloadTree := derivedSource(t, func(raw string) string {
+		return strings.Replace(raw, "(B) Notify the borrower", "(B) Notify"+textPayload.raw+" the borrower", 1)
+	})
 	faked := map[string]bool{}
 	for _, tc := range []struct {
 		name string
@@ -365,6 +442,23 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		{name: "parse: a stored source", args: []string{"parse", "1024.41"}, root: stored, lines: true},
 		{name: "parse: a payload name in the raw XML", args: []string{"parse", "1024.41"}, root: badName, stderr: namePayload},
 		{name: "parse: the sinks", args: []string{"parse"}, fake: true, stdout: argPayload, stderr: argPayload},
+
+		{name: "text -h", args: []string{"text", "-h"}, lines: true},
+		{name: "text: no anchor", args: []string{"text"}},
+		{name: "text: two anchors", args: []string{"text", "1024-41-a", "1024-41-b"}},
+		{name: "text: a flag it doesn't know", args: []string{"text", "--bogus", "1024-41-a"}},
+		{name: "text: a payload flag", args: []string{"text", "-" + argPayload.raw, "1024-41-a"}, stderr: argPayload},
+		{name: "text: not the corpus root", args: []string{"text", "1024-41-b-2-i-B"}},
+		{name: "text: a payload anchor", args: []string{"text", argPayload.raw}, root: tree, stderr: quotedPayload},
+		{name: "text: an anchor", args: []string{"text", "1024-41-b-2-i-B"}, root: tree, lines: true},
+		{name: "text: --json", args: []string{"text", "--json", "1024-41-b-2"}, root: tree, lines: true},
+		{name: "text: no such anchor", args: []string{"text", "1024-41-z"}, root: tree},
+		{name: "text: a later step's anchor", args: []string{"text", "1024-31-day"}, root: tree},
+		{name: "text: a payload in the stored text", args: []string{"text", "1024-41-b-2-i-B"}, root: payloadTree,
+			stdout: textPayload, lines: true},
+		{name: "text: a payload in the stored text, --json", args: []string{"text", "--json", "1024-41-b-2-i-B"}, root: payloadTree,
+			stdout: jsonPayload, lines: true},
+		{name: "text: the sinks", args: []string{"text"}, fake: true, stdout: argPayload, stderr: argPayload},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := tc.own
@@ -436,6 +530,45 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 	}
 }
 
+// TestAStdoutThatCantBeWrittenExits2: exit 0 means the output was written
+// (round 1 of PR #11, §3). run decides it once, for every command and its
+// own help, from the stdout sink's first error: a stdout that can't be
+// written exits 2, whatever the command's own code, with a line on stderr
+// naming the failure; nothing else changes.
+func TestAStdoutThatCantBeWrittenExits2(t *testing.T) {
+	tree := derivedSource(t, nil)
+	for _, tc := range []struct {
+		name string
+		args []string
+		root func(*testing.T) string
+		code int // with a stdout that can be written
+	}{
+		{"help", []string{"help"}, nil, 0},
+		{"text -h", []string{"text", "-h"}, nil, 0},
+		{"text", []string{"text", "1024-41-b-2-i-B"}, tree, 0},
+		{"text --json", []string{"text", "--json", "1024-41-b-2"}, tree, 0},
+		{"check, clean", []string{"check", "--corpus", "--root", corpus(t, false)}, nil, 0},
+		{"check, a violation", []string{"check", "--corpus", "--root", corpus(t, true)}, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.root != nil {
+				t.Chdir(tc.root(t))
+			}
+			in, out, errf := files(t)
+			if code := run(tc.args, in, out, errf); code != tc.code || read(t, out) == "" {
+				t.Fatalf("a stdout that can be written: exit %d, stdout %q; want %d and output", code, read(t, out), tc.code)
+			}
+			in, out, errf = files(t)
+			out.Close()
+			code := run(tc.args, in, out, errf)
+			stderr := read(t, errf)
+			if code != 2 || !strings.Contains(stderr, "regcorpus: writing stdout: ") {
+				t.Errorf("stdout closed: exit %d, stderr %q; want 2 and regcorpus: writing stdout", code, stderr)
+			}
+		})
+	}
+}
+
 func prefixOrEmpty(got, want string) bool {
 	if want == "" {
 		return got == ""
@@ -476,6 +609,7 @@ func TestBuiltBinaryExitCodes(t *testing.T) {
 		{"meta unknown section", []string{"meta", "set", "1024.99", "version_effective_date", "2025-07-15"}, 2, "",
 			`regcorpus meta: unknown section "1024.99"`},
 		{"parse unknown section", []string{"parse", "1024.99"}, 2, "", `regcorpus parse: unknown section "1024.99"`},
+		{"text no anchor", []string{"text"}, 2, "", "regcorpus text: no anchor"},
 		{"verify < /dev/null", []string{"verify", "RX-41-TEST-01"}, 2, "", "regcorpus verify requires an interactive terminal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -494,6 +628,23 @@ func TestBuiltBinaryExitCodes(t *testing.T) {
 			if code != tc.code || !prefixOrEmpty(stdout.String(), tc.stdout) || !prefixOrEmpty(stderr.String(), tc.stderr) {
 				t.Fatalf("exit %d, stdout %q, stderr %q; want %d, %q, %q",
 					code, stdout.String(), stderr.String(), tc.code, tc.stdout, tc.stderr)
+			}
+		})
+	}
+	// A stdout the binary can't write (a file opened read-only, so each
+	// write fails) exits 2, not 0, naming it on stderr (round 1 of PR #11,
+	// §3). A closed stdout (>&-) can't be tested so: Go's runtime opens
+	// /dev/null in its place at start, and writes there succeed.
+	for _, args := range [][]string{{"help"}, {"text", "-h"}} {
+		t.Run("stdout read-only: "+strings.Join(args, " "), func(t *testing.T) {
+			cmd := exec.Command(bin, args...)
+			cmd.Stdin = devnull
+			cmd.Stdout = devnull
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
+			var exit *exec.ExitError
+			if err := cmd.Run(); !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.HasPrefix(stderr.String(), "regcorpus: writing stdout: ") {
+				t.Errorf("%v, stderr %q; want exit 2 and regcorpus: writing stdout", err, stderr.String())
 			}
 		})
 	}

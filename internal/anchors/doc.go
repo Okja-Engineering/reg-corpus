@@ -60,6 +60,12 @@
 //     since applying overrides isn't built (R1a); and raw XML that Build
 //     refuses, with the parser's location or where text.md would break a
 //     line or show an empty one.
+//   - Derived.Stale (write.go) is the one comparison of a source's stored
+//     L0 with what Build derived from its raw XML: tree.json and text.md
+//     (l0.State.Stale) and meta.yaml's sha256_text, naming each that
+//     differs. fetch --verify (plan step 6, ADR 0014) refuses to vouch, and
+//     `regcorpus text` (internal/lookup, plan step 7, ADR 0015) to print,
+//     while it names any.
 //
 // Operative and ID understand regulation paragraphs only, whose own text
 // starts with a parenthesized label. Supplement I's comment numbering
@@ -69,11 +75,12 @@
 // This package imports internal/parse, internal/l0, internal/meta and
 // x/text, never internal/ecfr, so `fetch --verify` (internal/ecfr, plan
 // step 6, ADR 0014) builds the stored raw XML again with Build, refusing
-// stored files that aren't Build's, rebuilds a fresh fetch with Build and
-// compares its nodes with the stored tree's, compares govinfo's paragraphs
-// with Document.Paragraphs one by one, and hashes govinfo's heading and
-// paragraphs as sha256_text is (JoinSection, the one join SectionText uses
-// too).
+// stored files that aren't Build's (as `regcorpus text` does, from
+// internal/lookup, which has no network code), rebuilds a fresh fetch with
+// Build and compares its nodes with the stored tree's, compares govinfo's
+// paragraphs with Document.Paragraphs one by one, and hashes govinfo's
+// heading and paragraphs as sha256_text is (JoinSection, the one join
+// SectionText uses too).
 //
 // Not built here: applying overrides (the first source that needs one);
 // Supplement I's comment anchors (plan step 8); 1024.30's and 1024.31's

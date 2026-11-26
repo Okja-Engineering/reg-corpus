@@ -2,10 +2,10 @@
 // needs a binary). Plan step 1 builds two subcommands: check (C6, R5) and
 // verify (R2a, terminal requirement only); plan step 2 adds fetch (R1); plan
 // step 3 adds meta set (ADR 0010); plan step 5 adds parse (R1, R1a; ADR 0013);
-// plan step 6 adds fetch --verify and --latest (R1, R1b; ADR 0014). The rest
-// of the plan's command list (inventory, upgrade, release, show, text,
-// topics, version) arrives in later plan steps. Every line it writes goes
-// through internal/sink.
+// plan step 6 adds fetch --verify and --latest (R1, R1b; ADR 0014); plan
+// step 7 adds text (R8; ADR 0015). The rest of the plan's command list
+// (inventory, upgrade, release, show, topics, version) arrives in later plan
+// steps. Every line it writes goes through internal/sink.
 package main
 
 import (
@@ -31,16 +31,32 @@ var commands = map[string]func(args []string, stdout, stderr io.Writer) int{
 	"fetch": ecfr.Main,
 	"meta":  ecfr.MetaMain,
 	"parse": ecfr.ParseMain,
+	"text":  ecfr.TextMain,
 }
 
 // run dispatches args and returns the exit code: the command's own, 0 for
-// help, 2 for a missing or unknown command. Every command, and run itself,
-// writes through the sink (internal/sink), never to stdout or stderr: the
-// output is saved as evidence, and no byte in it may forge a line or move
-// a terminal (worklist round 3, §1). verify is given the stdin and stdout
-// files only to test them for a terminal; it writes to its stderr sink.
+// help, 2 for a missing or unknown command; and 2, whatever that code, when
+// stdout's sink kept a write error (sink.Writer.Err), with a line on
+// stderr saying so: exit 0 means the output was written, decided here once
+// for every command (round 1 of PR #11, §3). Every command, and run
+// itself, writes through the sink (internal/sink), never to stdout or
+// stderr: the output is saved as evidence, and no byte in it may forge a
+// line or move a terminal (worklist round 3, §1). verify is given the
+// stdin and stdout files only to test them for a terminal; it writes to its
+// stderr sink.
 func run(args []string, stdin, stdoutFile, stderrFile *os.File) int {
 	stdout, stderr := sink.New(stdoutFile), sink.New(stderrFile)
+	code := dispatch(args, stdin, stdoutFile, stdout, stderr)
+	if err := stdout.Err(); err != nil {
+		fmt.Fprintf(stderr, "regcorpus: writing stdout: %v\n", err)
+		return 2
+	}
+	return code
+}
+
+// dispatch runs the command args name, given the sinks (and verify the
+// stdin and stdout files), and returns its exit code.
+func dispatch(args []string, stdin, stdoutFile *os.File, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		sink.Print(stderr, usage)
 		return 2
@@ -82,18 +98,25 @@ commands:
   parse <section> ...
         write a stored source's tree.json and text.md and set sha256_text
         in its meta.yaml, offline, from its raw XML (R1, R1a)
+  text [--json] <anchor>
+        print one anchor's own text, verbatim, its sha256, its children's
+        anchor IDs and its source's meta.yaml, offline, from the corpus
+        root (R8); <anchor> is an exact ID, e.g. 1024-41-b-2-i-B
   verify <ID>
         move a staged record into registry/ (a person, in a terminal; R2a);
         not implemented yet (plan step 19)
 
-"regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h" and
-"regcorpus parse -h" show their flags and their exit codes, which are the
-authority. In short: 0 ok, 1 violations, a command a stored file refuses
-(a conflict with it), or a finding of fetch --verify or --latest, which
-writes nothing (the one exit 1 that writes is fetch --verify's govinfo
-mismatch, which writes verified_on: null), 2 anything that stops the
-command (usage, network, eCFR, govinfo, or a file it can't read or
-write). A missing or unknown command exits 2.
+"regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h",
+"regcorpus parse -h" and "regcorpus text -h" show their flags and their
+exit codes, which are the authority. In short: 0 ok, 1 violations, a
+command a stored file refuses (a conflict with it), an anchor text can't
+print (no such anchor, or one a later plan step builds), or a finding of
+fetch --verify or --latest, which writes nothing (the one exit 1 that
+writes is fetch --verify's govinfo mismatch, which writes verified_on:
+null), 2 anything that stops the command (usage, network, eCFR, govinfo,
+an argument that names no source, not the corpus root, a file it can't
+read or write, or a stdout that can't be written, whatever the command's
+own code). A missing or unknown command exits 2.
 verify exits 2 without an interactive terminal and 1 until it is built
 (plan step 19).
 `
