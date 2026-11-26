@@ -119,6 +119,45 @@ func TestMarshalAndParseAreInverses(t *testing.T) {
 	}
 }
 
+// TestJSONWritesWhatMarshalWrites: JSON is the fields Marshal writes, keyed
+// and ordered as there, as one compact JSON object: each value as its type
+// is (a string for a text or word field, a boolean for official, an array
+// of strings for version_fr_citations), verified_on null when null, absent
+// fields left out, and nothing HTML-escaped (`regcorpus text --json`, plan
+// step 7, ADR 0015).
+func TestJSONWritesWhatMarshalWrites(t *testing.T) {
+	nullVerified := full()
+	nullVerified.VerifiedOn = &NullDate{}
+	createdJSON := `{"cfr":"12 CFR 1024.41","tier":"law","role":"inventoried","source":"ecfr","official":false,` +
+		`"source_version_date":"2025-07-15","retrieved_at":"2026-11-22","ecfr_up_to_date_as_of":"2026-11-19",` +
+		`"sha256_raw":"` + rawSum + `"}`
+	fullJSON := `{"cfr":"12 CFR 1024.41","tier":"law","role":"inventoried","source":"ecfr","official":false,` +
+		`"source_version_date":"2025-07-15","version_effective_date":"2025-07-15",` +
+		`"version_fr_citations":["90 FR 20792","86 FR 34899"],"retrieved_at":"2026-11-22",` +
+		`"ecfr_up_to_date_as_of":"2026-11-19","verified_on":"2026-11-23","sha256_raw":"` + rawSum + `",` +
+		`"sha256_text":"` + textSum + `"}`
+	for _, tc := range []struct {
+		name string
+		m    Meta
+		want string
+	}{
+		{"as fetch creates it", created(), createdJSON},
+		{"every field", full(), fullJSON},
+		{"verified_on null", nullVerified, strings.Replace(fullJSON, `"verified_on":"2026-11-23"`, `"verified_on":null`, 1)},
+		{"official true", func() Meta { m := created(); m.Official = true; return m }(),
+			strings.Replace(createdJSON, `"official":false`, `"official":true`, 1)},
+		{"a cfr with HTML characters and a quote", func() Meta { m := created(); m.CFR = `12 CFR <1024.41> & "x"`; return m }(),
+			strings.Replace(createdJSON, `"cfr":"12 CFR 1024.41"`, `"cfr":"12 CFR <1024.41> & \"x\""`, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := JSON(tc.m)
+			if err != nil || string(b) != tc.want {
+				t.Fatalf("JSON: %v\n%s\nwant:\n%s", err, b, tc.want)
+			}
+		})
+	}
+}
+
 // TestParseRefusesAnythingMarshalWouldNotWrite: known keys only, in the
 // spec's order, each once, each value of its type and written one way, and
 // every field fetch writes present. Each error names the field or line.
@@ -238,6 +277,9 @@ func TestMarshalRefusesWhatParseWouldRefuse(t *testing.T) {
 			b, err := Marshal(m)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("Marshal: %q, %v; want an error naming %q", b, err, tc.want)
+			}
+			if j, err := JSON(m); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("JSON: %q, %v; want an error naming %q, as Marshal refuses", j, err, tc.want)
 			}
 		})
 	}

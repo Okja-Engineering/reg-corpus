@@ -372,6 +372,9 @@ func Marshal(m Meta) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+// JSON is not built yet (plan step 7, red).
+func JSON(m Meta) ([]byte, error) { return nil, errors.New("meta: JSON is not built yet") }
+
 // Parse reads b, a meta.yaml, only when it is exactly what Marshal writes:
 // lines "key: value" ending in a newline, known keys in the spec's order,
 // each once, every field fetch writes present, each value of its type and

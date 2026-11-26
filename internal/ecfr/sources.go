@@ -91,8 +91,8 @@ func section(id string, role meta.Role, goldens string) Source {
 	}
 }
 
-// lookup returns the source named name.
-func lookup(name string) (Source, bool) {
+// sourceNamed returns the source named name.
+func sourceNamed(name string) (Source, bool) {
 	for _, s := range sources {
 		if s.Name == name {
 			return s, true

@@ -208,7 +208,7 @@ func TestVersionsAndLatestPickTheLatestDate(t *testing.T) {
 		{"1024.30", "2018-04-19"},
 		{"1024.31", "2025-07-15"}, // a single version
 	} {
-		s, _ := lookup(tc.id)
+		s, _ := sourceNamed(tc.id)
 		vs, err := c.Versions(context.Background(), s)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.id, err)
@@ -245,7 +245,7 @@ func TestLatestReadsRemovedThroughTheVersionList(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
 			f.set(versionsURI("1024.41"), reply{body: tc.body})
-			s, _ := lookup("1024.41")
+			s, _ := sourceNamed("1024.41")
 			vs, err := c.Versions(context.Background(), s)
 			if err != nil {
 				t.Fatal(err)
@@ -265,7 +265,7 @@ func TestLatestReadsRemovedThroughTheVersionList(t *testing.T) {
 // (the fake, like eCFR, refuses full XML otherwise) and names no one.
 func TestRequestsSendGzipAndAGenericUserAgent(t *testing.T) {
 	f, c := newFake(t)
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	if _, err := c.Versions(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestXMLReturnsTheDecodedBodyByteForByte(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
 			f.set(xmlURI("2025-07-15", "1024.41"), tc.r)
-			s, _ := lookup("1024.41")
+			s, _ := sourceNamed("1024.41")
 			got, err := c.XML(context.Background(), s, "2025-07-15")
 			if err != nil {
 				t.Fatal(err)
@@ -401,7 +401,7 @@ func TestXMLIsOneDocumentWhoseRootIsTheSectionAsked(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c := newFake(t)
 			f.set(xmlURI("2025-07-15", "1024.41"), reply{body: tc.body})
-			s, _ := lookup("1024.41")
+			s, _ := sourceNamed("1024.41")
 			_, err := c.XML(context.Background(), s, "2025-07-15")
 			if err == nil {
 				t.Fatal("no error")
@@ -422,7 +422,7 @@ func TestXMLIsOneDocumentWhoseRootIsTheSectionAsked(t *testing.T) {
 // scheme and host; one to another host, or from https to http, is refused
 // before it is followed.
 func TestRedirectsStayOnTheOriginAsked(t *testing.T) {
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	ctx := context.Background()
 
 	t.Run("a same-origin loop stops after 10", func(t *testing.T) {
@@ -496,7 +496,7 @@ func TestUpToDateAsOfReadsTitle12(t *testing.T) {
 // before the body is read, so a body that can't be read or decoded never
 // hides the status.
 func TestOnlyA200IsABody(t *testing.T) {
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	for _, st := range []int{201, 203, 204, 206, 304, 404, 406, 500, 503} {
 		t.Run(strconv.Itoa(st), func(t *testing.T) {
 			f, c := newFake(t)
@@ -540,7 +540,7 @@ func TestOnlyA200IsABody(t *testing.T) {
 // to may exceed a generous cap (maxBody), so a runaway, endless or gzip-bomb
 // response fails at the cap instead of exhausting memory.
 func TestBodiesAreCapped(t *testing.T) {
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	big := xmlBody("1024.41", "2025-07-15") + "<!--" + strings.Repeat(" ", maxBody) + "-->"
 	for _, tc := range []struct {
 		name string
@@ -582,7 +582,7 @@ func TestErrorBodyIsQuotedUpTo300Bytes(t *testing.T) {
 	f, c := newFake(t)
 	head := strings.Repeat("x", 300)
 	f.set(xmlURI("2025-07-15", "1024.41"), reply{status: 500, body: head + "TAIL"})
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	_, err := c.XML(context.Background(), s, "2025-07-15")
 	if err == nil || !strings.Contains(err.Error(), strconv.Quote(head)+"...") || strings.Contains(err.Error(), "TAIL") {
 		t.Errorf("err %v; want the first 300 bytes quoted, then ...", err)
@@ -621,7 +621,7 @@ func TestAnErrorBodyIsReadOnlyForItsSnippet(t *testing.T) {
 	var n int64
 	c.HTTP.Transport = countingTransport{c.HTTP.Transport, &n}
 	f.set(xmlURI("2025-07-15", "1024.41"), reply{status: 500, body: "boom" + strings.Repeat(" ", 4<<20), raw: true})
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	_, err := c.XML(context.Background(), s, "2025-07-15")
 	if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), `"boom`) {
 		t.Errorf("err %v; want the status and the body's start", err)
@@ -657,7 +657,7 @@ func TestAZeroClientHasADefaultHTTPClient(t *testing.T) {
 	rec := &deadlines{next: http.DefaultTransport}
 	http.DefaultTransport = rec
 	t.Cleanup(func() { http.DefaultTransport = rec.next })
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	nc := NewClient()
 	nc.BaseURL = c.BaseURL
 	for name, c := range map[string]*Client{"zero": {BaseURL: c.BaseURL}, "NewClient": nc} {
@@ -712,7 +712,7 @@ func TestTheCommittedRawXMLPasses(t *testing.T) {
 // TestFailuresNameTheURLAndTheCause: every failure is an error that names
 // the request and why, never a partial result.
 func TestFailuresNameTheURLAndTheCause(t *testing.T) {
-	s, _ := lookup("1024.41")
+	s, _ := sourceNamed("1024.41")
 	ctx := context.Background()
 	xml := func(c *Client) error { _, err := c.XML(ctx, s, "2025-07-15"); return err }
 	versions := func(c *Client) error { _, err := c.Versions(ctx, s); return err }

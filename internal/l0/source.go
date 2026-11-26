@@ -137,6 +137,15 @@ func Read(root string, s Source) (State, error) {
 	return st, nil
 }
 
+// Names is not built yet (plan step 7, red).
+func (st State) Names(s Source) error { return nil }
+
+// TreeJSON is not built yet (plan step 7, red).
+func (st State) TreeJSON(root string, s Source) ([]byte, bool, error) { return nil, false, nil }
+
+// CorpusRoot is not built yet (plan step 7, red).
+func CorpusRoot(root, dir, cmd string) error { return nil }
+
 // Overrides reports whether the source's directory holds an entry named
 // exactly overrides.yaml, whatever it is (a file, an empty one, a
 // directory, a symlink), as Read found it: the one record of that.

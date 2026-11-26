@@ -6,6 +6,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,8 +17,11 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/okja-engineering/reg-corpus/internal/anchors"
 	"github.com/okja-engineering/reg-corpus/internal/check"
 	"github.com/okja-engineering/reg-corpus/internal/ecfr"
+	"github.com/okja-engineering/reg-corpus/internal/meta"
+	"github.com/okja-engineering/reg-corpus/internal/parse"
 	"github.com/okja-engineering/reg-corpus/internal/verify"
 )
 
@@ -81,8 +85,8 @@ func TestUsageGivesEveryCommandsExitCodes(t *testing.T) {
 	run([]string{"help"}, in, out, errf)
 	u := read(t, out)
 	for _, want := range []string{
-		`"regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h" and`,
-		`"regcorpus parse -h" show their flags and their exit codes`,
+		`"regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h",`,
+		`"regcorpus parse -h" and "regcorpus text -h" show their flags and their`,
 		"verify exits 2 without an interactive terminal and 1 until it is built",
 		"A missing or unknown command exits 2.",
 	} {
@@ -104,6 +108,7 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		"meta set <section> version_effective_date YYYY-MM-DD",
 		`meta set <section> version_fr_citations "<vol> FR <page>" ...`,
 		"parse <section> ...",
+		"text [--json] <anchor>",
 		"verify <ID>",
 		"not implemented yet (plan step 19)",
 	} {
@@ -111,8 +116,10 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 			t.Errorf("usage %q lacks %q", u, want)
 		}
 	}
-	if strings.Contains(u, "plan step 6") {
-		t.Errorf("usage %q still says plan step 6 builds what it built", u)
+	for _, stale := range []string{"plan step 6", "plan step 7"} {
+		if strings.Contains(u, stale) {
+			t.Errorf("usage %q still says %s builds what it built", u, stale)
+		}
 	}
 	// The exit summary names fetch's findings, the one exit 1 that writes,
 	// and govinfo among what stops a command (worklist round 1, L3), read
@@ -123,6 +130,7 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		"a finding of fetch --verify or --latest",
 		"the one exit 1 that writes is fetch --verify's govinfo mismatch, which writes verified_on: null",
 		"2 anything that stops the command (usage, network, eCFR, govinfo,",
+		"an anchor text can't print (no such anchor, or one a later plan step builds)",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("usage lacks %q", want)
@@ -149,6 +157,9 @@ func TestDispatch(t *testing.T) {
 			`regcorpus meta: unknown section "1024.99"`},
 		{"parse help", []string{"parse", "-h"}, 0, "usage: regcorpus parse", ""},
 		{"parse unknown section", []string{"parse", "1024.99"}, 2, "", `regcorpus parse: unknown section "1024.99"`},
+		{"text help", []string{"text", "-h"}, 0, "usage: regcorpus text [--json] <anchor>\n", ""},
+		{"text no anchor", []string{"text"}, 2, "", "regcorpus text: no anchor"},
+		{"text not a corpus", []string{"text", "1024-41-b-2-i-B"}, 2, "", "regcorpus text: . is not a corpus root"},
 		{"verify without a terminal", []string{"verify", "RX-41-TEST-01"}, 2, "",
 			"regcorpus verify requires an interactive terminal (R2a); a person runs it\n"},
 	} {
@@ -258,6 +269,68 @@ func storedSource(t *testing.T, edit func(string) string) func(*testing.T) strin
 	}
 }
 
+// storedTree returns a maker of corpus roots, each holding 1024.41's
+// committed meta.yaml and tree.json (read, never written); with text given,
+// 1024-41-b-2-i-B's own text is text, and its sha256 and sha256_text agree
+// with it, so text prints it.
+func storedTree(t *testing.T, text string) func(*testing.T) string {
+	t.Helper()
+	dir := filepath.FromSlash("../../sources/ecfr/title-12/1024.41")
+	tb, err := os.ReadFile(filepath.Join(dir, "tree.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := os.ReadFile(filepath.Join(dir, "meta.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "" {
+		var tr parse.Tree
+		if err := json.Unmarshal(tb, &tr); err != nil {
+			t.Fatal(err)
+		}
+		m, err := meta.Parse(mb)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, n := range anchors.NewDocument(&tr).Nodes() {
+			if anchors.ID(tr.Section, n.Path) == "1024-41-b-2-i-B" {
+				n.Text, found = text, true
+				if n.SHA256, err = anchors.Hash(text); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("1024.41's tree.json has no 1024-41-b-2-i-B")
+		}
+		if m.SHA256Text, err = anchors.SHA256Text(&tr); err != nil {
+			t.Fatal(err)
+		}
+		if tb, err = anchors.EncodeTree(&tr); err != nil {
+			t.Fatal(err)
+		}
+		if mb, err = meta.Marshal(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return func(t *testing.T) string {
+		t.Helper()
+		root := t.TempDir()
+		src := filepath.Join(root, filepath.FromSlash("sources/ecfr/title-12/1024.41"))
+		if err := os.MkdirAll(src, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for name, b := range map[string][]byte{"tree.json": tb, "meta.yaml": mb} {
+			if err := os.WriteFile(filepath.Join(src, name), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return root
+	}
+}
+
 // TestEveryCommandWritesThroughTheSink: for every command run dispatches,
 // and for run's own lines, each stream holds byte for byte what the command
 // writes, a line per Write, through the sink (worklist round 4, §1). So a
@@ -270,7 +343,10 @@ func storedSource(t *testing.T, edit func(string) string) func(*testing.T) strin
 // No payload can reach stdout from check (a Violation quotes its path and
 // message), meta or parse (their lines are a source's name, its paths, a
 // sha256 and a value checked to its field's form) or, offline, fetch (its
-// stdout lines come only after eCFR answers, at a fixed URL). So for each
+// stdout lines come only after eCFR answers, at a fixed URL). text's can: it
+// prints an anchor's own text as tree.json stores it, so a row puts the
+// payload there, its hashes agreeing with it (textPayload: it holds no byte
+// that isn't UTF-8, which anchors.Hash refuses). So for each
 // command in commands one row puts a fake in its place, which writes the
 // payload to stdout and stderr: run's wiring is pinned there. verify writes
 // only fixed lines, run quotes an unknown command, and a raw file in place
@@ -284,6 +360,7 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		"fetch": ecfr.Main,
 		"meta":  ecfr.MetaMain,
 		"parse": ecfr.ParseMain,
+		"text":  ecfr.TextMain,
 	}
 	fake := func(_ []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, argPayload.raw)
@@ -303,6 +380,14 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		return strings.Replace(raw, "<HEAD>", "<"+namePayload.raw+">", 1)
 	})
 	notRoot := filepath.Join(t.TempDir(), argPayload.raw)
+	// textPayload is an own text that would forge a line and move the
+	// terminal, as argPayload, every character of it UTF-8.
+	textPayload := carried{
+		"(B) x\n" + forged + "\x1b[2K \u0085",
+		`(B) x\x0a` + forged + `\x1b[2K \u0085`,
+	}
+	tree := storedTree(t, "")
+	payloadTree := storedTree(t, textPayload.raw)
 	faked := map[string]bool{}
 	for _, tc := range []struct {
 		name string
@@ -365,6 +450,23 @@ func TestEveryCommandWritesThroughTheSink(t *testing.T) {
 		{name: "parse: a stored source", args: []string{"parse", "1024.41"}, root: stored, lines: true},
 		{name: "parse: a payload name in the raw XML", args: []string{"parse", "1024.41"}, root: badName, stderr: namePayload},
 		{name: "parse: the sinks", args: []string{"parse"}, fake: true, stdout: argPayload, stderr: argPayload},
+
+		{name: "text -h", args: []string{"text", "-h"}, lines: true},
+		{name: "text: no anchor", args: []string{"text"}},
+		{name: "text: two anchors", args: []string{"text", "1024-41-a", "1024-41-b"}},
+		{name: "text: a flag it doesn't know", args: []string{"text", "--bogus", "1024-41-a"}},
+		{name: "text: a payload flag", args: []string{"text", "-" + argPayload.raw, "1024-41-a"}, stderr: argPayload},
+		{name: "text: not the corpus root", args: []string{"text", "1024-41-b-2-i-B"}},
+		{name: "text: a payload anchor", args: []string{"text", argPayload.raw}, root: tree, stderr: quotedPayload},
+		{name: "text: an anchor", args: []string{"text", "1024-41-b-2-i-B"}, root: tree, lines: true},
+		{name: "text: --json", args: []string{"text", "--json", "1024-41-b-2"}, root: tree, lines: true},
+		{name: "text: no such anchor", args: []string{"text", "1024-41-z"}, root: tree},
+		{name: "text: a later step's anchor", args: []string{"text", "1024-31-day"}, root: tree},
+		{name: "text: a payload in the stored text", args: []string{"text", "1024-41-b-2-i-B"}, root: payloadTree,
+			stdout: textPayload, lines: true},
+		{name: "text: a payload in the stored text, --json", args: []string{"text", "--json", "1024-41-b-2-i-B"}, root: payloadTree,
+			lines: true},
+		{name: "text: the sinks", args: []string{"text"}, fake: true, stdout: argPayload, stderr: argPayload},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := tc.own
@@ -476,6 +578,7 @@ func TestBuiltBinaryExitCodes(t *testing.T) {
 		{"meta unknown section", []string{"meta", "set", "1024.99", "version_effective_date", "2025-07-15"}, 2, "",
 			`regcorpus meta: unknown section "1024.99"`},
 		{"parse unknown section", []string{"parse", "1024.99"}, 2, "", `regcorpus parse: unknown section "1024.99"`},
+		{"text no anchor", []string{"text"}, 2, "", "regcorpus text: no anchor"},
 		{"verify < /dev/null", []string{"verify", "RX-41-TEST-01"}, 2, "", "regcorpus verify requires an interactive terminal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

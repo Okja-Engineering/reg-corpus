@@ -416,7 +416,7 @@ func selectSources(args []string) ([]Source, error) {
 	}
 	out := make([]Source, 0, len(args))
 	for _, a := range args {
-		s, ok := lookup(a)
+		s, ok := sourceNamed(a)
 		if !ok {
 			return nil, fmt.Errorf("unknown section %q (known: %s)", a, strings.Join(names(), ", "))
 		}
