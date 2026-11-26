@@ -73,9 +73,9 @@ before the lock: their tree and sha256_text are plan step 9's.
      same paths, in the same order, each with the same sha256 of its
      normalized own text) and the stored sha256_text, else what differs is
      named: nodes, or the heading or a node's paragraph. The
-     normalized text is the version: bytes that differ but normalize alike pass, and
-     both sha256_raw values, with the nodes whose raw text differs, are
-     printed as information only.
+     normalized text is the version: bytes that differ but normalize
+     alike pass, and both sha256_raw values, with the nodes whose raw
+     text differs, are printed as information only.
   3. govinfo, only once step 2 passes: the section's granule XML in the
      CFR 2026 annual edition (title 12, revised as of 2026-01-01), asked of
      govinfo's link service and printed with its URL, DATE and sha256. It
@@ -85,13 +85,14 @@ before the lock: their tree and sha256_text are plan step 9's.
      SUBJECT, then one or more <P>s, none of only White_Space, and page
      breaks, then one citation note; no CDATA section, and no character
      reference to a space, a line break or any other White_Space
-     character. Its layout is deleted (each line break and up to 12 spaces after it, in each
-     run of text on its own), and nothing else: White_Space at an edge is
-     text. Its heading (SECTNO, one space, SUBJECT) and each paragraph
-     (<E>'s text kept, page breaks dropped, the citation note left out),
-     normalized, must equal the stored version's, one for one (what step
-     1 derived, not the fresh fetch), and joined and normalized as
-     sha256_text's are, must hash to the stored sha256_text.
+     character. Its layout is deleted (each line break and up to 12
+     spaces after it, in each run of text on its own), and nothing else:
+     White_Space at an edge is text. Its heading (SECTNO, one space,
+     SUBJECT) and each paragraph (<E>'s text kept, page breaks dropped,
+     the citation note left out), normalized, must equal the stored
+     version's, one for one (what step 1 derived, not the fresh fetch),
+     and joined and normalized as sha256_text's are, must hash to the
+     stored sha256_text.
 It holds the source's lock from the stored-state check through the write
 of verified_on, and writes only verified_on in meta.yaml (through
 internal/l0), keeping every other field. On a match it sets the run's UTC
