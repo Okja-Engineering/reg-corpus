@@ -100,7 +100,7 @@ VERSION  CHANGES.json             # after accept
    - A version is its date plus its normalized text: the tree's node paths in order, each node's `sha256`, and `sha256_text` (spec decision 14).
    - govinfo's granule, its layout deleted (each line break and up to 12 spaces after it), must hash to `sha256_text`; `verified_on` is the first matching run's UTC date, `null` on a mismatch.
    - `--verify` covers 1024.41; 1024.30 and 1024.31 are step 9's. `--latest` covers all three, writes nothing, and exits 1 when eCFR's latest version is newer or older than the stored one, or removed the section.
-7. `regcorpus text [--json] <anchor>` (ADR 0015): one anchor's own text, verbatim, its `sha256`, its children's anchor IDs and its source's `meta.yaml`, offline, from `meta.yaml` and `tree.json` alone; exact, case-sensitive anchor IDs. 1024.41's anchors resolve; 1024.30's and 1024.31's are step 9's, Supplement I's step 8's.
+7. `regcorpus text [--json] <anchor>` (ADR 0015): one anchor's own text, verbatim, its `sha256`, its children's anchor IDs and its source's `meta.yaml`, offline, from the source's stored files, derived again from its raw XML as `fetch --verify` does; exact, case-sensitive anchor IDs. 1024.41's anchors resolve; 1024.30's and 1024.31's are step 9's, Supplement I's step 8's.
 
 ### Weekend 2 (Nov 28–29): rest of L0, eval freeze, early arm (a), schema, start extraction
 8. **Supplement I:** parse the whole appendix and slice out the 41() comments.

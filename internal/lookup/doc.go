@@ -26,8 +26,8 @@
 //     errors are typed (ErrNotRoot, ErrNoSource, ErrNotBuilt, ErrNoAnchor;
 //     errors.Is), a stored file's refusal an *l0.Conflict, so C6's quote
 //     matching (plan step 13), inventory --init (14), show (15) and verify
-//     (19) can resolve anchors with the same meaning. It takes about 2 ms
-//     for 1024.41, most of it anchors.Build.
+//     (19) can resolve anchors with the same meaning. A call takes about 5 ms
+//     for 1024.41, about half of it anchors.Build.
 //   - TextMain (text.go) prints the anchor's own text, verbatim, its
 //     sha256, its children's anchor IDs (the owner's F1 call: never their
 //     text) and every line of its source's meta.yaml as meta.Marshal
