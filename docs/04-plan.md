@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012; 2026-11-24 by ADR 0013; 2026-11-25 by ADR 0014
+- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012; 2026-11-24 by ADR 0013; 2026-11-25 by ADR 0014; 2026-11-26 by ADR 0015
 - **Spec:** `docs/03-spec.md`
 - **Appetite:** four weekends plus the following week as buffer; decision by 2026-12-20
 
@@ -29,13 +29,13 @@ Makefile                          # setup, build (CORPUS_REF, LOOKUP_ONLY), test
 .github/workflows/c6.yml          # the C6 gate (ADR 0007): .github/c6.sh runs C6 with the checker .githooks/build-checker.sh builds
 cmd/regcorpus/main.go             # fetch, meta, parse, check, inventory, verify, upgrade, release, show, text, topics, version
 internal/sink/                    # stdout and stderr: every line regcorpus writes, control characters and line separators escaped (ADR 0014)
-internal/ecfr/                    # versioner and govinfo client; full/{date} XML; fetch (--verify, --latest), meta set and parse
+internal/ecfr/                    # versioner and govinfo client; full/{date} XML; fetch (--verify, --latest), meta set, parse and text's handler
 internal/govinfo/                 # the govinfo 2026 granule: its checks, the layout rule, heading and paragraphs (ADR 0014)
 internal/meta/                    # meta.yaml schema: strict parse and render (ADR 0010)
 internal/l0/                      # stored L0 files: store once, the stored-state check, meta.yaml updates (ADR 0010), derived files (ADR 0013)
 internal/parse/                   # deterministic label state machine: XML → tree.json (R1a)
 internal/anchors/                 # tree → anchors, text.md, normalization, per-node hashes, the operative test, joins (ADR 0013)
-internal/lookup/                  # show, text, topics
+internal/lookup/                  # show, text, topics; the anchor resolver (ADR 0015)
 internal/registry/                # record, anchor-rule, inventory types; schema validation
 internal/verify/                  # interactive verification; verify.log
 internal/check/                   # C1–C5 (consumer), C6 per-commit and --complete (corpus)
@@ -100,7 +100,7 @@ VERSION  CHANGES.json             # after accept
    - A version is its date plus its normalized text: the tree's node paths in order, each node's `sha256`, and `sha256_text` (spec decision 14).
    - govinfo's granule, its layout deleted (each line break and up to 12 spaces after it), must hash to `sha256_text`; `verified_on` is the first matching run's UTC date, `null` on a mismatch.
    - `--verify` covers 1024.41; 1024.30 and 1024.31 are step 9's. `--latest` covers all three, writes nothing, and exits 1 when eCFR's latest version is newer or older than the stored one, or removed the section.
-7. `regcorpus text <anchor>`.
+7. `regcorpus text [--json] <anchor>` (ADR 0015): one anchor's own text, verbatim, its `sha256`, its children's anchor IDs and its source's `meta.yaml`, offline, from `meta.yaml` and `tree.json` alone; exact, case-sensitive anchor IDs. 1024.41's anchors resolve; 1024.30's and 1024.31's are step 9's, Supplement I's step 8's.
 
 ### Weekend 2 (Nov 28–29): rest of L0, eval freeze, early arm (a), schema, start extraction
 8. **Supplement I:** parse the whole appendix and slice out the 41() comments.
@@ -181,7 +181,7 @@ VERSION  CHANGES.json             # after accept
 | R2a | `regcorpus check --staging` on a bad quote and on a duplicate | Non-zero exit for each; every record names its prompt version |
 | R4/R5 | `regcorpus check` in `eval/levels/strict` and in `eval/fixture`; `make negative` | Exit 0 on strict; on the fixture, non-zero, reporting exactly the `check_detectable` seeds; each negative exits non-zero with its rule ID |
 | R7 | `eval/results/<date>.yaml` | 30 runs, each with model ID, arm, command, transcript, recall, precision and trace rate; judge-to-author agreement; decision 5 per model; the final decision |
-| R8 | `regcorpus show RX-41-ACK-01`; `regcorpus topics acknowledgment`; `regcorpus topics xyz` | The record prints with verbatim text and its anchor rules; the ID is listed; the unknown term exits non-zero |
+| R8 | `regcorpus show RX-41-ACK-01`; `regcorpus topics acknowledgment`; `regcorpus topics xyz`; `regcorpus text 1024-41-b-2-i-B`; `regcorpus text 1024-41-z` | The record prints with verbatim text and its anchor rules; the ID is listed; the unknown term exits non-zero; the anchor's own text and its source metadata print; the unknown anchor exits non-zero |
 | R9 | `regcorpus check --corpus`; `wc -l skill/regcorpus/SKILL.md` | No 8-word anchor run in the skill; body under 100 lines |
 | R10 | `eval/walk/<date>.md` | The fresh session names the verify contract and the correct staged record |
 | R11 | `eval/guard/<date>.md` | `--no-verify`, a `registry/` edit and `regcorpus verify` are each blocked |

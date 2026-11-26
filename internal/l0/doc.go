@@ -31,8 +31,14 @@
 //     case, whatever it is. Stored is the check every writer of a meta.yaml
 //     makes before writing anything: the meta.yaml names the source as the
 //     source table does (cfr, tier, role, source, official;
-//     Source.Identity), and raw/ holds exactly
+//     Source.Identity; State.Names), and raw/ holds exactly
 //     raw/<source_version_date>.xml, a regular file with sha256_raw's bytes.
+//     A reader that reads no raw XML (`regcorpus text`, internal/lookup,
+//     plan step 7, ADR 0015) makes State.Names alone, and reads tree.json
+//     through State.TreeJSON, a regular file by exact name as Read found
+//     it. CorpusRoot is the one check that a root is the corpus root (a
+//     real sources/ecfr/title-12/), which internal/ecfr's commands and
+//     internal/lookup's share.
 //   - Update is how an existing meta.yaml is changed, and the only writer of
 //     a source's derived files (tree.json, text.md): under the source's lock
 //     (flock(2) on its directory, so one Update per source at a time, across
@@ -51,8 +57,10 @@
 //
 // The source table (cfr, tier, role per source) is unexported, in
 // internal/ecfr (sources.go); a caller passes each Source from it. fetch,
-// meta set, parse, fetch --verify and fetch --latest have their handlers in
-// internal/ecfr; parse's passes its Source to internal/anchors, which does
-// the work, so the table stays where it is (the chief of staff's choice,
-// ADR 0013). A refusal is a *Conflict (exit 1). It holds no rule content.
+// meta set, parse, fetch --verify, fetch --latest and text have their
+// handlers in internal/ecfr; parse's passes its Source to internal/anchors,
+// which does the work, so the table stays where it is (the chief of
+// staff's choice, ADR 0013), and text's passes the table to
+// internal/lookup, which reads (ADR 0015). A refusal is a *Conflict (exit
+// 1). It holds no rule content.
 package l0

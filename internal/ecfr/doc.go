@@ -179,6 +179,15 @@
 //     printed as it writes them, and a name there may hold a C1 control or
 //     a separator (U+0085, U+2028): the sink escapes it.
 //
+// Built (plan step 7; ADR 0015): `regcorpus text [--json] <anchor>`
+// (textcmd.go). Its handler is here, as parse's is, because the source
+// table is (the chief of staff's F7): TextMain passes the table to
+// internal/lookup as a lookup.Corpus, each source by its name, its stored
+// form and its Goldens as Pending (1024.30's and 1024.31's anchors are plan
+// step 9's), and internal/lookup resolves and prints, offline. The corpus
+// root check every command here makes is l0.CorpusRoot (checkRoot), which
+// internal/lookup shares.
+//
 // TODO(plan step 8): Supplement I, an appendix source fetched whole, its
 // --verify and --latest's slice-hash clause.
 package ecfr

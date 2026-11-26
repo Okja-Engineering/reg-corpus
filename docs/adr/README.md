@@ -41,3 +41,4 @@ the sentences that now describe the past, and leaves them as written.
 | [0012](0012-labels-count-in-the-paragraph-lead.md) | A label counts in a paragraph's lead; the next label decides (i)/(v)/(x) | Accepted |
 | [0013](0013-cites-join-as-the-document-reads.md) | A cite joins as the document reads; a heading's separator is not operative text | Accepted |
 | [0014](0014-normalized-text-is-the-version.md) | Normalized text is the version; govinfo is compared exactly, its layout deleted | Accepted |
+| [0015](0015-text-prints-own-text-and-child-ids.md) | `regcorpus text` prints one anchor's own text, its children's IDs and its source's `meta.yaml` | Accepted |
