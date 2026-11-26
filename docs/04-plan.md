@@ -28,6 +28,7 @@ Makefile                          # setup, build (CORPUS_REF, LOOKUP_ONLY), test
 .githooks/pre-commit              # per-commit C6 (a seatbelt)
 .github/workflows/c6.yml          # the C6 gate (ADR 0007): .github/c6.sh runs C6 with the checker .githooks/build-checker.sh builds
 cmd/regcorpus/main.go             # fetch, meta, parse, check, inventory, verify, upgrade, release, show, text, topics, version
+internal/sink/                    # stdout and stderr: every line regcorpus writes, control characters and line separators escaped (ADR 0014)
 internal/ecfr/                    # versioner and govinfo client; full/{date} XML; fetch (--verify, --latest), meta set and parse
 internal/govinfo/                 # the govinfo 2026 granule: its checks, the layout rule, heading and paragraphs (ADR 0014)
 internal/meta/                    # meta.yaml schema: strict parse and render (ADR 0010)

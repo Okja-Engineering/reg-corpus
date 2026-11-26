@@ -21,8 +21,10 @@
 # nothing else: no edge is trimmed; the heading SECTNO, one space, SUBJECT;
 # <E> markup dropped and its text kept; PRTPAGE dropped; the CITA left out),
 # which must equal the stored sha256_text, and how many of its paragraphs
-# match eCFR's, each side normalized as it is. internal/govinfo's
-# granule_test.go pins it:
+# match eCFR's, each side normalized as it is. It is run and pinned on
+# 1024.41 only: the 8 of 8 and 24 of 24 paragraphs ADR 0014 gives for
+# 1024.30 and 1024.31 are Go's, which the review hunters' own oracles
+# confirmed. internal/govinfo's granule_test.go pins it:
 #
 #   python3 -I internal/anchors/testdata/oracle.py \
 #       sources/ecfr/title-12/1024.41/raw/2025-07-15.xml \
