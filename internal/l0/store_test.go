@@ -61,6 +61,42 @@ func TestALinkThatFindsAFileComparesIt(t *testing.T) {
 	}
 }
 
+// TestStoreOnceComparesOnlyARegularFile: what is at the path is compared
+// only when it is a regular file. A symlink there, even to a file holding
+// the same bytes, or a directory, is a conflict, and is left as it was: a
+// file is never read, or reported unchanged, through a link (worklist
+// round 1, §2: IO-F6).
+func TestStoreOnceComparesOnlyARegularFile(t *testing.T) {
+	for _, kind := range []string{"a symlink to the same bytes", "a directory"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			at := filepath.Join(root, "d", "f.xml")
+			if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if kind == "a directory" {
+				err = os.Mkdir(at, 0o755)
+			} else {
+				putFile(t, root, "elsewhere.xml", "ours")
+				err = os.Symlink(filepath.Join(root, "elsewhere.xml"), at)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := StoreOnce(root, "d/f.xml", []byte("ours"))
+			var conflict *Conflict
+			if stored || !errors.As(err, &conflict) || !strings.Contains(err.Error(), "d/f.xml") {
+				t.Errorf("stored %v, err %v; want a conflict naming d/f.xml", stored, err)
+			}
+			info, err := os.Lstat(at)
+			if err != nil || info.Mode().IsRegular() {
+				t.Errorf("d/f.xml: %v, %v; want it left as it was", info, err)
+			}
+		})
+	}
+}
+
 // TestStoreOnceMatchesTheFileExactly: StoreOnce finds the file it stores by
 // exact name among its directory's entries, as RealDirs finds a directory.
 // An entry whose name differs from it only in case (a long s too), holding

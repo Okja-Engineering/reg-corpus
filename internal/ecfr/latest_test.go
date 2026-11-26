@@ -91,30 +91,99 @@ func TestLatestFailsWhenTheLatestRemovedIt(t *testing.T) {
 	f.set(versionsURI("1024.31"), reply{body: strings.Replace(versions31, `],"meta"`,
 		`,{"date":"2026-02-01","issue_date":"2026-02-01","identifier":"1024.31","removed":true}],"meta"`, 1)})
 	code, stdout, stderr := latestAt(t, root, c)
-	if code != 1 || !strings.Contains(stderr, "regcorpus fetch: 1024.31: ") || !strings.Contains(stderr, "removed it") {
-		t.Errorf("exit %d, stderr %q; want 1 and an error saying the latest version removed 1024.31", code, stderr)
-	}
-	if !strings.Contains(stdout, "1024.31: stored source_version_date 2025-07-15, eCFR's latest 2026-02-01: newer versions 2026-02-01 (removed)\n") {
+	const line = "stored source_version_date 2025-07-15, eCFR's latest 2026-02-01 (removed): newer versions 2026-02-01 (removed)"
+	if !strings.Contains(stdout, "1024.31: "+line+"\n") {
 		t.Errorf("stdout %q lacks 1024.31's removal", stdout)
+	}
+	if want := "regcorpus fetch: 1024.31: " + line + " (R1b); nothing is written\n"; code != 1 || stderr != want {
+		t.Errorf("exit %d, stderr %q; want 1 and %q, what stdout says", code, stderr, want)
+	}
+}
+
+// TestLatestReadsEcfrsLatestFromTheList: eCFR's latest is the list's own
+// newest date, never the stored one, so each fact printed is true, and
+// stdout and stderr say one thing (worklist round 1, §5: B2, B6b). A list
+// whose newest date is before the stored one, or whose entry at the
+// stored date removed the section, exits 1 and writes nothing.
+func TestLatestReadsEcfrsLatestFromTheList(t *testing.T) {
+	const entry41 = `{"date":"2025-07-15","amendment_date":"2025-07-15","issue_date":"2025-07-15","identifier":"1024.41","substantive":true,"removed":false,"type":"section"},`
+	for _, tc := range []struct{ name, list, line string }{
+		{"the newest before the stored date", strings.Replace(versions41, entry41, "", 1),
+			"stored source_version_date 2025-07-15, eCFR's latest 2025-05-16: eCFR no longer lists the stored version as latest"},
+		{"the stored date's entry removed it", strings.Replace(versions41, `],"meta"`,
+			`,{"date":"2025-07-15","issue_date":"2025-08-01","identifier":"1024.41","removed":true}],"meta"`, 1),
+			"stored source_version_date 2025-07-15, eCFR's latest 2025-07-15 (removed): the latest version removed it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.list == versions41 {
+				t.Fatal("the case doesn't change the list")
+			}
+			f, c := newFake(t)
+			f.set(versionsURI("1024.41"), reply{body: tc.list})
+			root := storedAll(t)
+			before := tree(t, root)
+			code, stdout, stderr := latestAt(t, root, c, "1024.41")
+			if code != 1 || stdout != "1024.41: "+tc.line+"\n" || stderr != "regcorpus fetch: 1024.41: "+tc.line+" (R1b); nothing is written\n" {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1 and %q on both", code, stdout, stderr, tc.line)
+			}
+			if !equalTrees(before, tree(t, root)) {
+				t.Errorf("files changed")
+			}
+		})
+	}
+}
+
+// TestLatestChecksTheStoredStateFirst: --latest reads a meta.yaml only
+// after the check every writer of one makes (l0's Stored), so one that
+// doesn't describe its raw file exits 1 before its version list is asked.
+func TestLatestChecksTheStoredStateFirst(t *testing.T) {
+	f, c := newFake(t)
+	root := storedAll(t)
+	writeFile(t, root, rawPath("1024.41"), "<DIV8>other bytes</DIV8>")
+	code, stdout, stderr := latestAt(t, root, c, "1024.41")
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "is not the raw file") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 1 and the stored-state refusal", code, stdout, stderr)
+	}
+	if asked(f, apiPath+"/versions/") {
+		t.Errorf("the version list was asked")
 	}
 }
 
 // TestLatestNotesAReissueOfTheStoredDate: an entry for the stored date
-// issued after retrieved_at is printed as information and doesn't change
-// the exit code (F1: A); one issued before it isn't printed.
+// issued on or after the day retrieved_at names, a UTC date, is printed as
+// information and doesn't change the exit code (F1: A); one issued before
+// it isn't. An issue date on retrieved_at's day may be before or after the
+// fetch, which no date says, so it is noted (worklist round 1, §8).
 func TestLatestNotesAReissueOfTheStoredDate(t *testing.T) {
 	for _, tc := range []struct {
 		issued string
 		note   bool
-	}{{"2026-11-24", true}, {"2026-11-22", false}, {"2026-11-01", false}} {
+	}{{"2026-11-24", true}, {"2026-11-22", true}, {"2026-11-21", false}, {"2026-11-01", false}} {
 		f, c := newFake(t)
 		root := storedAll(t) // 1024.41's meta.yaml: retrieved_at 2026-11-22
 		f.set(versionsURI("1024.41"), reply{body: strings.Replace(versions41, `],"meta"`,
 			`,{"date":"2025-07-15","issue_date":"`+tc.issued+`","identifier":"1024.41","substantive":false,"removed":false}],"meta"`, 1)})
 		code, stdout, stderr := latestAt(t, root, c, "1024.41")
-		note := "1024.41: information: eCFR lists 2025-07-15 reissued on " + tc.issued + ", after retrieved_at 2026-11-22; regcorpus fetch --verify 1024.41 compares its text\n"
+		note := "1024.41: information: eCFR lists 2025-07-15 with issue_date " + tc.issued + ", issued on or after the day the stored file was fetched (retrieved_at 2026-11-22); run regcorpus fetch --verify 1024.41\n"
 		if code != 0 || stderr != "" || strings.Contains(stdout, note) != tc.note {
 			t.Errorf("issued %s: exit %d, stdout %q, stderr %q; want 0, the note %t", tc.issued, code, stdout, stderr, tc.note)
+		}
+	}
+}
+
+// TestLatestNotesAMalformedIssueDate: issue_date is read only for
+// --latest's note, so one that isn't a date there prints a note and
+// doesn't fail (worklist round 1, §6).
+func TestLatestNotesAMalformedIssueDate(t *testing.T) {
+	for _, issued := range []string{`"2025-8-1"`, `"2025-02-30"`, `20250801`} {
+		f, c := newFake(t)
+		root := storedAll(t)
+		f.set(versionsURI("1024.41"), reply{body: strings.Replace(versions41, `],"meta"`,
+			`,{"date":"2025-07-15","issue_date":`+issued+`,"identifier":"1024.41","removed":false}],"meta"`, 1)})
+		code, stdout, stderr := latestAt(t, root, c, "1024.41")
+		note := "1024.41: information: eCFR lists 2025-07-15 with issue_date " + strings.Trim(issued, `"`) + ", not a YYYY-MM-DD date, so whether it was reissued since it was fetched is unknown; run regcorpus fetch --verify 1024.41\n"
+		if code != 0 || stderr != "" || !strings.Contains(stdout, note) {
+			t.Errorf("issue_date %s: exit %d, stdout %q, stderr %q; want 0 and the note %q", issued, code, stdout, stderr, note)
 		}
 	}
 }

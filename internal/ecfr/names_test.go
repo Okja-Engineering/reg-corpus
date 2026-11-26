@@ -109,6 +109,12 @@ func TestEveryCommandFindsEachNameExactly(t *testing.T) {
 		unlistable := map[string]bool{}
 		for _, p := range cmd.reaches {
 			dir, base := path.Dir(p), path.Base(p)
+			// A name under .cache/, a disposable cache and not L0, is the
+			// cache's failure: exit 2 (worklist round 1, §2).
+			refused := 1
+			if strings.HasPrefix(p, ".cache") {
+				refused = 2
+			}
 			var variants []string
 			if v := strings.ToUpper(base); v != base {
 				variants = append(variants, v)
@@ -132,7 +138,7 @@ func TestEveryCommandFindsEachNameExactly(t *testing.T) {
 					} else {
 						writeFile(t, root, vp, "x")
 					}
-					check(t, cmd, root, 1, vp, func() {})
+					check(t, cmd, root, refused, vp, func() {})
 				})
 				t.Run(cmd.name+", "+vp+" beside "+base, func(t *testing.T) {
 					root := fetched(t)
@@ -154,7 +160,7 @@ func TestEveryCommandFindsEachNameExactly(t *testing.T) {
 					case err != nil:
 						t.Fatal(err)
 					}
-					check(t, cmd, root, 1, vp, func() {})
+					check(t, cmd, root, refused, vp, func() {})
 				})
 			}
 			if unlistable[dir] {

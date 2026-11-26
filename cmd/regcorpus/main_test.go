@@ -102,7 +102,7 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		"check --corpus [--root DIR] [--tree TREE-ISH]",
 		"fetch [--date YYYY-MM-DD | --verify | --latest] [section ...]",
 		"--verify: compare each stored section with a fresh fetch and the",
-		"--latest: exit 1 if eCFR lists a newer version of a stored section",
+		"--latest: exit 1 unless eCFR's latest version of each stored",
 		"meta set <section> version_effective_date YYYY-MM-DD",
 		`meta set <section> version_fr_citations "<vol> FR <page>" ...`,
 		"parse <section> ...",
@@ -115,6 +115,20 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 	}
 	if strings.Contains(u, "plan step 6") {
 		t.Errorf("usage %q still says plan step 6 builds what it built", u)
+	}
+	// The exit summary names fetch's findings, the one exit 1 that writes,
+	// and govinfo among what stops a command (worklist round 1, L3), read
+	// with its line breaks as spaces.
+	flat := strings.Join(strings.Fields(u), " ")
+	for _, want := range []string{
+		"it is newer, older, or removed the section",
+		"a finding of fetch --verify or --latest",
+		"the one exit 1 that writes is fetch --verify's govinfo mismatch, which writes verified_on: null",
+		"2 anything that stops the command (usage, network, eCFR, govinfo,",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("usage lacks %q", want)
+		}
 	}
 }
 

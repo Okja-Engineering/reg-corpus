@@ -40,25 +40,36 @@ func TestVersionsReadEachIssueDate(t *testing.T) {
 	if got["2021-08-31"] != "2023-03-29" || got["2025-07-15"] != "2025-07-15" {
 		t.Errorf("issue dates %v; want 2021-08-31 issued 2023-03-29 (a reissue) and 2025-07-15 issued 2025-07-15", got)
 	}
-	for _, tc := range []struct {
-		name, entry string
-		want        Date // "" with ok: no issue date
-		ok          bool
-	}{
-		{"absent", `{"date":"2025-07-15","identifier":"1024.41"}`, "", true},
-		{"a date", `{"date":"2025-07-15","issue_date":"2025-08-01","identifier":"1024.41"}`, "2025-08-01", true},
-		{"not YYYY-MM-DD", `{"date":"2025-07-15","issue_date":"2025-8-1","identifier":"1024.41"}`, "", false},
-		{"empty", `{"date":"2025-07-15","issue_date":"","identifier":"1024.41"}`, "", false},
+	// issue_date is read only by --latest's note, which checks it there: the
+	// list keeps it as listed, and one that isn't a date fails nothing, as
+	// on main (worklist round 1, §6).
+	for _, tc := range []struct{ name, entry, want string }{
+		{"absent", `{"date":"2025-07-15","identifier":"1024.41"}`, ""},
+		{"null", `{"date":"2025-07-15","issue_date":null,"identifier":"1024.41"}`, ""},
+		{"a date", `{"date":"2025-07-15","issue_date":"2025-08-01","identifier":"1024.41"}`, "2025-08-01"},
+		{"not YYYY-MM-DD", `{"date":"2025-07-15","issue_date":"2025-8-1","identifier":"1024.41"}`, "2025-8-1"},
+		{"empty", `{"date":"2025-07-15","issue_date":"","identifier":"1024.41"}`, ""},
+		{"a number", `{"date":"2025-07-15","issue_date":20250801,"identifier":"1024.41"}`, "20250801"},
 	} {
 		f, c := newFake(t)
 		f.set(versionsURI("1024.41"), reply{body: `{"content_versions":[` + tc.entry + `]}`})
 		vs, err := c.Versions(context.Background(), s)
-		switch {
-		case tc.ok && (err != nil || len(vs) != 1 || vs[0].IssueDate != tc.want):
-			t.Errorf("%s: %v, %v; want issue date %q", tc.name, vs, err, tc.want)
-		case !tc.ok && (err == nil || !strings.Contains(err.Error(), "issue_date")):
-			t.Errorf("%s: %v, %v; want an error naming issue_date", tc.name, vs, err)
+		if err != nil || len(vs) != 1 || string(vs[0].IssueDate) != tc.want {
+			t.Errorf("%s: %v, %v; want issue date %q and no error", tc.name, vs, err, tc.want)
 		}
+	}
+}
+
+// TestGranuleErrorsNameTheURLThatFailed: after the link service's
+// redirect, an error names the URL that failed, not only the link
+// (worklist round 1, §9: IO-F3).
+func TestGranuleErrorsNameTheURLThatFailed(t *testing.T) {
+	f, c := newFake(t)
+	f.set(govLink41, govRedirect(govContent41))
+	f.set(govContent41, reply{status: http.StatusNotFound, body: "no such granule", raw: true})
+	_, _, err := c.Granule(context.Background(), "1024.41")
+	if err == nil || !strings.Contains(err.Error(), c.Govinfo+govContent41) || !strings.Contains(err.Error(), "404") {
+		t.Errorf("err %v; want one naming 404 and %s", err, c.Govinfo+govContent41)
 	}
 }
 

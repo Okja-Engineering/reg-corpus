@@ -265,6 +265,20 @@ func TestNamedSectionsOnly(t *testing.T) {
 	}
 }
 
+// TestPlainFetchIgnoresIssueDates: plain fetch doesn't read issue_date, so
+// one that isn't a date fails nothing, as on main (worklist round 1, §6).
+func TestPlainFetchIgnoresIssueDates(t *testing.T) {
+	for _, issued := range []string{`"2025-8-1"`, `"2025-02-30"`, `20250801`} {
+		f, c := newFake(t)
+		f.set(versionsURI("1024.41"), reply{body: strings.Replace(versions41, `],"meta"`,
+			`,{"date":"2021-08-31","issue_date":`+issued+`,"identifier":"1024.41","removed":false}],"meta"`, 1)})
+		root := corpusRoot(t)
+		if code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "1024.41"); code != 0 || !strings.Contains(stdout, "stored "+rawPath("1024.41")) {
+			t.Errorf("issue_date %s: exit %d, stdout %q, stderr %q; want 0 and the raw file stored", issued, code, stdout, stderr)
+		}
+	}
+}
+
 // TestDateWritesOnlyUnderCache: --date fetches that point in time into
 // .cache/, never into sources/, and writes no meta.yaml.
 func TestDateWritesOnlyUnderCache(t *testing.T) {
@@ -666,8 +680,14 @@ func TestEveryDirectoryOnTheWayIsReal(t *testing.T) {
 			}
 			before, beforeOutside := tree(t, root), tree(t, outside)
 			code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", append(tc.args, "1024.41")...)
-			if code != 1 || stdout != "" || !strings.Contains(stderr, "not a real directory") || !strings.Contains(stderr, tc.link+tc.file) {
-				t.Errorf("exit %d, stdout %q, stderr %q; want 1 naming %s as not a real directory", code, stdout, stderr, tc.link+tc.file)
+			// Under .cache/, a disposable cache and not L0, it is the cache's
+			// failure: exit 2 (worklist round 1, §2).
+			want := 1
+			if strings.HasPrefix(tc.link+tc.file, ".cache") {
+				want = 2
+			}
+			if code != want || stdout != "" || !strings.Contains(stderr, "not a real directory") || !strings.Contains(stderr, tc.link+tc.file) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want %d naming %s as not a real directory", code, stdout, stderr, want, tc.link+tc.file)
 			}
 			if !equalTrees(before, tree(t, root)) || !equalTrees(beforeOutside, tree(t, outside)) {
 				t.Errorf("files changed under the root or outside it")
@@ -867,7 +887,9 @@ func TestFailuresBeforeTheXMLExitTwoAndStoreNothing(t *testing.T) {
 }
 
 // TestDateGuards: --date stores under .cache/ by the same rules as sources/:
-// the body must be the section's XML, and a cached file is never overwritten.
+// the body must be the section's XML, and a cached file is never
+// overwritten, nor read through a symlink. A cache that can't keep it is
+// the cache's failure, said as one (exit 2; worklist round 1, §2).
 func TestDateGuards(t *testing.T) {
 	cached := ".cache/ecfr/title-12/1024.41/2025-05-15.xml"
 	t.Run("a cached file with other bytes", func(t *testing.T) {
@@ -875,11 +897,31 @@ func TestDateGuards(t *testing.T) {
 		root := corpusRoot(t)
 		writeFile(t, root, cached, "<DIV8>other</DIV8>")
 		code, _, stderr := fetchAt(t, root, c, "2026-11-22", "--date", "2025-05-15", "1024.41")
-		if code != 1 || !strings.Contains(stderr, cached) {
-			t.Errorf("exit %d, stderr %q; want 1 naming %s", code, stderr, cached)
+		if code != 2 || !strings.Contains(stderr, cached) || !strings.Contains(stderr, "disposable cache") || !strings.Contains(stderr, "may be deleted") {
+			t.Errorf("exit %d, stderr %q; want 2 naming %s as a disposable cache that may be deleted", code, stderr, cached)
 		}
 		if got := readFile(t, root, cached); got != "<DIV8>other</DIV8>" {
 			t.Errorf("%s overwritten with %q", cached, got)
+		}
+	})
+	t.Run("a symlink at the cached file, to the same bytes", func(t *testing.T) {
+		_, c := newFake(t)
+		root := corpusRoot(t)
+		writeFile(t, root, "elsewhere.xml", xmlBody("1024.41", "2025-05-15"))
+		at := filepath.Join(root, filepath.FromSlash(cached))
+		if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(root, "elsewhere.xml"), at); err != nil {
+			t.Fatal(err)
+		}
+		before := tree(t, root)
+		code, stdout, stderr := fetchAt(t, root, c, "2026-11-22", "--date", "2025-05-15", "1024.41")
+		if code != 2 || stdout != "" || !strings.Contains(stderr, cached) || !strings.Contains(stderr, "not a regular file") {
+			t.Errorf("exit %d, stdout %q, stderr %q; want 2 naming %s as not a regular file", code, stdout, stderr, cached)
+		}
+		if !equalTrees(before, tree(t, root)) {
+			t.Errorf("files changed")
 		}
 	})
 	t.Run("a body that isn't the section's XML", func(t *testing.T) {

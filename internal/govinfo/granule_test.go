@@ -282,6 +282,116 @@ func TestReadRefusesWhatIsNotTheSectionsGranule(t *testing.T) {
 	}
 }
 
+// TestReadRefusesWhatItDoesNotRead: a structure the reader doesn't read is
+// refused, never read past (ADR 0014; worklist round 1, §3 and §4): in the
+// root, only the FDSYS and then one SECTION; in the FDSYS, only the
+// elements a granule's FDSYS holds (CFRTITLE, CFRTITLETEXT, VOL, DATE,
+// COVERONLY, ORIGINALDATE, ANCESTORS of PARENTs), naming title 12 and the
+// section's part; a DATE only there; an attribute only where govinfo's
+// granules have one; the DATE and the SECTNO each one run of plain
+// character data; no comment or processing instruction; no CR, and no
+// character reference to a CR or an LF, so every line break deleted as
+// layout is a literal LF; and no empty <P>.
+func TestReadRefusesWhatItDoesNotRead(t *testing.T) {
+	ok := granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", twoParas)
+	if _, err := govinfo.Read([]byte(ok), "1024.41", govinfo.EditionDate); err != nil {
+		t.Fatalf("the base granule: %v", err)
+	}
+	for _, tc := range []struct{ name, granule string }{
+		{"a P outside the SECTION", strings.Replace(ok, "    <SECTION>", "    <P>(z) x.</P>\n    <SECTION>", 1)},
+		{"an APPENDIX beside the SECTION", strings.Replace(ok, "</SECTION>", "</SECTION>\n    <APPENDIX>x</APPENDIX>", 1)},
+		{"an EDNOTE before the FDSYS", strings.Replace(ok, "    <FDSYS>", "    <EDNOTE>x</EDNOTE>\n    <FDSYS>", 1)},
+		{"text in the root", strings.Replace(ok, "</FDSYS>", "</FDSYS>\n    stray", 1)},
+		{"the SECTION before the FDSYS", strings.Replace(strings.Replace(ok, "<FDSYS>", "<SECTION><SECTNO>§ 1024.41</SECTNO><SUBJECT>x</SUBJECT><P>(a) x.</P></SECTION><FDSYS>", 1),
+			"    <SECTION>\n", "    <X>\n", 1)},
+		{"an extra empty SECTION", strings.Replace(ok, "</SECTION>", "</SECTION>\n    <SECTION/>", 1)},
+		{"an unknown element in the FDSYS", strings.Replace(ok, "<CFRTITLE>", "<EXTRA>x</EXTRA><CFRTITLE>", 1)},
+		{"text in the FDSYS", strings.Replace(ok, "<CFRTITLE>", "stray<CFRTITLE>", 1)},
+		{"an element in a PARENT", strings.Replace(ok, "SEQ=\"1\">REAL", "SEQ=\"1\"><E T=\"03\">x</E>REAL", 1)},
+		{"title 24", strings.Replace(ok, "<CFRTITLE>12</CFRTITLE>", "<CFRTITLE>24</CFRTITLE>", 1)},
+		{"no CFRTITLE", strings.Replace(ok, "<CFRTITLE>12</CFRTITLE>", "", 1)},
+		{"another part", strings.Replace(ok, `HEADING="PART 1024"`, `HEADING="PART 1025"`, 1)},
+		{"no part", strings.Replace(ok, `HEADING="PART 1024"`, `HEADING="SUBPART C"`, 1)},
+		{"a DATE in the root", strings.Replace(ok, "</FDSYS>", "</FDSYS>\n    <DATE>2026-01-01</DATE>", 1)},
+		{"a DATE in the ANCESTORS", strings.Replace(ok, "<ANCESTORS>", "<ANCESTORS><DATE>2026-01-01</DATE>", 1)},
+		{"a DATE in the SECTION", strings.Replace(ok, "<SUBJECT>", "<DATE>2026-01-01</DATE><SUBJECT>", 1)},
+		{"an attribute on a P", strings.Replace(ok, "<P>(b) Text two.</P>", `<P ID="x">(b) Text two.</P>`, 1)},
+		{"an attribute on the SECTION", strings.Replace(ok, "<SECTION>", `<SECTION TYPE="x">`, 1)},
+		{"an attribute on the SECTNO", strings.Replace(ok, "<SECTNO>", `<SECTNO X="1">`, 1)},
+		{"an E of another type", strings.Replace(ok, `<E T="03">`, `<E T="04">`, 1)},
+		{"another attribute on an E", strings.Replace(ok, `<E T="03">`, `<E T="03" X="1">`, 1)},
+		{"an E with no type", strings.Replace(ok, `<E T="03">`, `<E>`, 1)},
+		{"a DATE in a CDATA section", strings.Replace(ok, "<DATE>2026-01-01</DATE>", "<DATE><![CDATA[2026-01-01]]></DATE>", 1)},
+		{"a DATE with a comment", strings.Replace(ok, "<DATE>2026-01-01</DATE>", "<DATE>2026-01-01<!-- x --></DATE>", 1)},
+		{"a DATE with an element", strings.Replace(ok, "<DATE>2026-01-01</DATE>", "<DATE>2026-01-01<E T=\"03\"></E></DATE>", 1)},
+		{"a DATE with a character reference", strings.Replace(ok, "<DATE>2026-01-01</DATE>", "<DATE>2026&#45;01-01</DATE>", 1)},
+		{"a SECTNO in a CDATA section", strings.Replace(ok, "<SECTNO>§ 1024.41</SECTNO>", "<SECTNO><![CDATA[§ 1024.41]]></SECTNO>", 1)},
+		{"a SECTNO with a comment", strings.Replace(ok, "<SECTNO>§ 1024.41</SECTNO>", "<SECTNO>§ 1024.41<!-- x --></SECTNO>", 1)},
+		{"a SECTNO with an element", strings.Replace(ok, "<SECTNO>§ 1024.41</SECTNO>", "<SECTNO>§ <E T=\"03\">1024.41</E></SECTNO>", 1)},
+		{"a SECTNO with a character reference", strings.Replace(ok, "<SECTNO>§ 1024.41</SECTNO>", "<SECTNO>&#167; 1024.41</SECTNO>", 1)},
+		{"a comment in a P", strings.Replace(ok, "Text two.", "Text <!-- x -->two.", 1)},
+		{"a processing instruction in a P", strings.Replace(ok, "Text two.", "Text <?x y?>two.", 1)},
+		{"an element in the CITA", strings.Replace(ok, "Feb. 14, 2013]", "Feb. 14, <E T=\"03\">2013</E>]", 1)},
+		{"CR LF line ends", strings.ReplaceAll(ok, "\n", "\r\n")},
+		{"a CR in a P", strings.Replace(ok, "Text two.", "Text\rtwo.", 1)},
+		{"a reference to LF", strings.Replace(ok, "Text two.", "Text&#10;two.", 1)},
+		{"a hex reference to LF", strings.Replace(ok, "Text two.", "Text&#xA;two.", 1)},
+		{"a zero-padded reference to LF", strings.Replace(ok, "Text two.", "Text&#x000a;two.", 1)},
+		{"a reference to CR", strings.Replace(ok, "Text two.", "Text&#13;two.", 1)},
+		{"an empty P last", strings.Replace(ok, "<P>(b) Text two.</P>", "<P>(b) Text two.</P>\n        <P/>", 1)},
+		{"an empty P first", strings.Replace(ok, "        <P>\n            (a) ", "        <P></P>\n        <P>\n            (a) ", 1)},
+		{"a P of layout only", strings.Replace(ok, "<P>(b) Text two.</P>", "<P>(b) Text two.</P>\n        <P>\n            \n        </P>", 1)},
+	} {
+		if tc.granule == ok {
+			t.Errorf("%s: the case doesn't change the base granule", tc.name)
+			continue
+		}
+		s, err := govinfo.Read([]byte(tc.granule), "1024.41", govinfo.EditionDate)
+		if !errors.Is(err, govinfo.ErrNotGranule) {
+			t.Errorf("%s: Read = %v, %v; want %v", tc.name, s, err, govinfo.ErrNotGranule)
+		}
+	}
+}
+
+// TestLayoutIsDeletedInEachRunOnItsOwn: a line break ending one run of
+// character data and the spaces starting the next, inside an <E>, are not
+// one break and its indentation: the spaces are text.
+func TestLayoutIsDeletedInEachRunOnItsOwn(t *testing.T) {
+	body := strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) x\n<E T=\"03\">   y</E></P>", 1)
+	s, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", body)), "1024.41", govinfo.EditionDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := s.Paragraphs[1], "(b) x   y"; got != want {
+		t.Errorf("paragraph 2 = %q, want %q: the break ends its run, the spaces start the <E>'s", got, want)
+	}
+}
+
+// TestEveryParagraphIsReadAlike: White_Space at a paragraph's edges, the
+// last's as much as any other's, is not its text, so the last paragraph
+// ending in a space reads as one that doesn't, and as an interior one does.
+func TestEveryParagraphIsReadAlike(t *testing.T) {
+	base, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", twoParas)), "1024.41", govinfo.EditionDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"the last ending in a space":        strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) Text two. </P>", 1),
+		"the last ending in a no-break one": strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P>(b) Text two."+nbsp+"</P>", 1),
+		"the last starting with a space":    strings.Replace(twoParas, "<P>(b) Text two.</P>", "<P> (b) Text two.</P>", 1),
+		"the first ending in a space":       strings.Replace(twoParas, "            continues.\n", "            continues. \n", 1),
+	} {
+		s, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", body)), "1024.41", govinfo.EditionDate)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if strings.Join(s.Paragraphs, "|") != strings.Join(base.Paragraphs, "|") || sectionText(t, s) != sectionText(t, base) {
+			t.Errorf("%s: Paragraphs %q; want %q, and the same hash", name, s.Paragraphs, base.Paragraphs)
+		}
+	}
+}
+
 func TestLinkPathAsksTheLinkServiceForOneSectionsXML(t *testing.T) {
 	got, err := govinfo.LinkPath("12", "1024.41", "2026")
 	if want := "/link/cfr/12/1024?link-type=xml&sectionnum=41&year=2026"; err != nil || got != want {

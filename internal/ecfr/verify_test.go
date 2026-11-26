@@ -8,14 +8,17 @@
 package ecfr
 
 import (
+	"bytes"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/okja-engineering/reg-corpus/internal/l0"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
+	"github.com/okja-engineering/reg-corpus/internal/parse"
 )
 
 const dir41 = "sources/ecfr/title-12/1024.41/"
@@ -78,19 +81,20 @@ var (
 func cache41(sum string) string { return ".cache/govinfo/2026/title-12/1024.41/" + sum + ".xml" }
 
 // verifyLines is what --verify 1024.41 prints when everything matches:
-// cacheVerb for the granule's cache file, metaVerb and verified for
-// meta.yaml.
+// metaVerb and verified for meta.yaml, then cacheVerb for the granule's
+// cache file, kept only once verified_on is decided and written.
 func verifyLines(t *testing.T, c *Client, cacheVerb, metaVerb, verified string) string {
 	g := l0.SHA256Hex(repoFile(t, granule41))
-	return "1024.41: version: eCFR's latest 2025-07-15, stored source_version_date 2025-07-15: equal\n" +
+	return "1024.41: stored: tree.json, text.md and sha256_text are as regcorpus parse derives them from " + rawPath("1024.41") + "\n" +
+		"1024.41: overrides: none\n" +
+		"1024.41: version: eCFR's latest 2025-07-15, stored source_version_date 2025-07-15: equal\n" +
 		"1024.41: tree: equal (91 nodes: the same paths in the same order, each with the same sha256)\n" +
 		"1024.41: sha256_text: equal, " + text41 + "\n" +
 		"1024.41: sha256_raw: fresh " + raw41 + ", stored " + raw41 + " (information only)\n" +
-		"1024.41: overrides: none\n" +
 		"1024.41: govinfo: " + c.Govinfo + govContent41 + " (DATE 2026-01-01, sha256 " + g + ")\n" +
-		"1024.41: govinfo: " + cacheVerb + " " + cache41(g) + "\n" +
-		"1024.41: govinfo 2026 edition: normalized text matches sha256_text\n" +
-		"1024.41: " + metaVerb + " " + metaPath("1024.41") + ": verified_on: " + verified + "\n"
+		"1024.41: govinfo 2026 edition: the heading and each of the 75 paragraphs equal eCFR's, normalized, and the text hashes to sha256_text\n" +
+		"1024.41: " + metaVerb + " " + metaPath("1024.41") + ": verified_on: " + verified + "\n" +
+		"1024.41: govinfo: " + cacheVerb + " " + cache41(g) + "\n"
 }
 
 // sourcesOf is tree(t, root) restricted to sources/: what --verify may
@@ -217,7 +221,7 @@ func TestVerifyEcfrMismatchesWriteNothing(t *testing.T) {
 			[]string{"1024.41: version: eCFR's latest 2026-01-10, stored source_version_date 2025-07-15: differ\n"},
 			[]string{"2026-01-10", "2025-07-15", "fetch --latest"}, false},
 		{"the latest removed it", versionsURI("1024.41"), reply{body: removed}, nil,
-			[]string{"removed it"}, false},
+			[]string{"2026-01-10 (removed)", "fetch --latest"}, false},
 		{"a word changed", xmlURI("2025-07-15", "1024.41"), reply{body: strings.Replace(raw, "application 45 days or more", "application 46 days or more", 1)},
 			[]string{"1024.41: tree: differs: 1024-41-b-2-i changed\n", "1024.41: sha256_text: differs, fresh "},
 			[]string{"1024-41-b-2-i changed", "nothing is written"}, true},
@@ -276,8 +280,9 @@ func TestVerifyGovinfoMismatchWritesNull(t *testing.T) {
 	for i, verb := range []string{"wrote", "unchanged"} {
 		code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
 		for _, want := range []string{
-			"1024.41: govinfo 2026 edition: normalized text differs from sha256_text (govinfo's ",
-			"1024.41: govinfo differs at paragraph 3 of 75:\n",
+			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to ",
+			", not sha256_text " + text41 + "\n",
+			"1024.41: govinfo differs at eCFR's paragraph 3 of 75, govinfo's paragraph 3 of 75:\n",
 			`1024.41:   eCFR:    "(2) Review of loss mitigation application submission-(i) Requirements. If a servicer receives a loss mitigation application 45 days or more`,
 			`1024.41:   govinfo: "(2) Review of loss mitigation application submission-(i) Requirements. If a servicer receives a loss mitigation application 46 days or more`,
 			"1024.41: " + verb + " " + metaPath("1024.41") + ": verified_on: null\n",
@@ -503,7 +508,361 @@ func TestFetchHelpGivesVerifyAndLatest(t *testing.T) {
 			t.Errorf("fetch -h lacks %q", want)
 		}
 	}
+	// Each exit row this round adds (worklist round 1, §1, §2, §5 and
+	// fetch.go's exit 1), read with its line breaks as spaces.
+	flat := strings.Join(strings.Fields(stdout), " ")
+	for _, want := range []string{
+		"tree.json, text.md and sha256_text as regcorpus parse derives them from the raw XML",
+		"the fresh fetch doesn't build",
+		"older: eCFR's list ends before the stored version",
+		"eCFR no longer lists the stored version as latest",
+		"a cache file under .cache/ that can't be kept",
+		"a disposable cache, which may be deleted",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("fetch -h lacks %q", want)
+		}
+	}
 	if code != 0 {
 		t.Errorf("exit %d, want 0", code)
+	}
+}
+
+// onlyTitlesAsked fails unless every request f got was titles.json's.
+func onlyTitlesAsked(t *testing.T, f *fakeECFR) {
+	t.Helper()
+	for _, r := range f.requests() {
+		if r.URL.Path != apiPath+"/titles.json" {
+			t.Errorf("asked %s; want only titles.json", r.URL)
+		}
+	}
+}
+
+// TestVerifyRederivesTheStoredFilesFirst: verified_on vouches for the
+// stored L0 as a whole, so --verify first derives tree.json, text.md and
+// sha256_text again from the raw XML the stored-state check read, as
+// regcorpus parse does, and refuses (exit 1, nothing written, no request
+// but titles.json) when any stored one differs, naming each and saying
+// regcorpus parse regenerates it (worklist round 1, §1: G1, B1, Codex P2).
+func TestVerifyRederivesTheStoredFilesFirst(t *testing.T) {
+	raw := string(repoFile(t, rawPath("1024.41")))
+	setMeta := func(t *testing.T, root string, change func(*meta.Meta)) {
+		m, err := meta.Parse([]byte(readFile(t, root, metaPath("1024.41"))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		change(&m)
+		b, err := meta.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, root, metaPath("1024.41"), string(b))
+	}
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		named map[string]bool // which of tree.json, text.md and sha256_text the refusal names
+	}{
+		{"a raw word edited, sha256_raw made to match", func(t *testing.T, root string) {
+			edited := strings.Replace(raw, "application 45 days or more", "application 99 days or more", 1)
+			writeFile(t, root, rawPath("1024.41"), edited)
+			setMeta(t, root, func(m *meta.Meta) { m.SHA256Raw = meta.SHA256(sha(edited)) })
+		}, map[string]bool{"tree.json": true, "text.md": true, "sha256_text": true}},
+		{"text.md replaced", func(t *testing.T, root string) {
+			writeFile(t, root, dir41+"text.md", "tampered\n")
+		}, map[string]bool{"text.md": true}},
+		{"a node's text in tree.json, its sha256 kept", func(t *testing.T, root string) {
+			b := readFile(t, root, dir41+"tree.json")
+			writeFile(t, root, dir41+"tree.json", strings.Replace(b, "A borrower may enforce", "A borrower may NOT enforce", 1))
+		}, map[string]bool{"tree.json": true}},
+		{"sha256_text edited", func(t *testing.T, root string) {
+			setMeta(t, root, func(m *meta.Meta) { m.SHA256Text = meta.SHA256(strings.Repeat("0", 64)) })
+		}, map[string]bool{"sha256_text": true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, c := verifyFake(t)
+			root := corpusRoot(t)
+			stored41(t, root, &meta.NullDate{Date: "2026-11-20", Valid: true})
+			tc.setup(t, root)
+			before := tree(t, root)
+			code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+			if code != 1 || !strings.Contains(stderr, "regcorpus parse 1024.41") || strings.Contains(stdout, "wrote") {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1, an error saying regcorpus parse 1024.41 regenerates them, nothing written", code, stdout, stderr)
+			}
+			for _, name := range []string{"tree.json", "text.md", "sha256_text"} {
+				if strings.Contains(stderr, name) != tc.named[name] {
+					t.Errorf("stderr %q: names %s %t, want %t", stderr, name, !tc.named[name], tc.named[name])
+				}
+			}
+			if after := tree(t, root); !equalTrees(before, after) {
+				t.Errorf("files changed: before %v, after %v", keysOf(before), keysOf(after))
+			}
+			onlyTitlesAsked(t, f)
+		})
+	}
+}
+
+// TestVerifyDecidesBeforeTheCache: the verdict and the verified_on write
+// depend only on the fetched bytes and the stored L0, never on the
+// git-ignored cache (worklist round 1, §2: IO-F1, F2, F6). Whatever is
+// wrong with the cache (a corrupt file under the granule's sha256 name,
+// .cache/govinfo a file, a read-only directory, a symlink at the file),
+// a mismatch still writes null and prints the diff, a match still writes
+// the date, and then the cache's failure exits 2 in a message of its own:
+// the file, a disposable cache under the git-ignored .cache/, which may be
+// deleted.
+func TestVerifyDecidesBeforeTheCache(t *testing.T) {
+	good := string(repoFile(t, granule41))
+	bad := strings.Replace(good, "application 45 days or more", "application 46 days or more", 1)
+	for _, tc := range []struct {
+		name  string
+		spoil func(t *testing.T, root, cached, body string)
+	}{
+		{"a corrupt file under the sha256 name", func(t *testing.T, root, cached, body string) {
+			writeFile(t, root, cached, "corrupt")
+		}},
+		{".cache/govinfo a file", func(t *testing.T, root, cached, body string) {
+			writeFile(t, root, ".cache/govinfo", "a file")
+		}},
+		{"a read-only directory", func(t *testing.T, root, cached, body string) {
+			if os.Geteuid() == 0 {
+				t.Skip("running with privileges that write to a mode-0555 directory")
+			}
+			d := filepath.Join(root, filepath.FromSlash(cached), "..")
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(d, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(d, 0o755) })
+		}},
+		{"a symlink at the file, to the same bytes", func(t *testing.T, root, cached, body string) {
+			writeFile(t, root, "elsewhere.xml", body)
+			at := filepath.Join(root, filepath.FromSlash(cached))
+			if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(root, "elsewhere.xml"), at); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		for _, m := range []struct {
+			name, body string
+			was        *meta.NullDate
+			verified   string
+		}{
+			{"a match", good, nil, `"2026-11-25"`},
+			{"a mismatch", bad, &meta.NullDate{Date: "2026-11-20", Valid: true}, "null"},
+		} {
+			t.Run(tc.name+", "+m.name, func(t *testing.T) {
+				f, c := verifyFake(t)
+				f.set(govContent41, reply{body: m.body})
+				root := corpusRoot(t)
+				stored41(t, root, m.was)
+				cached := cache41(sha(m.body))
+				tc.spoil(t, root, cached, m.body)
+				code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+				if code != 2 {
+					t.Errorf("exit %d, want 2 (the cache failed)", code)
+				}
+				if want := "1024.41: wrote " + metaPath("1024.41") + ": verified_on: " + m.verified + "\n"; !strings.Contains(stdout, want) {
+					t.Errorf("stdout lacks %q\n%s", want, stdout)
+				}
+				if got := readFile(t, root, metaPath("1024.41")); !strings.Contains(got, "verified_on: "+m.verified+"\n") {
+					t.Errorf("meta.yaml\n%s\nwant verified_on: %s", got, m.verified)
+				}
+				for _, want := range []string{cached, "disposable cache", "git-ignored .cache/", "may be deleted"} {
+					if !strings.Contains(stderr, want) {
+						t.Errorf("stderr %q lacks %q", stderr, want)
+					}
+				}
+				if strings.Contains(stdout, "unchanged "+cached) || strings.Contains(stdout, "stored "+cached) {
+					t.Errorf("stdout %q reports the cache kept", stdout)
+				}
+				if m.verified == "null" && (!strings.Contains(stdout, "govinfo differs at") || !strings.Contains(stderr, "null")) {
+					t.Errorf("stdout %q, stderr %q; want the diff printed and the mismatch reported", stdout, stderr)
+				}
+			})
+		}
+	}
+}
+
+// TestVerifyComparesParagraphByParagraph: govinfo's paragraphs must equal
+// eCFR's one for one, normalized, besides the joined text hashing to
+// sha256_text (worklist round 1, §4 d and h; G3, G5). A paragraph split in
+// two, or two merged, hashes alike when joined but is a mismatch, and only
+// the paragraphs affected are printed, never a cascade; an empty <P> is a
+// structure the reader doesn't read (exit 2); the last paragraph ending in
+// White_Space reads as any other does.
+func TestVerifyComparesParagraphByParagraph(t *testing.T) {
+	g := string(repoFile(t, granule41))
+	const (
+		promptly = "<P>(A) Promptly upon receipt of a loss mitigation application, review"
+		shall    = "a servicer shall:\n        </P>\n        <P>(A) Promptly"
+		last     = "applicable time period.\n        </P>\n        <CITA>"
+	)
+	for _, tc := range []struct {
+		name, granule string
+		code          int
+		stdout        []string
+	}{
+		{"a paragraph split in two", strings.Replace(g, promptly, "<P>(A) Promptly upon receipt of a loss mitigation application,</P>\n        <P>review", 1), 1, []string{
+			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to sha256_text, but its paragraphs are not eCFR's one for one\n",
+			"1024.41: govinfo 2026 edition: 76 paragraphs, eCFR's 75\n",
+			"1024.41: govinfo differs at eCFR's paragraph 4 of 75, govinfo's paragraphs 4-5 of 76:\n",
+		}},
+		{"two paragraphs merged", strings.Replace(g, shall, "a servicer shall: (A) Promptly", 1), 1, []string{
+			"1024.41: govinfo 2026 edition: differs: its normalized text hashes to sha256_text, but its paragraphs are not eCFR's one for one\n",
+			"1024.41: govinfo 2026 edition: 74 paragraphs, eCFR's 75\n",
+			"1024.41: govinfo differs at eCFR's paragraphs 3-4 of 75, govinfo's paragraph 3 of 74:\n",
+		}},
+		{"an empty P in the middle", strings.Replace(g, promptly, "<P/>\n        "+promptly, 1), 2, nil},
+		{"an empty P last", strings.Replace(g, last, "applicable time period.\n        </P>\n        <P></P>\n        <CITA>", 1), 2, nil},
+		{"the last P ending in a space", strings.Replace(g, last, "applicable time period. \n        </P>\n        <CITA>", 1), 0, []string{
+			"1024.41: wrote " + metaPath("1024.41") + ": verified_on: \"2026-11-25\"\n",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.granule == g {
+				t.Fatal("the case doesn't change the granule")
+			}
+			f, c := verifyFake(t)
+			f.set(govContent41, reply{body: tc.granule})
+			root := corpusRoot(t)
+			stored41(t, root, nil)
+			before := sourcesOf(t, root)
+			code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+			if code != tc.code {
+				t.Errorf("exit %d, want %d; stdout\n%s\nstderr %q", code, tc.code, stdout, stderr)
+			}
+			for _, want := range tc.stdout {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("stdout lacks %q\n%s", want, stdout)
+				}
+			}
+			switch tc.code {
+			case 1:
+				if n := strings.Count(stdout, "govinfo differs at"); n != 1 {
+					t.Errorf("%d differing places printed, want 1, the paragraphs affected\n%s", n, stdout)
+				}
+				if !strings.Contains(readFile(t, root, metaPath("1024.41")), "verified_on: null\n") {
+					t.Errorf("verified_on is not null")
+				}
+			case 2:
+				if !strings.Contains(stderr, "empty") || !equalTrees(before, sourcesOf(t, root)) {
+					t.Errorf("stderr %q; want an empty P refused, nothing under sources/ changed", stderr)
+				}
+			}
+		})
+	}
+}
+
+// TestVerifyNamesATextChangeOutsideTheNodes: a fresh fetch whose nodes are
+// the same but whose heading, or whose grouping of nodes into <P>s, is
+// another has another sha256_text, and --verify names what differs (F1:
+// "names the changed nodes"; worklist round 1, §7: B4).
+func TestVerifyNamesATextChangeOutsideTheNodes(t *testing.T) {
+	raw := string(repoFile(t, rawPath("1024.41")))
+	for _, tc := range []struct{ name, fresh, want string }{
+		{"the heading", strings.Replace(raw, "Loss mitigation procedures.</HEAD>", "Loss mitigation procedure.</HEAD>", 1), "the heading"},
+		{"a node in a <P> of its own", strings.Replace(raw, "Receipt of a loss mitigation application</I>—(1) <I>Complete", "Receipt of a loss mitigation application</I>—</P>\n<P>(1) <I>Complete", 1),
+			"1024-41-b-1 starts a paragraph"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.fresh == raw {
+				t.Fatal("the case doesn't change the raw XML")
+			}
+			f, c := verifyFake(t)
+			f.set(xmlURI("2025-07-15", "1024.41"), reply{body: tc.fresh})
+			root := corpusRoot(t)
+			stored41(t, root, nil)
+			before := tree(t, root)
+			code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+			if code != 1 || !strings.Contains(stdout, "1024.41: tree: equal") || !strings.Contains(stdout, tc.want) || !strings.Contains(stderr, tc.want) {
+				t.Errorf("exit %d, stdout\n%s\nstderr %q; want 1, the tree equal, and %q named on both", code, stdout, stderr, tc.want)
+			}
+			if !equalTrees(before, tree(t, root)) || asked(f, "/link/") {
+				t.Errorf("files changed, or govinfo asked")
+			}
+		})
+	}
+}
+
+// TestCompareTreesNamesEachDifference: every way two trees can differ is
+// named: a node changed, removed or added, or the same nodes in another
+// order (F6: T2).
+func TestCompareTreesNamesEachDifference(t *testing.T) {
+	n := func(label, sum string) *parse.Node {
+		return &parse.Node{Path: []string{label}, Para: 1, Text: "(" + label + ") x", SHA256: sum}
+	}
+	tr := func(ns ...*parse.Node) *parse.Tree { return &parse.Tree{Section: "1024.41", Children: ns} }
+	a, b, c := n("a", "1"), n("b", "2"), n("c", "3")
+	for _, tc := range []struct {
+		name          string
+		stored, fresh *parse.Tree
+		want          string
+	}{
+		{"equal", tr(a, b), tr(a, b), ""},
+		{"changed", tr(a, b), tr(a, n("b", "9")), "1024-41-b changed"},
+		{"removed", tr(a, b, c), tr(a, c), "1024-41-b removed"},
+		{"added", tr(a, c), tr(a, b, c), "1024-41-b added"},
+		{"another order", tr(a, b), tr(b, a), "the same nodes in another order"},
+	} {
+		changed, _ := compareTrees("1024.41", tc.stored, tc.fresh)
+		if got := strings.Join(changed, ", "); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestDatesAreUTCDates: verified_on and retrieved_at are the run's UTC
+// date, whatever the machine's time zone: at 01:00 on 2026-11-26 in UTC+14
+// it is 2026-11-25 in UTC (F5; spec "L0 meta.yaml").
+func TestDatesAreUTCDates(t *testing.T) {
+	at := time.Date(2026, 11, 26, 1, 0, 0, 0, time.FixedZone("UTC+14", 14*60*60))
+	run := func(root string, c *Client, args ...string) (int, string) {
+		var out, errb bytes.Buffer
+		code := fetcher{root: root, client: c, now: func() time.Time { return at }}.main(args, &out, &errb)
+		return code, out.String() + errb.String()
+	}
+	_, c := verifyFake(t)
+	root := corpusRoot(t)
+	stored41(t, root, nil)
+	if code, out := run(root, c, "--verify", "1024.41"); code != 0 || !strings.Contains(readFile(t, root, metaPath("1024.41")), `verified_on: "2026-11-25"`) {
+		t.Errorf("--verify: exit %d, %s\nmeta.yaml\n%s\nwant verified_on: \"2026-11-25\"", code, out, readFile(t, root, metaPath("1024.41")))
+	}
+	_, c = newFake(t)
+	root = corpusRoot(t)
+	if code, out := run(root, c, "1024.41"); code != 0 || !strings.Contains(readFile(t, root, metaPath("1024.41")), `retrieved_at: "2026-11-25"`) {
+		t.Errorf("fetch: exit %d, %s; want retrieved_at: \"2026-11-25\"", code, out)
+	}
+}
+
+// TestVerifyAdviceFollowsTheDirection: when eCFR's latest version isn't
+// the stored date, a newer one points to fetch --latest, and an older one
+// says eCFR's list ends before the stored version (worklist round 1, §5).
+func TestVerifyAdviceFollowsTheDirection(t *testing.T) {
+	older := strings.Replace(versions41, `{"date":"2025-07-15","amendment_date":"2025-07-15","issue_date":"2025-07-15","identifier":"1024.41","substantive":true,"removed":false,"type":"section"},`, "", 1)
+	if older == versions41 {
+		t.Fatal("the case doesn't change the list")
+	}
+	f, c := verifyFake(t)
+	f.set(versionsURI("1024.41"), reply{body: older})
+	root := corpusRoot(t)
+	stored41(t, root, nil)
+	before := tree(t, root)
+	code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
+	for _, want := range []string{"2025-05-16", "2025-07-15", "ends before the stored version"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr %q lacks %q", stderr, want)
+		}
+	}
+	if code != 1 || strings.Contains(stderr, "fetch --latest") || !strings.Contains(stdout, "1024.41: version: eCFR's latest 2025-05-16, stored source_version_date 2025-07-15: differ\n") {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 1, eCFR's latest 2025-05-16, and no advice to run fetch --latest", code, stdout, stderr)
+	}
+	if !equalTrees(before, tree(t, root)) || asked(f, "/full/") {
+		t.Errorf("files changed, or the XML fetched")
 	}
 }
