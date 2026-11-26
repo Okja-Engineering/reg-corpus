@@ -3,7 +3,7 @@
 - **Author:** Matt
 - **Status:** draft, revised after adversarial review 2026-11-21
 - **Date:** 2026-11-21
-- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012; 2026-11-24 by ADR 0013
+- **Amended:** 2026-11-22 by ADRs 0007, 0010, 0011 and 0012; 2026-11-24 by ADR 0013; 2026-11-25 by ADR 0014
 - **Spec:** `docs/03-spec.md`
 - **Appetite:** four weekends plus the following week as buffer; decision by 2026-12-20
 
@@ -28,7 +28,8 @@ Makefile                          # setup, build (CORPUS_REF, LOOKUP_ONLY), test
 .githooks/pre-commit              # per-commit C6 (a seatbelt)
 .github/workflows/c6.yml          # the C6 gate (ADR 0007): .github/c6.sh runs C6 with the checker .githooks/build-checker.sh builds
 cmd/regcorpus/main.go             # fetch, meta, parse, check, inventory, verify, upgrade, release, show, text, topics, version
-internal/ecfr/                    # versioner client; full/{date} XML; fetch, meta set and parse
+internal/ecfr/                    # versioner and govinfo client; full/{date} XML; fetch (--verify, --latest), meta set and parse
+internal/govinfo/                 # the govinfo 2026 granule: its checks, the layout rule, heading and paragraphs (ADR 0014)
 internal/meta/                    # meta.yaml schema: strict parse and render (ADR 0010)
 internal/l0/                      # stored L0 files: store once, the stored-state check, meta.yaml updates (ADR 0010), derived files (ADR 0013)
 internal/parse/                   # deterministic label state machine: XML → tree.json (R1a)
@@ -62,7 +63,7 @@ VERSION  CHANGES.json             # after accept
 - **eCFR version lists:** `versions/title-12.json?section=1024.41`, and the same for `?part=1024&appendix=Supplement I to Part 1024`.
 - **eCFR text:** `full/{date}/title-12.xml?part=1024&section=<section>`. Send gzip and decode as UTF-8.
 - **Federal Register:** `documents/{doc}.json` for the effective date and the amending document; for 1024.41, 1024.30 and 1024.31, `version_fr_citations` records the amendment page the stored XML's `<CITA>` cites (ADR 0011).
-- **govinfo:** the CFR 2026 annual edition, for `verified_on`.
+- **govinfo:** the CFR 2026 annual edition, for `verified_on`: `link/cfr/12/<part>?link-type=xml&sectionnum=<n>&year=2026`, which redirects on govinfo's host to the section's granule XML (ADR 0014).
 
 **Decision-critical path:** L0 → fixture freeze → arm (a) → extraction → verification → C5/C6 + C1 → skill → render → arms (b)/(c) → decision. Off-path work waits for "accept": the read and cite level fixtures, `upgrade`, release tagging, C2–C4 negatives and `init`.
 
@@ -95,6 +96,9 @@ VERSION  CHANGES.json             # after accept
    - A heading's "—" or space left at the end of a parent's own text doesn't count in the operative-anchor test and does count in the per-node hash; a multi-anchor cite joins own texts with nothing inside a `<P>` and one space between `<P>`s (spec decision 13).
    - Write 1024.41's files; 1024.30's and 1024.31's are step 9's.
 6. `regcorpus fetch --verify`: compare the version date, tree and `sha256_text`, recording `sha256_raw` as information only. Then compare the normalized text to the govinfo CFR 2026 edition and set `verified_on`. Add `regcorpus fetch --latest` (R1b).
+   - A version is its date plus its normalized text: the tree's node paths in order, each node's `sha256`, and `sha256_text` (spec decision 14).
+   - govinfo's granule, its layout deleted (each line break and up to 12 spaces after it), must hash to `sha256_text`; `verified_on` is the first matching run's UTC date, `null` on a mismatch.
+   - `--verify` covers 1024.41; 1024.30 and 1024.31 are step 9's. `--latest` covers all three, writes nothing, and exits 1 on a newer version.
 7. `regcorpus text <anchor>`.
 
 ### Weekend 2 (Nov 28–29): rest of L0, eval freeze, early arm (a), schema, start extraction

@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-24
 - **Decided by:** the owner, 2026-11-24 about 15:18 CST, in chat (answers to the chief of staff's questions), quoted on PR #9 (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7145434918): (F1) "Separator doesn't count (Recommended)"; (F2) "As the document reads (Recommended)"; (F3) "Rule text only (Recommended)"; (F4) "I'll land the 3-line edit (Recommended)"; and the owner, 2026-11-25 about 09:50 CST, in chat, on where that edit lands, quoted on PR #9 (https://github.com/Okja-Engineering/reg-corpus/pull/9#issuecomment-7167446669): "Commit it on PR #9"
+- **Amended:** 2026-11-25 by ADR 0014. F3's option text "step 6 can compute the same hash from govinfo's text for verified_on" describes what the owner was told before plan step 6: govinfo's 2026 XML is pretty-printed, so it holds only with ADR 0014's layout rule (each line break and up to 12 spaces after it deleted), under which 1024.41's granule gives the stored `sha256_text`.
 
 ## Context
 Plan step 5 builds `internal/anchors`: `text.md`, normalized text, each
