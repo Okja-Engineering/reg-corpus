@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-25
-- **Decided by:** the owner, 2026-11-25 about 19:29 CST, in chat (answers to the chief of staff's questions), quoted on PR #10 (https://github.com/Okja-Engineering/reg-corpus/pull/10#issuecomment-7180640566): (F1) "Normalized text (Recommended)"; (F3) "Exact, with layout rule (Recommended)"; (F5) "First matching run (Recommended)"; (F7) "Report only (Recommended)". Each call is only what its option text says, read with the correction that comment records (Decision, below). The rest are agents' choices, not the owner's: the chief of staff's rulings (F2, F4, F6, F8, F9, F10, the step's mandate's assumptions 1–11, the bound of 12, and the round-1, round-2 and round-3 review rulings) and the implementer's choices, each marked below.
+- **Decided by:** the owner, 2026-11-25 about 19:29 CST, in chat (answers to the chief of staff's questions), quoted on PR #10 (https://github.com/Okja-Engineering/reg-corpus/pull/10#issuecomment-7180640566): (F1) "Normalized text (Recommended)"; (F3) "Exact, with layout rule (Recommended)"; (F5) "First matching run (Recommended)"; (F7) "Report only (Recommended)". Each call is only what its option text says, read with the correction that comment records (Decision, below). The rest are agents' choices, not the owner's: the chief of staff's rulings (F2, F4, F6, F8, F9, F10, the step's mandate's assumptions 1–11, the bound of 12, and the round-1, round-2, round-3 and round-4 review rulings) and the implementer's choices, each marked below.
 
 ## Context
 Plan step 6 builds `regcorpus fetch --verify` (R1) and `regcorpus fetch
@@ -262,6 +262,10 @@ And on review round 3:
 - (§3) `--verify`'s line for a latest entry at the stored date that
   removed the section says that, not that the two dates differ.
 
+And on review round 4:
+- (§1) One table test pins, for every command, that its output reaches
+  both streams only through the sink, its help and usage a line per Write.
+
 The implementer's choices (agents' choices, within those rulings):
 - The granule is read by a new package, `internal/govinfo`, which does no
   I/O; the request goes through `internal/ecfr`'s client, with the same
@@ -327,6 +331,13 @@ The implementer's choices (agents' choices, within those rulings):
   (`Snippet`), and the whole HTTP status is quoted.
   `--verify`'s version line says the verdict `--latest` prints in each
   case, newer, older or removed.
+- In round 4: no payload can reach stdout from `check`, `meta` or `parse`,
+  nor offline from `fetch`, so `run` calls those four from one table,
+  `commands`, with the sinks, and the test puts a fake in each place that
+  writes a payload to both; no behaviour changes. Each row is held to what
+  the same command writes to plain buffers, byte for byte, its payload
+  escaped. Step 2's line of `fetch -h`, 84 columns, is reflowed with step
+  3's.
 
 ## Spec changes
 - `docs/03-spec.md`:
@@ -518,6 +529,9 @@ The implementer's choices (agents' choices, within those rulings):
   line regcorpus writes passes the sink, so in saved output a control
   character, a line separator or a byte that isn't UTF-8 shows as `\xNN`
   or `\uNNNN` on its line, whichever command printed it.
+- Plan step 19's interactive text in `regcorpus verify` must reach its
+  stderr sink one line per Write (`sink.Print` for a text of many lines),
+  or the sink writes each LF inside a Write as `\x0a`.
 - The test for the layout rule pins its bound: a granule whose text
   starts in the thirteenth column after a break, or with a space removed
   between words, gives another hash; one changed only in indentation of
@@ -556,8 +570,10 @@ checks; decisions 6 (CLI only), 10 (one writer of `meta.yaml`), 13
   the round's surviving mutants), `e2ba509` (its record here and in the
   spec); review round 3: `bf32240` (the tests for the reconciled
   worklist, red), `d45989a` (its fixes, green), `e294bc9` (tests pinning
-  the round's surviving mutants), and the commit that records round 3
-  here and in the spec.
+  the round's surviving mutants), `952a89c` (its record here and in the
+  spec); review round 4: `9347e80` (the table test, and `run`'s table of
+  commands it needs), `c14ad10` (`fetch -h` reflowed), and the commit
+  that records round 4 here.
 - Files:
   - Code: `internal/govinfo/granule.go` and `doc.go` (new),
     `internal/ecfr/verify.go` and `newer.go` (new),
@@ -567,7 +583,8 @@ checks; decisions 6 (CLI only), 10 (one writer of `meta.yaml`), 13
     quoted), `internal/parse/wellformed.go` (`Qualified` quotes a
     namespace that isn't made of XML name bytes; a refused token is named
     quoted), `internal/sink/sink.go` and `doc.go` (new, round 3),
-    `cmd/regcorpus/main.go` (every command given the sink),
+    `cmd/regcorpus/main.go` (every command given the sink; in round 4,
+    `check`, `fetch`, `meta` and `parse` from one table),
     `internal/check/check.go`, `internal/ecfr/metaset.go` and
     `internal/ecfr/parsecmd.go` (each usage written by `sink.Print`),
     `internal/anchors/build.go` (`JoinSection`),
@@ -589,7 +606,7 @@ checks; decisions 6 (CLI only), 10 (one writer of `meta.yaml`), 13
     `internal/parse/malformed_test.go`,
     `internal/anchors/section_test.go`,
     `internal/anchors/testdata/oracle.py`, `internal/l0/store_test.go`,
-    `cmd/regcorpus/main_test.go`.
+    `cmd/regcorpus/main_test.go` (round 4: the table of every command).
   - L0: `sources/ecfr/title-12/1024.41/meta.yaml` (`verified_on`).
   - Spec docs: `docs/03-spec.md`, `docs/04-plan.md`, `docs/adr/README.md`,
     `docs/adr/0013-cites-join-as-the-document-reads.md`,
