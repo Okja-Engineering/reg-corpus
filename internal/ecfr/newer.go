@@ -2,8 +2,8 @@ package ecfr
 
 import (
 	"context"
-	"errors"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/okja-engineering/reg-corpus/internal/l0"
@@ -14,10 +14,13 @@ import (
 // stored-state check every writer of one makes (l0's Stored), and eCFR's
 // version list, and writes nothing. Dates alone decide, as R1b reads (F1:
 // A): unless eCFR's latest version is the stored one (standing), it is a
-// *Finding (exit 1; F7: L1, report only), whose message is the line
-// printed. An entry for the stored date issued on or after retrieved_at's
-// day, a reissue, is printed as information, for fetch --verify to compare
-// its text.
+// *Finding, exit 1, whose message is the line printed: a newer version is
+// the owner's F7 (L1, report only); an older one, or one that removed the
+// section, the chief of staff's rulings (F8; worklist round 1, §5). An
+// entry for the stored date issued on or after retrieved_at's day, a
+// reissue, is printed as information, for fetch --verify to compare its
+// text; its issue_date is printed as a date only once read as one, and
+// quoted otherwise (worklist round 2, §3).
 func (f fetcher) newer(ctx context.Context, s Source) ([]string, error) {
 	st, err := l0.Read(f.root, s.stored())
 	if err != nil {
@@ -43,56 +46,65 @@ func (f fetcher) newer(ctx context.Context, s Source) ([]string, error) {
 			continue
 		}
 		noted = append(noted, v.IssueDate)
-		note := s.Name + ": information: eCFR lists " + string(v.Date) + " with issue_date " + v.IssueDate
+		note := s.Name + ": information: eCFR lists " + string(v.Date) + " with issue_date "
 		switch d, err := ParseDate(v.IssueDate); {
 		case err != nil:
-			note += ", not a YYYY-MM-DD date, so whether it was reissued since it was fetched is unknown"
+			note += strconv.Quote(v.IssueDate) + ", not a YYYY-MM-DD date, so whether it was reissued since it was fetched is unknown"
 		case d < m.RetrievedAt:
 			continue
 		default:
 			// retrieved_at is a UTC date and issue_date eCFR's: on the same
 			// day either may be first, so that day counts (worklist §8).
-			note += ", issued on or after the day the stored file was fetched (retrieved_at " + string(m.RetrievedAt) + ")"
+			note += string(d) + ", issued on or after the day the stored file was fetched (retrieved_at " + string(m.RetrievedAt) + ")"
 		}
 		lines = append(lines, note+"; run regcorpus fetch --verify "+s.Name)
 	}
-	if !sd.current {
+	if sd.stand != standCurrent {
 		return lines, findingf("%s (R1b); nothing is written", line)
 	}
 	return lines, nil
 }
 
+// stand is where a stored version stands in eCFR's version list.
+type stand int
+
+const (
+	standCurrent stand = iota // eCFR's latest version is the stored one
+	standNewer                // eCFR lists versions dated after the stored one
+	standOlder                // eCFR's latest is dated before the stored one
+	standRemoved              // eCFR's latest entry, at the stored date, removed the source
+)
+
 // standing is where a stored version stands in eCFR's version list: the
-// list's own latest date, whether an entry at it removed the source, and
-// what that says of the stored date, by dates alone (R1b).
+// list's own latest date and whether an entry at it removed the source
+// (Latest), where that leaves the stored date, by dates alone (R1b), and
+// what that is, as fetch --latest prints it.
 type standing struct {
 	latest  Date
 	removed bool
-	current bool   // eCFR's latest version is the stored one
-	older   bool   // eCFR's latest is dated before the stored one
-	verdict string // what that is, as fetch --latest prints it
+	stand   stand
+	verdict string
 }
 
 // standOf reads vs, a version list, against stored, the stored
 // source_version_date. An empty list is an error.
 func standOf(vs []Version, stored Date) (standing, error) {
-	if len(vs) == 0 {
-		return standing{}, errors.New("eCFR lists no versions")
+	latest, removed, err := Latest(vs)
+	if err != nil {
+		return standing{}, err
 	}
-	var sd standing
-	var after []Date // each date after the stored one, once
-	gone := map[Date]bool{}
-	for _, v := range vs {
-		sd.latest = max(sd.latest, v.Date) // YYYY-MM-DD orders as text
-		gone[v.Date] = gone[v.Date] || v.Removed
-		if v.Date > stored && !slices.Contains(after, v.Date) {
-			after = append(after, v.Date)
-		}
-	}
-	sd.removed = gone[sd.latest]
-	slices.Sort(after)
+	sd := standing{latest: latest, removed: removed}
 	switch {
-	case sd.latest > stored:
+	case latest > stored:
+		var after []Date // each date after the stored one, once
+		gone := map[Date]bool{}
+		for _, v := range vs {
+			gone[v.Date] = gone[v.Date] || v.Removed
+			if v.Date > stored && !slices.Contains(after, v.Date) {
+				after = append(after, v.Date)
+			}
+		}
+		slices.Sort(after)
 		listed := make([]string, len(after))
 		for i, d := range after {
 			listed[i] = string(d)
@@ -100,13 +112,13 @@ func standOf(vs []Version, stored Date) (standing, error) {
 				listed[i] += " (removed)"
 			}
 		}
-		sd.verdict = "newer versions " + strings.Join(listed, ", ")
-	case sd.latest < stored:
-		sd.older, sd.verdict = true, "eCFR no longer lists the stored version as latest"
-	case sd.removed:
-		sd.verdict = "the latest version removed it"
+		sd.stand, sd.verdict = standNewer, "newer versions "+strings.Join(listed, ", ")
+	case latest < stored:
+		sd.stand, sd.verdict = standOlder, "eCFR no longer lists the stored version as latest"
+	case removed:
+		sd.stand, sd.verdict = standRemoved, "the latest entry, at the stored date, removed the section"
 	default:
-		sd.current, sd.verdict = true, "no newer version"
+		sd.stand, sd.verdict = standCurrent, "no newer version"
 	}
 	return sd, nil
 }
@@ -120,11 +132,15 @@ func (sd standing) latestText() string {
 }
 
 // advice is what fetch --verify adds when eCFR's latest version isn't the
-// stored one, by its direction: eCFR's list ends before the stored
-// version, or fetch --latest lists what came after it.
+// stored one, by its direction, after "; ": fetch --latest lists what came
+// after it, or eCFR's list ends before it. A removal at the stored date
+// gets none: the verdict says all fetch --latest would.
 func (sd standing) advice() string {
-	if sd.older {
-		return "eCFR's list ends before the stored version"
+	switch sd.stand {
+	case standNewer:
+		return "; run regcorpus fetch --latest"
+	case standOlder:
+		return "; eCFR's list ends before the stored version"
 	}
-	return "run regcorpus fetch --latest"
+	return ""
 }

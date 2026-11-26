@@ -48,12 +48,15 @@ type granule struct {
 // stored-state check, it compares, in order, and stops at the first that
 // fails: what is stored, derived again from the raw XML that check read
 // (storedVersion); eCFR's latest version date, then that version's fresh
-// tree and sha256_text (freshVersion); then govinfo's 2026 edition
-// (edition). It sets only verified_on: the run's UTC date on a match,
-// unless it holds a date already (F5: V-a); null on a govinfo mismatch (F4
-// a), which is also a *Finding. Then, the verdict written, it keeps the
-// granule in the cache; a cache that can't keep it is a *cacheError (exit
-// 2) beside that verdict. A source whose tree is a later plan step's
+// tree and sha256_text with the stored version's (freshVersion); then
+// govinfo's 2026 edition with the stored version (edition), never with the
+// fresh fetch, whose bytes may differ from it (F1: A): verified_on says
+// what is stored reads as govinfo prints it (worklist round 2, §1). It
+// sets only verified_on: the run's UTC date on a match, unless it holds a
+// date already (F5: V-a); null on a govinfo mismatch (F4 a), which is also
+// a *Finding. Then, the verdict written and the lock released, it keeps
+// the granule in the cache; a cache that can't keep it is a *cacheError
+// (exit 2) beside that verdict. A source whose tree is a later plan step's
 // (Goldens) is refused first, before the lock.
 func (f fetcher) verify(ctx context.Context, s Source) ([]string, error) {
 	if s.Goldens != "" {
@@ -68,11 +71,10 @@ func (f fetcher) verify(ctx context.Context, s Source) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		fresh, err := f.freshVersion(ctx, s, m, stored.Tree, say)
-		if err != nil {
+		if err := f.freshVersion(ctx, s, m, stored.Tree, say); err != nil {
 			return nil, err
 		}
-		if g, err = f.edition(ctx, s, m, fresh, say); err != nil {
+		if g, err = f.edition(ctx, s, m, stored, say); err != nil {
 			return nil, err
 		}
 		switch {
@@ -151,27 +153,27 @@ func storedVersion(root string, s Source, m *meta.Meta, raw []byte, st l0.State,
 // sha256_text (F6: i, T2), naming what differs. The normalized text is the
 // version (F1: A): raw bytes that differ are information only. Any
 // difference is a *Finding.
-func (f fetcher) freshVersion(ctx context.Context, s Source, m *meta.Meta, stored *parse.Tree, say func(string, ...any)) (*anchors.Derived, error) {
+func (f fetcher) freshVersion(ctx context.Context, s Source, m *meta.Meta, stored *parse.Tree, say func(string, ...any)) error {
 	vs, err := f.client.Versions(ctx, s)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	sd, err := standOf(vs, m.SourceVersionDate)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if !sd.current {
+	if sd.stand != standCurrent {
 		say("version: eCFR's latest %s, stored source_version_date %s: differ", sd.latestText(), m.SourceVersionDate)
-		return nil, findingf("stored source_version_date %s, eCFR's latest %s: %s: %s; nothing is written (R1)", m.SourceVersionDate, sd.latestText(), sd.verdict, sd.advice())
+		return findingf("stored source_version_date %s, eCFR's latest %s: %s%s; nothing is written (R1)", m.SourceVersionDate, sd.latestText(), sd.verdict, sd.advice())
 	}
 	say("version: eCFR's latest %s, stored source_version_date %s: equal", sd.latest, m.SourceVersionDate)
 	body, err := f.client.XML(ctx, s, sd.latest)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	d, err := anchors.Build(body)
 	if err != nil {
-		return nil, findingf("eCFR's fresh XML at %s doesn't build as regcorpus parse builds the stored version: %v; nothing is written", sd.latest, err)
+		return findingf("eCFR's fresh XML at %s doesn't build as regcorpus parse builds the stored version: %v; nothing is written", sd.latest, err)
 	}
 	changed, rawOnly := compareTrees(s.Identifier, stored, d.Tree)
 	var differs []string
@@ -187,7 +189,7 @@ func (f fetcher) freshVersion(ctx context.Context, s Source, m *meta.Meta, store
 		var where string
 		if len(changed) == 0 {
 			if where, err = outsideNodes(s.Identifier, stored, d.Tree); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		say("sha256_text: differs, fresh %s, stored %s%s", d.SHA256Text, m.SHA256Text, where)
@@ -198,9 +200,9 @@ func (f fetcher) freshVersion(ctx context.Context, s Source, m *meta.Meta, store
 		say("raw text differs, normalized alike (information only): %s", strings.Join(rawOnly, ", "))
 	}
 	if len(differs) > 0 {
-		return nil, findingf("eCFR's fresh fetch of %s differs from the stored version: %s; nothing is written (R1)", sd.latest, strings.Join(differs, "; "))
+		return findingf("eCFR's fresh fetch of %s differs from the stored version: %s; nothing is written (R1)", sd.latest, strings.Join(differs, "; "))
 	}
-	return d, nil
+	return nil
 }
 
 // compareTrees compares stored and fresh, two trees of section, node by
@@ -288,16 +290,18 @@ func outsideNodes(section string, stored, fresh *parse.Tree) (string, error) {
 }
 
 // edition fetches s's granule in govinfo's 2026 edition (Client.Granule),
-// checks it (govinfo.Read) and compares it with fresh, eCFR's text (F3:
-// C1; worklist round 1, §4 d): it matches when its heading and its
-// paragraphs, one for one and as many, equal eCFR's, each normalized, and
-// its text, joined and normalized as sha256_text's is, hashes to m's
-// sha256_text. On a mismatch it says what differs (F4 b): the hash, the
-// paragraph counts, the heading, and each run of paragraphs between those
-// that match (align), so a paragraph split, merged, added or removed shows
-// alone. An HTTP error or a granule govinfo.Read refuses is an error (exit
-// 2), with nothing written. It returns the granule and its cache path.
-func (f fetcher) edition(ctx context.Context, s Source, m *meta.Meta, fresh *anchors.Derived, say func(string, ...any)) (*granule, error) {
+// checks it (govinfo.Read) and compares it with stored, the stored version
+// storedVersion derived again (F3: C1; worklist round 1, §4 d; round 2,
+// §1): it matches when its heading and its paragraphs, one for one and as
+// many, equal the stored version's, each side normalized by decision 13
+// alone, nothing trimmed, and its text, joined and normalized as
+// sha256_text's is, hashes to m's sha256_text. On a mismatch it says what
+// differs (F4 b): the hash, the paragraph counts, the heading, and each run
+// of paragraphs between those that match (align), so a paragraph split,
+// merged, added or removed shows alone. An HTTP error or a granule
+// govinfo.Read refuses is an error (exit 2), with nothing written. It
+// returns the granule and its cache path.
+func (f fetcher) edition(ctx context.Context, s Source, m *meta.Meta, stored *anchors.Derived, say func(string, ...any)) (*granule, error) {
 	from, body, err := f.client.Granule(ctx, s.Identifier)
 	if err != nil {
 		return nil, fmt.Errorf("govinfo: %w", err)
@@ -312,11 +316,11 @@ func (f fetcher) edition(ctx context.Context, s Source, m *meta.Meta, fresh *anc
 	if err != nil {
 		return nil, fmt.Errorf("govinfo: %s: %w", from, err)
 	}
-	heads, err := normalized([]string{fresh.Tree.Heading, g.Heading})
+	heads, err := normalized([]string{stored.Tree.Heading, g.Heading})
 	if err != nil {
 		return nil, err
 	}
-	ours, err := normalized(anchors.NewDocument(fresh.Tree).Paragraphs())
+	ours, err := normalized(anchors.NewDocument(stored.Tree).Paragraphs())
 	if err != nil {
 		return nil, err
 	}
@@ -332,28 +336,28 @@ func (f fetcher) edition(ctx context.Context, s Source, m *meta.Meta, fresh *anc
 	}
 	year := govinfo.EditionYear
 	if kept.matches {
-		say("govinfo %s edition: the heading and each of the %d paragraphs equal eCFR's, normalized, and the text hashes to sha256_text", year, len(ours))
+		say("govinfo %s edition: the heading and each of the %d paragraphs equal the stored version's, normalized, and the text hashes to sha256_text", year, len(ours))
 		return kept, nil
 	}
 	if meta.SHA256(h) == m.SHA256Text {
-		say("govinfo %s edition: differs: its normalized text hashes to sha256_text, but its paragraphs are not eCFR's one for one", year)
+		say("govinfo %s edition: differs: its normalized text hashes to sha256_text, but its heading and paragraphs are not the stored version's one for one", year)
 	} else {
 		say("govinfo %s edition: differs: its normalized text hashes to %s, not sha256_text %s", year, h, m.SHA256Text)
 	}
 	if len(theirs) != len(ours) {
-		say("govinfo %s edition: %d paragraphs, eCFR's %d", year, len(theirs), len(ours))
+		say("govinfo %s edition: %d paragraphs, the stored version's %d", year, len(theirs), len(ours))
 	}
 	if heads[0] != heads[1] {
 		say("govinfo differs at the heading:")
-		say("  eCFR:    %q", heads[0])
+		say("  stored:  %q", heads[0])
 		say("  govinfo: %q", heads[1])
 	}
 	for _, k := range hunks {
-		say("govinfo differs at eCFR's %s, govinfo's %s:", span(k.a0, k.a1, len(ours)), span(k.b0, k.b1, len(theirs)))
+		say("govinfo differs at the stored version's %s, govinfo's %s:", span(k.a0, k.a1, len(ours)), span(k.b0, k.b1, len(theirs)))
 		for _, side := range []struct {
 			who string
 			ps  []string
-		}{{"eCFR:   ", ours[k.a0:k.a1]}, {"govinfo:", theirs[k.b0:k.b1]}} {
+		}{{"stored: ", ours[k.a0:k.a1]}, {"govinfo:", theirs[k.b0:k.b1]}} {
 			if len(side.ps) == 0 {
 				say("  %s (none)", side.who)
 			}

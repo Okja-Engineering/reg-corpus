@@ -57,13 +57,13 @@ eCFR is up to date as of.
                       section is the stored one (R1b); writes nothing
 
 --verify (plan step 6, ADR 0014) checks each section in three steps, and
-stops at the first that fails:
+stops at the first that fails. 1024.30 and 1024.31 are refused first,
+before the lock: their tree and sha256_text are plan step 9's.
   1. What is stored: the check above every writer of meta.yaml makes;
      tree.json, text.md and sha256_text as regcorpus parse derives them
      from the raw XML, derived again and compared (else run regcorpus
      parse); and no overrides.yaml (applying overrides isn't built yet,
-     R1a; with none, it prints "overrides: none"). 1024.30 and 1024.31 are
-     refused: their tree and sha256_text are plan step 9's. No request but
+     R1a; with none, it prints "overrides: none"). No request but
      titles.json is made before this passes.
   2. eCFR: its latest version, read from its version list, must be the
      stored source_version_date (newer: run --latest; older: eCFR's list
@@ -81,20 +81,24 @@ stops at the first that fails:
      must be valid UTF-8 with no CR, well-formed, and in the form a
      granule has, or it is refused, not read past: title 12, the
      section's part, DATE 2026-01-01, SECTNO the section, a SECTNO, a
-     SUBJECT, then non-empty <P>s and page breaks, then the citation
-     note. Its layout is deleted (each line break and up to 12 spaces
-     after it, in each run of text on its own); its heading (SECTNO, one
-     space, SUBJECT) and each paragraph (<E>'s text kept, page breaks
-     dropped, the citation note left out, the edges trimmed), normalized,
-     must equal eCFR's, one for one, and joined and normalized as
+     SUBJECT, then one or more non-empty <P>s and page breaks, then one
+     citation note; no CDATA section, and no character reference to a
+     space, a line break or any other White_Space character. Its layout
+     is deleted (each line break and up to 12 spaces after it, in each
+     run of text on its own), and nothing else: White_Space at an edge is
+     text. Its heading (SECTNO, one space, SUBJECT) and each paragraph
+     (<E>'s text kept, page breaks dropped, the citation note left out),
+     normalized, must equal the stored version's, one for one (what step
+     1 derived, not the fresh fetch), and joined and normalized as
      sha256_text's are, must hash to the stored sha256_text.
-It holds the source's lock throughout and writes only verified_on in
-meta.yaml (through internal/l0), keeping every other field. On a match it
-sets the run's UTC date, unless verified_on is a date already, which stays,
-so a re-run that still matches changes nothing ("unchanged"). On a govinfo
-mismatch it prints what differs, each paragraph normalized, and writes
-verified_on: null over any date. Raw XML, tree.json and text.md are never
-written. Then it keeps the granule, git-ignored, at
+It holds the source's lock from the stored-state check through the write
+of verified_on, and writes only verified_on in meta.yaml (through
+internal/l0), keeping every other field. On a match it sets the run's UTC
+date, unless verified_on is a date already, which stays, so a re-run that
+still matches changes nothing ("unchanged"). On a govinfo mismatch it
+prints what differs, each paragraph normalized, and writes verified_on:
+null over any date. Raw XML, tree.json and text.md are never written.
+After the lock is released it keeps the granule, git-ignored, at
 .cache/govinfo/2026/title-12/<section>/<sha256>.xml: a cache, not
 evidence, which nothing reads back.
 
@@ -271,19 +275,21 @@ func (f fetcher) latest(ctx context.Context, s Source, asOf Date) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	v, err := Latest(vs)
-	if err != nil {
+	date, removed, err := Latest(vs)
+	switch {
+	case err != nil:
 		return nil, err
-	}
-	if v.Date > asOf {
+	case removed: // there is no text to store
+		return nil, fmt.Errorf("eCFR's latest version of %s, %s, removed it", s.Identifier, date)
+	case date > asOf:
 		return nil, fmt.Errorf("eCFR's latest version of %s is dated %s, after %s, the date title %s is up to date as of; fetch stores no version eCFR isn't up to date for",
-			s.Name, v.Date, asOf, title)
+			s.Name, date, asOf, title)
 	}
-	body, err := f.client.XML(ctx, s, v.Date)
+	body, err := f.client.XML(ctx, s, date)
 	if err != nil {
 		return nil, err
 	}
-	name := string(v.Date) + ".xml"
+	name := string(date) + ".xml"
 	raw := path.Join(s.dir(), "raw", name)
 	st, err := l0.Read(f.root, s.stored())
 	if err != nil {
@@ -303,12 +309,12 @@ func (f fetcher) latest(ctx context.Context, s Source, asOf Date) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	prefix := s.Name + " " + string(v.Date) + ": "
+	prefix := s.Name + " " + string(date) + ": "
 	lines := []string{prefix + storedLine(stored, raw, body)}
 	if st.Meta != nil {
 		return lines, nil
 	}
-	m, err := meta.Marshal(fetchedMeta(s, v.Date, Date(f.now().UTC().Format(time.DateOnly)), asOf, body))
+	m, err := meta.Marshal(fetchedMeta(s, date, Date(f.now().UTC().Format(time.DateOnly)), asOf, body))
 	if err != nil {
 		return lines, err
 	}

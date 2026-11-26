@@ -112,9 +112,9 @@ func (d *Document) Nodes() []*parse.Node { return slices.Clone(d.nodes) }
 // each the own texts of its nodes with nothing between them, raw (the join
 // rule inside a <P>). JoinSection puts one space between them for
 // sha256_text, text.md a blank line, and fetch --verify normalizes each
-// (Normalize, edges kept) and compares them one by one, in order, with the
-// official edition's, normalized after govinfo.Read trims their edges
-// (plan step 6, ADR 0014).
+// (Normalize, nothing trimmed) and compares them one by one, in order, with
+// the official edition's, normalized alike, nothing trimmed (plan step 6,
+// ADR 0014).
 func (d *Document) Paragraphs() []string { return paragraphs(d.nodes) }
 
 // The cites Runs and Join refuse, each named in the error they return.

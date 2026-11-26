@@ -49,10 +49,12 @@
 //     never overwritten (l0.StoreOnce, by hard link), and every directory on
 //     the way to one, from sources/ down and under .cache/, must be a real
 //     directory, not a symlink or a file, found by its exact name
-//     (l0.RealDirs, the one check of that; exit 1 otherwise, before any
-//     request for sources/ecfr/title-12/). A name that differs only in case
-//     from a directory's on the way ("RAW", "TITLE-12"), or from meta.yaml,
-//     tree.json, text.md or overrides.yaml in a source's directory (l0.Read),
+//     (l0.RealDirs, the one check of that; under sources/ exit 1 otherwise,
+//     before any request for sources/ecfr/title-12/, and under .cache/ exit
+//     2, the cache's failure, below, since ADR 0014). A name that differs
+//     only in case from a directory's on the way ("RAW", "TITLE-12"), or
+//     from meta.yaml, tree.json, text.md or overrides.yaml in a source's
+//     directory (l0.Read),
 //     or from the file fetch stores ("2025-07-15.XML"; l0.StoreOnce, which
 //     compares only a regular file), exits 1 too, with nothing stored: a
 //     case-insensitive filesystem would store under, or report as unchanged,
@@ -119,40 +121,54 @@
 //     XML again (anchors.Build, parse's one derivation) and compares
 //     tree.json and text.md (l0.State.Stale) and sha256_text, naming each
 //     that differs and regcorpus parse (worklist round 1, §1). Then eCFR:
-//     its latest version, read from the version list (standOf, as --latest
-//     reads it), must be source_version_date (newer, older or a removal is a
-//     *Finding, exit 1, its advice by direction); that version's XML, built
-//     as parse builds it, must have tree.json's node paths in order with
-//     their sha256s, and the stored sha256_text (F6: i, T2), else the nodes,
-//     or the heading or paragraph that differs outside them, are named. The
-//     normalized text is the version (F1: A): sha256_raw, fresh and stored,
-//     and the nodes whose raw text differs are printed as information only.
-//     Then, only if that passes (F4 c), govinfo: Client.Granule asks
-//     govinfo's link service for the section's 2026-edition granule (F2:
-//     G1), on govinfo's own origin, through the same get as eCFR, an error
-//     naming the URL that failed; internal/govinfo reads it (its closed
-//     grammar and the layout rule, F3: C1). Its heading and each paragraph,
-//     normalized, must equal eCFR's, one for one, and joined and hashed as
-//     sha256_text is (anchors.JoinSection), give the stored sha256_text;
-//     what differs is printed by paragraph, aligned (align, a longest
-//     common subsequence) so a split, merged, added or removed paragraph
-//     shows alone. --verify sets only verified_on: the run's UTC date on a
-//     match, unless a date is there already (F5: V-a); null on a mismatch,
-//     over any date (F4 a), and a *Finding (exit 1 that writes; F8: E-a).
-//     Only then is the granule kept under .cache/govinfo/ by its sha256
-//     (l0.StoreOnce): a cache, not evidence, which nothing reads back (§2);
-//     if it can't be kept, exit 2 after the verdict is written. Every other
-//     refusal or finding writes nothing; a network, eCFR or govinfo error is
-//     exit 2.
+//     its latest version, read from the version list (standOf, by Latest,
+//     the one reading plain fetch shares), must be source_version_date
+//     (newer, older or a removal is a *Finding, exit 1, its advice by
+//     direction, none for a removal at the stored date); that version's
+//     XML, built as parse builds it, must have tree.json's node paths in
+//     order with their sha256s, and the stored sha256_text (F6: i, T2), else
+//     the nodes, or the heading or paragraph that differs outside them, are
+//     named. The normalized text is the version (F1: A): sha256_raw, fresh
+//     and stored, and the nodes whose raw text differs are printed as
+//     information only. Then, only if that passes (F4 c), govinfo:
+//     Client.Granule asks govinfo's link service for the section's
+//     2026-edition granule (F2: G1), on govinfo's own origin, through the
+//     same get as eCFR, an error naming the URL that failed; internal/govinfo
+//     reads it (its closed grammar and the layout rule, F3: C1). Its heading
+//     and each paragraph, each side normalized by decision 13 alone, nothing
+//     trimmed, must equal the stored version's, the one derived again, one
+//     for one, never the fresh fetch's (worklist round 2, §1), and joined
+//     and hashed as sha256_text is (anchors.JoinSection), give the stored
+//     sha256_text; what differs is printed by paragraph, aligned (align, a
+//     longest common subsequence) so a split, merged, added or removed
+//     paragraph shows alone. --verify sets only verified_on: the run's UTC
+//     date on a match, unless a date is there already (F5: V-a); null on a
+//     mismatch, over any date (F4 a), and a *Finding (exit 1 that writes;
+//     F8: E-a). The lock is held from the stored-state check through that
+//     write. Only after it is released is the granule kept under
+//     .cache/govinfo/ by its sha256 (l0.StoreOnce): a cache, not evidence,
+//     which nothing reads back (§2); if it can't be kept, exit 2 after the
+//     verdict is written. Every other refusal or finding writes nothing; a
+//     network, eCFR or govinfo error is exit 2.
 //   - --latest reads each source's meta.yaml, after the stored-state check,
 //     and its version list, and writes nothing. eCFR's latest is the list's
-//     own (standOf): one newer than source_version_date, older (the list
-//     ends before it), or one that removed the source is a *Finding (exit
-//     1; F7: L1, report only). An entry for the stored date whose
+//     own (standOf): one newer than source_version_date is a *Finding, exit
+//     1 (F7: L1, report only); one older (the list ends before it), or one
+//     that removed the source, is one too, by the chief of staff's rulings
+//     (F8; worklist round 1, §5). An entry for the stored date whose
 //     issue_date (Version.IssueDate, read only here) is on or after
 //     retrieved_at's day, a possible reissue, or isn't a YYYY-MM-DD date, is
-//     printed as information only. R1b's Supplement I clause is plan step
-//     8's.
+//     printed as information only, a date as a date and anything else
+//     quoted. R1b's Supplement I clause is plan step 8's.
+//   - An upstream value printed, in a line or an error, is validated to its
+//     form first or quoted (worklist round 2, §3): eCFR's dates and
+//     identifiers are checked (Versions, ParseDate); issue_date as above; a
+//     root element's name and values (rootElement, parse.Qualified); a URL
+//     a redirect led to must be printable ASCII (getFrom); a heading or a
+//     paragraph in a diff, and a granule's values in internal/govinfo's
+//     errors, are quoted. encoding/xml's own messages for XML that is not
+//     well-formed are printed as it writes them: a name or an entity there
+//     can't hold an ASCII control character, a line break or an escape.
 //
 // TODO(plan step 8): Supplement I, an appendix source fetched whole, its
 // --verify and --latest's slice-hash clause.

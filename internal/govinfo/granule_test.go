@@ -306,7 +306,7 @@ func TestReadRefusesWhatItDoesNotRead(t *testing.T) {
 		{"an APPENDIX beside the SECTION", strings.Replace(ok, "</SECTION>", "</SECTION>\n    <APPENDIX>x</APPENDIX>", 1)},
 		{"an EDNOTE before the FDSYS", strings.Replace(ok, "    <FDSYS>", "    <EDNOTE>x</EDNOTE>\n    <FDSYS>", 1)},
 		{"text in the root", strings.Replace(ok, "</FDSYS>", "</FDSYS>\n    stray", 1)},
-		{"the SECTION before the FDSYS", strings.Replace(strings.Replace(ok, "<FDSYS>", "<SECTION><SECTNO>§ 1024.41</SECTNO><SUBJECT>x</SUBJECT><P>(a) x.</P></SECTION><FDSYS>", 1),
+		{"the SECTION before the FDSYS", strings.Replace(strings.Replace(ok, "<FDSYS>", "<SECTION><SECTNO>§ 1024.41</SECTNO><SUBJECT>x</SUBJECT><P>(a) x.</P><CITA>x</CITA></SECTION><FDSYS>", 1),
 			"    <SECTION>\n", "    <X>\n", 1)},
 		{"an extra empty SECTION", strings.Replace(ok, "</SECTION>", "</SECTION>\n    <SECTION/>", 1)},
 		{"an unknown element in the FDSYS", strings.Replace(ok, "<CFRTITLE>", "<EXTRA>x</EXTRA><CFRTITLE>", 1)},

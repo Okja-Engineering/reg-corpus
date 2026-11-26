@@ -138,25 +138,23 @@ func listed(v json.RawMessage) string {
 	return string(v)
 }
 
-// Latest returns the version with the latest date in vs. It fails on an empty
-// list, and when an entry at that date removed the source: there is no text
-// to store.
-func Latest(vs []Version) (Version, error) {
+// Latest is eCFR's latest version in vs, the one reading of it that plain
+// fetch and fetch --verify and --latest share (standOf): the list's newest
+// date, and whether an entry at that date removed the source, whatever the
+// order the list gives them in. An empty list is an error. What a removal
+// means is the caller's: plain fetch has no text to store (exit 2), while
+// --verify and --latest report it as a finding.
+func Latest(vs []Version) (latest Date, removed bool, err error) {
 	if len(vs) == 0 {
-		return Version{}, errors.New("eCFR lists no versions")
-	}
-	latest := vs[0]
-	for _, v := range vs[1:] {
-		if v.Date > latest.Date { // YYYY-MM-DD orders as text
-			latest = v
-		}
+		return "", false, errors.New("eCFR lists no versions")
 	}
 	for _, v := range vs {
-		if v.Date == latest.Date && v.Removed {
-			return Version{}, fmt.Errorf("eCFR's latest version of %s, %s, removed it", v.Identifier, v.Date)
-		}
+		latest = max(latest, v.Date) // YYYY-MM-DD orders as text
 	}
-	return latest, nil
+	for _, v := range vs {
+		removed = removed || v.Date == latest && v.Removed
+	}
+	return latest, removed, nil
 }
 
 // XML returns s's point-in-time XML at date: the decoded response body exactly
@@ -246,7 +244,10 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 
 // getFrom is get, also returning the URL the body came from: u, or where
 // u's redirects, all on u's origin, led. Each error names the URL that
-// failed: that one, and u too when a redirect led there.
+// failed: that one, and u too when a redirect led there. A URL a redirect
+// led to is printed in the saved output, so it must be one as RFC 3986
+// writes it, printable ASCII; any other is refused, quoted (worklist round
+// 2, §3). u is the client's own.
 func (c *Client) getFrom(ctx context.Context, u string) (body []byte, from string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -257,10 +258,13 @@ func (c *Client) getFrom(ctx context.Context, u string) (body []byte, from strin
 	hc := c.httpClient()
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, "", err // already names the method and the URL that failed
+		return nil, "", err // already names the method and the URL that failed, quoted
 	}
 	defer resp.Body.Close()
 	from = resp.Request.URL.String()
+	if strings.IndexFunc(from, func(r rune) bool { return r <= ' ' || r > '~' }) >= 0 {
+		return nil, "", fmt.Errorf("GET %s: redirected to %q, which is not a URL of printable ASCII, so it is not read", u, from)
+	}
 	got := from
 	if from != u {
 		got += " (redirected from " + u + ")"
@@ -296,7 +300,7 @@ func (c *Client) httpClient() http.Client {
 func sameOrigin(req *http.Request, via []*http.Request) error {
 	from := via[0].URL
 	if req.URL.Scheme != from.Scheme || !strings.EqualFold(req.URL.Host, from.Host) {
-		return fmt.Errorf("refusing a redirect to %s: only %s://%s is trusted", req.URL, from.Scheme, from.Host)
+		return fmt.Errorf("refusing a redirect to %q: only %s://%s is trusted", req.URL, from.Scheme, from.Host)
 	}
 	if len(via) >= 10 {
 		return errors.New("stopped after 10 redirects")
