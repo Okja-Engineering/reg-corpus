@@ -144,9 +144,19 @@ func (st State) Overrides() bool {
 	return ok
 }
 
-// TreeJSON is not built yet (plan step 6).
+// TreeJSON returns s's tree.json, as Read found it: by exact name, and
+// only as a regular file. A missing one, or a symlink or a directory in its
+// place, is a *Conflict; one it can't read is an error as is. fetch --verify
+// compares a fresh fetch's tree with it (plan step 6, ADR 0014).
 func (st State) TreeJSON(root string, s Source) ([]byte, error) {
-	return nil, errors.New("l0: TreeJSON not built")
+	e, ok := st.files[treeName]
+	switch {
+	case !ok:
+		return nil, Conflictf("%s does not exist: run regcorpus parse first (R1a)", s.TreePath())
+	case !e.Type().IsRegular():
+		return nil, Conflictf("%s is not a regular file (a symlink or a directory, say); tree.json is read only as one (R1)", s.TreePath())
+	}
+	return os.ReadFile(filepath.Join(root, filepath.FromSlash(s.TreePath())))
 }
 
 // readDir is the entries of the directory at slash path dir under root; none

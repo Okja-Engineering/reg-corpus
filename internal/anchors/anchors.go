@@ -108,8 +108,12 @@ func NewDocument(t *parse.Tree) *Document {
 // Nodes is every node of the document, in document order.
 func (d *Document) Nodes() []*parse.Node { return slices.Clone(d.nodes) }
 
-// Paragraphs is not built yet (plan step 6).
-func (d *Document) Paragraphs() []string { return nil }
+// Paragraphs is the document's text one <P> at a time, in document order:
+// each the own texts of its nodes with nothing between them, raw (the join
+// rule inside a <P>). JoinSection puts one space between them for
+// sha256_text, text.md a blank line, and fetch --verify compares them one
+// by one with the official edition's (plan step 6, ADR 0014).
+func (d *Document) Paragraphs() []string { return paragraphs(d.nodes) }
 
 // The cites Runs and Join refuse, each named in the error they return.
 var (

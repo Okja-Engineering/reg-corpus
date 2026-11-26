@@ -65,6 +65,24 @@ func EncodeTree(t *parse.Tree) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// DecodeTree reads b, a tree.json, only when it is exactly what EncodeTree
+// writes: one JSON value with only parse.Tree's and parse.Node's keys, kinds
+// by name, that EncodeTree writes back byte for byte. Anything else is an
+// error, so what fetch --verify compares a fresh fetch with (plan step 6)
+// is the tree regcorpus parse wrote, never a reading of another file.
+func DecodeTree(b []byte) (*parse.Tree, error) {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	var t parse.Tree
+	if err := d.Decode(&t); err != nil {
+		return nil, fmt.Errorf("anchors: tree.json: %w", err)
+	}
+	if again, err := EncodeTree(&t); err != nil || !bytes.Equal(again, b) {
+		return nil, fmt.Errorf("anchors: tree.json is not in the form regcorpus parse writes (EncodeTree): run regcorpus parse to rewrite it")
+	}
+	return &t, nil
+}
+
 // lineBreaks are the characters that end a line: CR, LF, NEL (U+0085), and
 // the line and paragraph separators (U+2028, U+2029).
 const lineBreaks = "\r\n\u0085\u2028\u2029"
@@ -131,17 +149,21 @@ func shown(where, text string) error {
 // the whole document joined as one run of a cite joins (Join: nothing
 // inside a <P>, one space between <P>s). The CITA is left out, so the hash
 // changes only when the rule's words do. It is raw; SHA256Text normalizes
-// it as one string (N6), the HEAD and the space after it included.
+// it as one string (N6), the HEAD and the space after it included. It is
+// JoinSection of the HEAD and the document's Paragraphs.
 func SectionText(t *parse.Tree) string {
-	return t.Heading + " " + joinRun(NewDocument(t).nodes)
+	return JoinSection(t.Heading, NewDocument(t).Paragraphs())
 }
 
-// JoinSection is not built yet (plan step 6).
-func JoinSection(heading string, paragraphs []string) string { return "" }
-
-// DecodeTree is not built yet (plan step 6).
-func DecodeTree(b []byte) (*parse.Tree, error) {
-	return nil, fmt.Errorf("anchors: DecodeTree not built")
+// JoinSection is what sha256_text hashes, given a section's heading and
+// its paragraphs' texts, each raw: the heading, one space, then the
+// paragraphs with one space between them, normalized after, as one string
+// (N6). It is the one definition of that text, for eCFR's tree
+// (SectionText) and for the official edition fetch --verify compares with
+// it (plan step 6, ADR 0014), whose heading and paragraphs come from
+// another schema.
+func JoinSection(heading string, paragraphs []string) string {
+	return heading + " " + strings.Join(paragraphs, " ")
 }
 
 // SHA256Text is meta.yaml's sha256_text for t: Hash of SectionText.

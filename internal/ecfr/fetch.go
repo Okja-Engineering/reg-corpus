@@ -17,13 +17,13 @@ import (
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 )
 
-const usage = `usage: regcorpus fetch [--date YYYY-MM-DD] [section ...]
+const usage = `usage: regcorpus fetch [--date YYYY-MM-DD | --verify | --latest] [section ...]
 
 Fetches each named section (default: all of 1024.41, 1024.30, 1024.31) from
 the eCFR versioner API, run from the corpus root (R1). Flags go before the
-sections.
+sections; --date, --verify and --latest exclude each other.
 
-Without --date: stores eCFR's latest version, untouched, at
+Without a flag: stores eCFR's latest version, untouched, at
 sources/ecfr/title-12/<section>/raw/<date>.xml, and writes meta.yaml's
 fetch-owned fields beside it when it is missing. A source keeps exactly one
 entry in raw/, the latest version's file, and meta.yaml names its date and
@@ -41,19 +41,77 @@ from a directory on the way (RAW for raw/, say), or from the file it stores
 only through real directories, by the names git records, so what it
 reports storing, or finding unchanged, is the name git records.
 
-Every fetch, --date's too, refuses (exit 2) while eCFR reports an import in
-progress, and any date after the one eCFR is up to date as of.
+Every fetch, with any flag, refuses (exit 2) while eCFR reports an import
+in progress; without a flag or with --date, also any date after the one
+eCFR is up to date as of.
 
   --date YYYY-MM-DD   fetch that point in time into .cache/ecfr/title-12/
                       (git-ignored, exploratory); never into sources/
+  --verify            compare each stored section with a fresh fetch and
+                      the govinfo 2026 edition, and set verified_on (R1)
+  --latest            check that eCFR lists no newer version of a stored
+                      section (R1b); writes nothing
 
-Exit 0: ok. Exit 1: a conflict with a stored file; a symlink or a file in
-place of a directory; or a name that differs only in case from meta.yaml,
-tree.json, text.md or overrides.yaml, from a directory on the way, or
-from the file it stores. Exit 2: a usage error, no sources/ecfr/title-12/ (not
-the corpus root), a network or eCFR error, a response that isn't the
-section's XML, or a local file that can't be read or written. Each section is fetched whatever
-another's outcome; when they fail differently the larger code wins (2 over 1).
+--verify (plan step 6, ADR 0014) checks each section in three steps, and
+stops at the first that fails:
+  1. What is stored: the check above every writer of meta.yaml makes, a
+     sha256_text and a tree.json as regcorpus parse writes them, and no
+     overrides.yaml (applying overrides isn't built yet, R1a; with none,
+     it prints "overrides: none"). 1024.30 and 1024.31 are refused: their
+     tree and sha256_text are plan step 9's. No request but titles.json
+     is made before this passes.
+  2. eCFR: its latest version must be dated the stored source_version_date
+     (else run --latest); that version, fetched fresh and built as
+     regcorpus parse builds it, must have tree.json's nodes (the same
+     paths, in the same order, each with the same sha256 of its normalized
+     own text) and the stored sha256_text. The normalized text is the
+     version: bytes that differ but normalize alike pass, and both
+     sha256_raw values, with the nodes whose raw text differs, are
+     printed as information only.
+  3. govinfo, only once step 2 passes: the section's granule XML in the
+     CFR 2026 annual edition (title 12, revised as of 2026-01-01), asked of
+     govinfo's link service, printed with its URL, DATE and sha256, and kept,
+     git-ignored, at .cache/govinfo/2026/title-12/<section>/<sha256>.xml. It
+     must be valid UTF-8, well-formed, its SECTNO the section and its DATE
+     2026-01-01. Its layout is deleted (each line break and up to 12 spaces
+     after it); its heading (SECTNO, one space, SUBJECT) and paragraphs
+     (<E>'s text kept, page breaks dropped, the citation note left out),
+     joined and normalized as sha256_text's are, must hash to the stored
+     sha256_text.
+It holds the source's lock throughout and writes only verified_on in
+meta.yaml (through internal/l0), keeping every other field. On a match it
+sets the run's UTC date, unless verified_on is a date already, which stays,
+so a re-run that still matches changes nothing ("unchanged"). On a govinfo
+mismatch it prints each differing paragraph, normalized, and writes
+verified_on: null over any date. Raw XML, tree.json and text.md are never
+written.
+
+--latest (plan step 6, ADR 0014) reads each section's meta.yaml, checked as
+above, and eCFR's version list, and prints the stored source_version_date,
+eCFR's latest date and every date after the stored one ("(removed)" for a
+version that removed the section). An entry for the stored date issued
+after retrieved_at, a reissue, is printed as information and doesn't
+change the exit code: --verify compares its text. R1b's Supplement I
+clause, a fresh 41() slice's hash, is plan step 8's, which stores
+Supplement I.
+
+Exit 0: ok; with --verify, matched, verified_on set or kept; with --latest,
+no newer version. Exit 1: a conflict with a stored file; a symlink or a
+file in place of a directory; or a name that differs only in case from
+meta.yaml, tree.json, text.md or overrides.yaml, from a directory on the
+way, or from the file it stores. With --verify, also a finding or a
+refusal, with nothing written: eCFR's latest version is another date or
+removed the section, the fresh tree or sha256_text differs, or step 1
+refuses; and a govinfo mismatch, which writes verified_on: null and exits 1.
+With --latest, also a newer version, or a latest version that removed the
+section; --latest writes nothing. Exit 2: a usage error, no
+sources/ecfr/title-12/ (not the corpus root), a network, eCFR or govinfo
+error (an HTTP error, eCFR mid-import, a response that isn't the section's
+XML, a granule of another section or edition, or one --verify doesn't
+read), a local file that can't be read or written, or, for --verify, a
+platform without the lock (darwin and linux have it); --verify then writes
+nothing under sources/. Each section is fetched whatever another's
+outcome; when they fail differently the larger code wins (2 over 1).
 `
 
 // fetcher runs `regcorpus fetch` in a corpus root.
@@ -65,8 +123,9 @@ type fetcher struct {
 
 // Main runs `regcorpus fetch` with args (excluding the subcommand name) in the
 // current directory and returns the exit code: 0 ok, 1 a conflict with a
-// stored file, 2 usage, network, eCFR or local file errors; the larger code
-// when sections fail differently.
+// stored file or, with --verify or --latest, a finding, 2 usage, network,
+// eCFR, govinfo or local file errors; the larger code when sections fail
+// differently.
 func Main(args []string, stdout, stderr io.Writer) int {
 	return fetcher{root: ".", client: NewClient(), now: time.Now}.main(args, stdout, stderr)
 }
@@ -83,6 +142,8 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 		at, err = ParseDate(s) // an empty --date is an error, never "latest"
 		return err
 	})
+	verify := fl.Bool("verify", false, "")
+	newer := fl.Bool("latest", false, "")
 	usageError := func(err error) int {
 		fmt.Fprintf(stderr, "regcorpus fetch: %v\n%s", err, usage)
 		return 2
@@ -98,6 +159,15 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 		if strings.HasPrefix(a, "-") {
 			return usageError(fmt.Errorf("%q comes after a section; flags go before the sections", a))
 		}
+	}
+	modes := 0
+	for _, on := range []bool{at != "", *verify, *newer} {
+		if on {
+			modes++
+		}
+	}
+	if modes > 1 {
+		return usageError(errors.New("--date, --verify and --latest exclude each other"))
 	}
 	srcs, err := selectSources(fl.Args())
 	if err != nil {
@@ -120,14 +190,19 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "regcorpus fetch: %v\n", err)
 		return 2
 	}
+	// One mode for every section: what fetch does with each.
+	each := func(ctx context.Context, s Source) ([]string, error) { return f.latest(ctx, s, asOf) }
+	switch {
+	case at != "":
+		each = func(ctx context.Context, s Source) ([]string, error) { return f.pointInTime(ctx, s, at) }
+	case *verify:
+		each = f.verify
+	case *newer:
+		each = f.newer
+	}
 	code := 0
 	for _, s := range srcs {
-		var lines []string
-		if at == "" {
-			lines, err = f.latest(ctx, s, asOf)
-		} else {
-			lines, err = f.pointInTime(ctx, s, at)
-		}
+		lines, err := each(ctx, s)
 		for _, l := range lines {
 			fmt.Fprintln(stdout, l)
 		}
@@ -285,10 +360,12 @@ func selectSources(args []string) ([]Source, error) {
 	return out, nil
 }
 
-// exitCode is 1 for a conflict with a stored file, 2 for anything else.
+// exitCode is 1 for a conflict with a stored file or a finding of --verify
+// or --latest, 2 for anything else.
 func exitCode(err error) int {
 	var c *l0.Conflict
-	if errors.As(err, &c) {
+	var f *Finding
+	if errors.As(err, &c) || errors.As(err, &f) {
 		return 1
 	}
 	return 2

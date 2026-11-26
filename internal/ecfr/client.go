@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/okja-engineering/reg-corpus/internal/govinfo"
 	"github.com/okja-engineering/reg-corpus/internal/meta"
 	"github.com/okja-engineering/reg-corpus/internal/parse"
 )
@@ -36,42 +37,65 @@ type Date = meta.Date
 func ParseDate(s string) (Date, error) { return meta.ParseDate(s) }
 
 // Version is one entry of a source's eCFR version list: the date eCFR serves
-// it at (full/{date}), and whether that version removed the source.
+// it at (full/{date}), whether that version removed the source, and the
+// date eCFR issued that entry, later than Date when eCFR reissued the
+// version ("" when the list doesn't say).
 type Version struct {
 	Date       Date
 	Identifier string
 	Removed    bool
-	IssueDate  Date // stub: plan step 6
+	IssueDate  Date
 }
 
-// Client calls the eCFR versioner API at BaseURL. A nil HTTP is an
-// http.Client with defaultTimeout. Whichever is used, the redirect policy is
-// get's own (sameOrigin).
+// Client calls the eCFR versioner API at BaseURL, and govinfo, for the
+// official edition fetch --verify compares with, at Govinfo. A nil HTTP is
+// an http.Client with defaultTimeout. Whichever is used, the redirect
+// policy is get's own (sameOrigin), for both hosts.
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
-	Govinfo string // stub: plan step 6
-}
-
-// RemovedError is a stub (plan step 6).
-type RemovedError struct {
-	Identifier string
-	Date       Date
-}
-
-func (e *RemovedError) Error() string { return "stub" }
-
-// Granule is not built yet (plan step 6).
-func (c *Client) Granule(ctx context.Context, section string) (string, []byte, error) {
-	return "", nil, errors.New("ecfr: Granule not built")
+	Govinfo string // govinfo's base URL; "" asks govinfo nothing
 }
 
 // defaultTimeout bounds each request of a Client with no HTTP client.
 const defaultTimeout = 2 * time.Minute
 
-// NewClient returns a client for DefaultBaseURL.
+// NewClient returns a client for DefaultBaseURL and govinfo.DefaultBaseURL.
 func NewClient() *Client {
-	return &Client{BaseURL: DefaultBaseURL}
+	return &Client{BaseURL: DefaultBaseURL, Govinfo: govinfo.DefaultBaseURL}
+}
+
+// RemovedError is Latest's error when the latest entry of a version list
+// removed the source: there is no text at that date. fetch stops on it
+// (exit 2); fetch --verify and --latest report it as a finding (exit 1).
+type RemovedError struct {
+	Identifier string
+	Date       Date
+}
+
+func (e *RemovedError) Error() string {
+	return fmt.Sprintf("eCFR's latest version of %s, %s, removed it", e.Identifier, e.Date)
+}
+
+// Granule returns section's granule XML in govinfo's annual edition of
+// title 12 for govinfo.EditionYear, and the URL it came from: it asks
+// govinfo's link service (govinfo.LinkPath), whose redirect get follows on
+// govinfo's own origin, and returns the body as served, after get's checks
+// (status, size cap, gzip). govinfo.Read checks what it is. A client with
+// no Govinfo asks nothing and errs.
+func (c *Client) Granule(ctx context.Context, section string) (from string, body []byte, err error) {
+	if c.Govinfo == "" {
+		return "", nil, errors.New("no govinfo base URL: the client asks govinfo nothing")
+	}
+	p, err := govinfo.LinkPath(title, section, govinfo.EditionYear)
+	if err != nil {
+		return "", nil, err
+	}
+	body, at, err := c.getFrom(ctx, c.Govinfo+p)
+	if err != nil {
+		return "", nil, err
+	}
+	return at, body, nil
 }
 
 // Versions returns s's version list, every entry checked: a YYYY-MM-DD date
@@ -84,9 +108,10 @@ func (c *Client) Versions(ctx context.Context, s Source) ([]Version, error) {
 	}
 	var doc struct {
 		ContentVersions *[]struct {
-			Date       string `json:"date"`
-			Identifier string `json:"identifier"`
-			Removed    bool   `json:"removed"`
+			Date       string  `json:"date"`
+			Identifier string  `json:"identifier"`
+			Removed    bool    `json:"removed"`
+			IssueDate  *string `json:"issue_date"`
 		} `json:"content_versions"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
@@ -104,14 +129,20 @@ func (c *Client) Versions(ctx context.Context, s Source) ([]Version, error) {
 		if v.Identifier != s.Identifier {
 			return nil, fmt.Errorf("GET %s: content_versions[%d]: identifier %q, want %q", u, i, v.Identifier, s.Identifier)
 		}
-		out[i] = Version{Date: d, Identifier: v.Identifier, Removed: v.Removed}
+		var issued Date
+		if v.IssueDate != nil {
+			if issued, err = ParseDate(*v.IssueDate); err != nil {
+				return nil, fmt.Errorf("GET %s: content_versions[%d]: issue_date %w", u, i, err)
+			}
+		}
+		out[i] = Version{Date: d, Identifier: v.Identifier, Removed: v.Removed, IssueDate: issued}
 	}
 	return out, nil
 }
 
 // Latest returns the version with the latest date in vs. It fails on an empty
-// list, and when an entry at that date removed the source: there is no text
-// to store.
+// list, and when an entry at that date removed the source (a *RemovedError):
+// there is no text to store.
 func Latest(vs []Version) (Version, error) {
 	if len(vs) == 0 {
 		return Version{}, errors.New("eCFR lists no versions")
@@ -124,7 +155,7 @@ func Latest(vs []Version) (Version, error) {
 	}
 	for _, v := range vs {
 		if v.Date == latest.Date && v.Removed {
-			return Version{}, fmt.Errorf("eCFR's latest version of %s, %s, removed it", v.Identifier, v.Date)
+			return Version{}, &RemovedError{Identifier: v.Identifier, Date: v.Date}
 		}
 	}
 	return latest, nil
@@ -211,31 +242,37 @@ const maxBody = 64 << 20
 // status but 200 is an error, decided before the body is read, quoting the
 // start of the body, which is where eCFR puts its reason.
 func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
+	body, _, err := c.getFrom(ctx, u)
+	return body, err
+}
+
+// getFrom is get, also returning the URL the body came from: u, or where
+// u's redirects, all on u's origin, led.
+func (c *Client) getFrom(ctx context.Context, u string) (body []byte, from string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", u, err)
+		return nil, "", fmt.Errorf("GET %s: %w", u, err)
 	}
 	req.Header.Set("Accept-Encoding", "gzip")
 	req.Header.Set("User-Agent", userAgent)
 	hc := c.httpClient()
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, err // already names the method and URL
+		return nil, "", err // already names the method and URL
 	}
 	defer resp.Body.Close()
 	enc := resp.Header.Get("Content-Encoding")
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s: %s", u, resp.Status, errorSnippet(enc, resp.Body))
+		return nil, "", fmt.Errorf("GET %s: %s: %s", u, resp.Status, errorSnippet(enc, resp.Body))
 	}
 	raw, err := readCapped(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: reading body: %w", u, err)
+		return nil, "", fmt.Errorf("GET %s: reading body: %w", u, err)
 	}
-	body, err := decode(enc, raw)
-	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", u, err)
+	if body, err = decode(enc, raw); err != nil {
+		return nil, "", fmt.Errorf("GET %s: %w", u, err)
 	}
-	return body, nil
+	return body, resp.Request.URL.String(), nil
 }
 
 // httpClient is the client get uses: a copy of c.HTTP, or one with

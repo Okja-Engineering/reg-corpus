@@ -330,7 +330,7 @@ func TestVerifyGovinfoErrorsWriteNothing(t *testing.T) {
 		reply reply
 		want  string
 	}{
-		{"another section", govContent41, reply{body: strings.Replace(g, "<SECTNO>§ 1024.41</SECTNO>", "<SECTNO>§ 1024.40</SECTNO>", 1)}, "another section"},
+		{"another section", govContent41, reply{body: strings.Replace(g, "1024.41</SECTNO>", "1024.40</SECTNO>", 1)}, "another section"},
 		{"another edition", govContent41, reply{body: strings.Replace(g, "<DATE>2026-01-01</DATE>", "<DATE>2025-01-01</DATE>", 1)}, "another edition"},
 		{"not UTF-8", govContent41, reply{body: strings.Replace(g, "Loss mitigation procedures.", "Loss \xff", 1)}, "not a govinfo"},
 		{"eCFR's XML", govContent41, reply{body: string(repoFile(t, rawPath("1024.41")))}, "not a govinfo"},

@@ -68,8 +68,12 @@ func TestTheCommittedGranuleGivesTheOraclesSHA256Text(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Date != "2026-01-01" || s.Heading != "§ 1024.41 Loss mitigation procedures." || len(s.Paragraphs) != 75 {
-		t.Fatalf("Date %q, Heading %q, %d paragraphs; want 2026-01-01, the SECTNO and SUBJECT one space apart, 75", s.Date, s.Heading, len(s.Paragraphs))
+	// govinfo's SECTNO has a thin space (U+2009) after the section sign,
+	// where eCFR's HEAD has a space: White_Space both, so they normalize
+	// alike.
+	heading := "§" + string(rune(0x2009)) + "1024.41 Loss mitigation procedures."
+	if s.Date != "2026-01-01" || s.Heading != heading || len(s.Paragraphs) != 75 {
+		t.Fatalf("Date %q, Heading %q, %d paragraphs; want 2026-01-01, %q (the SECTNO and SUBJECT one space apart), 75", s.Date, s.Heading, len(s.Paragraphs), heading)
 	}
 	if got := sectionText(t, s); got != oracleGovinfoText {
 		t.Errorf("sha256 of the granule's section text = %s, want the oracle's %s", got, oracleGovinfoText)
@@ -185,6 +189,8 @@ func TestLayoutOnlyDifferencesReadAlike(t *testing.T) {
 	}
 	for name, body := range map[string]string{
 		"shallower before a tag": strings.ReplaceAll(twoParas, "\n            <", "\n    <"),
+		"a space moved from before a break to the thirteenth after it": strings.Replace(twoParas,
+			"Text one \n            <PRTPAGE P=\"721\"/>\n            continues", "Text one\n            <PRTPAGE P=\"721\"/>\n             continues", 1),
 		"on one line": "<P>(a) <E T=\"03\">Heading.</E> Text one <PRTPAGE P=\"721\"/>continues.</P>\n" +
 			"<P>(b) Text two.</P>",
 		"broken around every element": "<P>\n            (a) \n            <E T=\"03\">\n            Heading.\n            </E>\n             Text one \n" +
@@ -201,18 +207,20 @@ func TestLayoutOnlyDifferencesReadAlike(t *testing.T) {
 	}
 }
 
-// TestAWordOrASpaceIsText: what layout can't explain changes the text.
+// TestAWordOrASpaceIsText: what layout can't explain changes the text, and
+// so the hash. (Two spaces for one don't: normalization collapses a run of
+// White_Space, on both sides alike.)
 func TestAWordOrASpaceIsText(t *testing.T) {
 	base, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", twoParas)), "1024.41", govinfo.EditionDate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{
-		"a word":                 strings.Replace(twoParas, "Text two", "Text 2", 1),
-		"a space between words":  strings.Replace(twoParas, "Text two", "Text  two", 1),
-		"the space before a tag": strings.Replace(twoParas, "Text one \n", "Text one\n", 1),
-		"a thirteenth space":     strings.Replace(twoParas, "\n            continues", "\n             continues", 1),
-		"the E's text":           strings.Replace(twoParas, "Heading.", "Headings.", 1),
+		"a word":                         strings.Replace(twoParas, "Text two", "Text 2", 1),
+		"a space between words removed":  strings.Replace(twoParas, "Text two", "Texttwo", 1),
+		"the space before a tag removed": strings.Replace(twoParas, "Text one \n", "Text one\n", 1),
+		"the thirteenth space removed":   strings.Replace(twoParas, "\n             Text one", "\n            Text one", 1),
+		"the E's text":                   strings.Replace(twoParas, "Heading.", "Headings.", 1),
 	} {
 		s, err := govinfo.Read([]byte(granule("2026-01-01", "§ 1024.41", "Loss mitigation procedures.", body)), "1024.41", govinfo.EditionDate)
 		if err != nil {

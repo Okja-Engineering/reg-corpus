@@ -1,10 +1,12 @@
 // Package ecfr is the client for the eCFR versioner API: version lists and
 // point-in-time full/{date} XML for 12 CFR 1024.41, Supplement I to Part 1024,
-// 1024.30 and 1024.31. It stores raw XML untouched and backs
-// `regcorpus fetch --verify` and `regcorpus fetch --latest`.
+// 1024.30 and 1024.31, and for govinfo's annual-edition granules. It stores
+// raw XML untouched and backs `regcorpus fetch --verify` and `regcorpus
+// fetch --latest`.
 //
 // Requirements: R1 (verbatim storage and source metadata), R1b (newer-version
-// check). Built in plan steps 2, 3, 6 and 8 (see the TODOs below).
+// check). Built in plan steps 2, 3, 5 and 6; Supplement I in plan step 8
+// (see the TODO below).
 //
 // Who writes meta.yaml (ADR 0010): internal/meta owns its schema and
 // internal/l0 the file; every command here reads it through l0.Read
@@ -102,7 +104,41 @@
 // that fails part-way, after printing the files it wrote, its error naming
 // the file it was writing.
 //
-// TODO(plan step 6): `fetch --verify` (verified_on) and
-// `fetch --latest` (R1b). TODO(plan step 8): Supplement I, an appendix source
-// fetched whole.
+// Built (plan step 6; ADR 0014): `regcorpus fetch --verify` (verify.go,
+// R1) and `regcorpus fetch --latest` (newer.go, R1b), flags of fetch that
+// exclude each other and --date. Both read titles.json first, as every
+// fetch does (exit 2 mid-import).
+//   - --verify, under the source's lock (l0.Update), refuses before any
+//     other request a source whose tree is a later plan step's (Goldens:
+//     1024.30 and 1024.31, plan step 9), an overrides.yaml, a meta.yaml
+//     without sha256_text and a tree.json that isn't as parse writes it
+//     (anchors.DecodeTree). Then eCFR: its latest version must be dated
+//     source_version_date (a removal, a *RemovedError, or another date is a
+//     *Finding, exit 1); that version's XML, built as parse builds it
+//     (anchors.Build), must have tree.json's node paths in order with their
+//     sha256s, and the stored sha256_text (F6: i, T2). The normalized text
+//     is the version (F1: A): sha256_raw, fresh and stored, and the nodes
+//     whose raw text differs are printed as information only. Then, only
+//     if that passes (F4 c), govinfo: Client.Granule asks govinfo's link
+//     service for the section's 2026-edition granule (F2: G1), on govinfo's
+//     own origin, through the same get as eCFR; it is kept under
+//     .cache/govinfo/ by its sha256 (l0.StoreOnce) and read by
+//     internal/govinfo (its checks and the layout rule, F3: C1), and its
+//     heading and paragraphs, joined and hashed as sha256_text is
+//     (anchors.JoinSection), must give the stored sha256_text. --verify
+//     sets only verified_on: the run's UTC date on a match, unless a date
+//     is there already (F5: V-a); null on a mismatch, over any date (F4 a),
+//     printing each differing paragraph normalized (F4 b), and a *Finding
+//     (exit 1 that writes; F8: E-a). Every other refusal or finding writes
+//     nothing; a network, eCFR or govinfo error is exit 2.
+//   - --latest reads each source's meta.yaml, after the stored-state check,
+//     and its version list, and writes nothing. A version dated after
+//     source_version_date, or a latest version that removed the source, is
+//     a *Finding (exit 1; F7: L1, report only); an entry for the stored
+//     date issued after retrieved_at (Version.IssueDate), a reissue, is
+//     printed as information only. R1b's Supplement I clause is plan step
+//     8's.
+//
+// TODO(plan step 8): Supplement I, an appendix source fetched whole, its
+// --verify and --latest's slice-hash clause.
 package ecfr
