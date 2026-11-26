@@ -6,3 +6,6 @@
 # can read one and every source would exit 1. tree.json, text.md and
 # overrides.yaml are L0 too.
 sources/** -text -filter -ident -working-tree-encoding
+# The govinfo granules fetch --verify's tests read are govinfo's bytes as
+# served (plan step 6, ADR 0014), kept the same way.
+internal/govinfo/testdata/** -text -filter -ident -working-tree-encoding

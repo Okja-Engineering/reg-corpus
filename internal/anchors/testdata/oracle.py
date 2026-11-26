@@ -11,6 +11,17 @@
 #
 # It prints the Unicode version of Python's tables, which must be the one
 # x/text and Go use (17.0.0 for x/text v0.42.0 and Go 1.27), then each hash.
+#
+# Given a govinfo CFR granule as well, it also computes plan step 6's
+# comparison (ADR 0014): the granule's sha256_text by the layout rule (each
+# line break and up to 12 spaces after it deleted; the heading SECTNO, one
+# space, SUBJECT; <E> markup dropped and its text kept; PRTPAGE dropped; the
+# CITA left out), which must equal the stored sha256_text, and how many of
+# its paragraphs match eCFR's. internal/govinfo's granule_test.go pins it:
+#
+#   python3 -I internal/anchors/testdata/oracle.py \
+#       sources/ecfr/title-12/1024.41/raw/2025-07-15.xml \
+#       internal/govinfo/testdata/CFR-2026-title12-vol8-sec1024-41.xml
 import hashlib
 import html
 import re
@@ -71,7 +82,44 @@ def main(path):
     print("c-2-v", sha256(c2v), repr(c2v))
     # (c)(2)(v)(A)(1): the whole sixteenth paragraph.
     print("c-2-v-A-1", sha256(paras[15]), repr(paras[15][:40] + "..."))
+    return head, paras
+
+
+# govinfo's layout (plan step 6, ADR 0014): a line break and up to 12 spaces
+# after it, the most indentation govinfo's pretty-printer puts there. It is
+# matched on the raw XML, so a run never crosses a tag.
+LAYOUT = re.compile(r"\n {0,12}")
+
+
+def granule_text(x):
+    """An element's text in a govinfo granule: the layout deleted, the empty
+    <PRTPAGE/> page breaks dropped, <E> markup dropped and its text kept,
+    references read."""
+    x = LAYOUT.sub("", x)
+    x = re.sub(r"<PRTPAGE[^>]*/>", "", x)
+    return html.unescape(re.sub(r"</?E( [^>]*)?>", "", x))
+
+
+def granule(path, ecfr_head, ecfr_paras):
+    """plan step 6's comparison: govinfo's sha256_text, computed the way the
+    stored one is (the heading as SECTNO, one space and SUBJECT; the
+    paragraphs one space apart; the CITA left out), and how many paragraphs
+    match eCFR's, normalized one by one."""
+    raw = open(path, encoding="utf-8").read()
+    section = re.search(r"<SECTION>(.*)</SECTION>", raw, re.S).group(1)
+    sectno = granule_text(re.search(r"<SECTNO>(.*?)</SECTNO>", section, re.S).group(1))
+    subject = granule_text(re.search(r"<SUBJECT>(.*?)</SUBJECT>", section, re.S).group(1))
+    head = sectno + " " + subject
+    paras = [granule_text(p) for p in re.findall(r"<P>(.*?)</P>", section, re.S)]
+    print("govinfo DATE", re.search(r"<DATE>(.*?)</DATE>", raw).group(1))
+    print("govinfo paragraphs", len(paras))
+    print("govinfo heading matches", normalize(head) == normalize(ecfr_head))
+    same = sum(normalize(g) == normalize(e) for g, e in zip(paras, ecfr_paras))
+    print("govinfo paragraphs matching eCFR's", same, "of", len(ecfr_paras))
+    print("govinfo sha256_text", sha256(head + " " + " ".join(paras)))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    head, paras = main(sys.argv[1])
+    if len(sys.argv) > 2:
+        granule(sys.argv[2], head, paras)

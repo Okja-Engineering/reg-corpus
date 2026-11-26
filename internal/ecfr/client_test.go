@@ -108,14 +108,15 @@ func fake(t *testing.T) *fakeECFR {
 	}}
 }
 
-// serve returns a client for the started server srv. Its transport adds no
+// serve returns a client for the started server srv, which stands in for
+// both eCFR (under apiPath) and govinfo (at its root). Its transport adds no
 // Accept-Encoding of its own, so the fake sees only what the client asks for.
 func serve(t *testing.T, srv *httptest.Server) *Client {
 	t.Helper()
 	t.Cleanup(srv.Close)
 	hc := srv.Client()
 	hc.Transport.(*http.Transport).DisableCompression = true
-	return &Client{BaseURL: srv.URL + apiPath, HTTP: hc}
+	return &Client{BaseURL: srv.URL + apiPath, HTTP: hc, Govinfo: srv.URL}
 }
 
 func (f *fakeECFR) set(uri string, r reply) {

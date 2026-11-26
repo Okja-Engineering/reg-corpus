@@ -41,6 +41,7 @@ type Version struct {
 	Date       Date
 	Identifier string
 	Removed    bool
+	IssueDate  Date // stub: plan step 6
 }
 
 // Client calls the eCFR versioner API at BaseURL. A nil HTTP is an
@@ -49,6 +50,20 @@ type Version struct {
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	Govinfo string // stub: plan step 6
+}
+
+// RemovedError is a stub (plan step 6).
+type RemovedError struct {
+	Identifier string
+	Date       Date
+}
+
+func (e *RemovedError) Error() string { return "stub" }
+
+// Granule is not built yet (plan step 6).
+func (c *Client) Granule(ctx context.Context, section string) (string, []byte, error) {
+	return "", nil, errors.New("ecfr: Granule not built")
 }
 
 // defaultTimeout bounds each request of a Client with no HTTP client.

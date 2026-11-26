@@ -144,6 +144,11 @@ func (st State) Overrides() bool {
 	return ok
 }
 
+// TreeJSON is not built yet (plan step 6).
+func (st State) TreeJSON(root string, s Source) ([]byte, error) {
+	return nil, errors.New("l0: TreeJSON not built")
+}
+
 // readDir is the entries of the directory at slash path dir under root; none
 // when it is missing.
 func readDir(root, dir string) ([]fs.DirEntry, error) {

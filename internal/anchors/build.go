@@ -136,6 +136,14 @@ func SectionText(t *parse.Tree) string {
 	return t.Heading + " " + joinRun(NewDocument(t).nodes)
 }
 
+// JoinSection is not built yet (plan step 6).
+func JoinSection(heading string, paragraphs []string) string { return "" }
+
+// DecodeTree is not built yet (plan step 6).
+func DecodeTree(b []byte) (*parse.Tree, error) {
+	return nil, fmt.Errorf("anchors: DecodeTree not built")
+}
+
 // SHA256Text is meta.yaml's sha256_text for t: Hash of SectionText.
 func SHA256Text(t *parse.Tree) (meta.SHA256, error) {
 	h, err := Hash(SectionText(t))

@@ -100,7 +100,9 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 	u := read(t, out)
 	for _, want := range []string{
 		"check --corpus [--root DIR] [--tree TREE-ISH]",
-		"fetch [--date YYYY-MM-DD] [section ...]",
+		"fetch [--date YYYY-MM-DD | --verify | --latest] [section ...]",
+		"--verify: compare each stored section with a fresh fetch and the",
+		"--latest: exit 1 if eCFR lists a newer version of a stored section",
 		"meta set <section> version_effective_date YYYY-MM-DD",
 		`meta set <section> version_fr_citations "<vol> FR <page>" ...`,
 		"parse <section> ...",
@@ -110,6 +112,9 @@ func TestUsageListsCommandsAndWhatIsNotBuilt(t *testing.T) {
 		if !strings.Contains(u, want) {
 			t.Errorf("usage %q lacks %q", u, want)
 		}
+	}
+	if strings.Contains(u, "plan step 6") {
+		t.Errorf("usage %q still says plan step 6 builds what it built", u)
 	}
 }
 

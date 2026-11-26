@@ -108,6 +108,9 @@ func NewDocument(t *parse.Tree) *Document {
 // Nodes is every node of the document, in document order.
 func (d *Document) Nodes() []*parse.Node { return slices.Clone(d.nodes) }
 
+// Paragraphs is not built yet (plan step 6).
+func (d *Document) Paragraphs() []string { return nil }
+
 // The cites Runs and Join refuse, each named in the error they return.
 var (
 	ErrEmptyCite      = errors.New("anchors: a cite with no anchor")
