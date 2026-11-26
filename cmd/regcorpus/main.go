@@ -35,13 +35,28 @@ var commands = map[string]func(args []string, stdout, stderr io.Writer) int{
 }
 
 // run dispatches args and returns the exit code: the command's own, 0 for
-// help, 2 for a missing or unknown command. Every command, and run itself,
-// writes through the sink (internal/sink), never to stdout or stderr: the
-// output is saved as evidence, and no byte in it may forge a line or move
-// a terminal (worklist round 3, §1). verify is given the stdin and stdout
-// files only to test them for a terminal; it writes to its stderr sink.
+// help, 2 for a missing or unknown command; and 2, whatever that code, when
+// stdout's sink kept a write error (sink.Writer.Err), with a line on
+// stderr saying so: exit 0 means the output was written, decided here once
+// for every command (round 1 of PR #11, §3). Every command, and run
+// itself, writes through the sink (internal/sink), never to stdout or
+// stderr: the output is saved as evidence, and no byte in it may forge a
+// line or move a terminal (worklist round 3, §1). verify is given the
+// stdin and stdout files only to test them for a terminal; it writes to its
+// stderr sink.
 func run(args []string, stdin, stdoutFile, stderrFile *os.File) int {
 	stdout, stderr := sink.New(stdoutFile), sink.New(stderrFile)
+	code := dispatch(args, stdin, stdoutFile, stdout, stderr)
+	if err := stdout.Err(); err != nil {
+		fmt.Fprintf(stderr, "regcorpus: writing stdout: %v\n", err)
+		return 2
+	}
+	return code
+}
+
+// dispatch runs the command args name, given the sinks (and verify the
+// stdin and stdout files), and returns its exit code.
+func dispatch(args []string, stdin, stdoutFile *os.File, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		sink.Print(stderr, usage)
 		return 2
@@ -99,7 +114,9 @@ print (no such anchor, or one a later plan step builds), or a finding of
 fetch --verify or --latest, which writes nothing (the one exit 1 that
 writes is fetch --verify's govinfo mismatch, which writes verified_on:
 null), 2 anything that stops the command (usage, network, eCFR, govinfo,
-or a file it can't read or write). A missing or unknown command exits 2.
+an argument that names no source, not the corpus root, a file it can't
+read or write, or a stdout that can't be written, whatever the command's
+own code). A missing or unknown command exits 2.
 verify exits 2 without an interactive terminal and 1 until it is built
 (plan step 19).
 `

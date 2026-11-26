@@ -631,4 +631,21 @@ func TestBuiltBinaryExitCodes(t *testing.T) {
 			}
 		})
 	}
+	// A stdout the binary can't write (a file opened read-only, so each
+	// write fails) exits 2, not 0, naming it on stderr (round 1 of PR #11,
+	// §3). A closed stdout (>&-) can't be tested so: Go's runtime opens
+	// /dev/null in its place at start, and writes there succeed.
+	for _, args := range [][]string{{"help"}, {"text", "-h"}} {
+		t.Run("stdout read-only: "+strings.Join(args, " "), func(t *testing.T) {
+			cmd := exec.Command(bin, args...)
+			cmd.Stdin = devnull
+			cmd.Stdout = devnull
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
+			var exit *exec.ExitError
+			if err := cmd.Run(); !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.HasPrefix(stderr.String(), "regcorpus: writing stdout: ") {
+				t.Errorf("%v, stderr %q; want exit 2 and regcorpus: writing stdout", err, stderr.String())
+			}
+		})
+	}
 }

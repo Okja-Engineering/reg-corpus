@@ -109,7 +109,7 @@ func (f *failing) Write(p []byte) (int, error) {
 func TestWriterKeepsItsFirstError(t *testing.T) {
 	w := sink.New(&failing{after: 2})
 	fmt.Fprintln(w, "one")
-	sink.Print(w, "two\n")
+	fmt.Fprintln(w, "two")
 	if err := w.Err(); err != nil {
 		t.Fatalf("Err after two written lines: %v; want nil", err)
 	}

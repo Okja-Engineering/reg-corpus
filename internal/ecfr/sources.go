@@ -70,7 +70,11 @@ type Source struct {
 	// writes none of its derived files (stage 01: until a source's goldens
 	// exist, make test says nothing about R1a for it; ADR 0013).
 	Goldens string
-	// Comments is not built yet (round 1 of PR #11, §5; red).
+	// Comments is the plan step that adds Supplement I's comment anchors on
+	// the source's paragraphs (an "interp" segment: 1024-41-b-2-i-interp-1),
+	// empty when the slice of Supplement I the corpus keeps has none on it:
+	// plan step 8 slices out the 41() comments only (`regcorpus text`; round
+	// 1 of PR #11, §5).
 	Comments string
 }
 
@@ -80,16 +84,16 @@ type Source struct {
 // with Identifier "Supplement I to Part 1024", Dir "supplement-i/41" and tier
 // regulator_interpretation; eCFR versions it whole.
 var sources = []Source{
-	section("1024.41", meta.RoleInventoried, ""),
-	section("1024.30", meta.RoleCiteOnly, "plan step 9"),
-	section("1024.31", meta.RoleCiteOnly, "plan step 9"),
+	section("1024.41", meta.RoleInventoried, "", "plan step 8"),
+	section("1024.30", meta.RoleCiteOnly, "plan step 9", ""),
+	section("1024.31", meta.RoleCiteOnly, "plan step 9", ""),
 }
 
-func section(id string, role meta.Role, goldens string) Source {
+func section(id string, role meta.Role, goldens, comments string) Source {
 	return Source{
 		Name: id, Dir: id, CFR: "12 CFR " + id,
 		Tier: meta.TierLaw, Role: role, Kind: KindSection, Identifier: id,
-		Goldens: goldens,
+		Goldens: goldens, Comments: comments,
 	}
 }
 

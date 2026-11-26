@@ -114,10 +114,11 @@ func (f fetcher) verify(ctx context.Context, s Source) ([]string, error) {
 // stored-state check has just read, by anchors.Build, the one derivation
 // regcorpus parse writes them by. verified_on vouches for the stored L0 as
 // a whole, so it vouches only for what it derives again (worklist round 1,
-// §1): unless the stored tree.json and text.md are Build's bytes
-// (l0.State.Stale, the comparison parse's writes make) and meta.yaml's
-// sha256_text is Build's, it is refused, an *l0.Conflict before any request,
-// naming each that differs. Refused too: an overrides.yaml, whatever it
+// §1): unless the stored tree.json and text.md are Build's bytes and
+// meta.yaml's sha256_text is Build's (anchors.Derived.Stale, through
+// l0.State.Stale, the comparison parse's writes make; `regcorpus text`
+// makes it too), it is refused, an *l0.Conflict before any request, naming
+// each that differs. Refused too: an overrides.yaml, whatever it
 // is, since applying overrides isn't built (R1a) and the text built
 // without one would not be the stored text; raw XML Build refuses.
 func storedVersion(root string, s Source, m *meta.Meta, raw []byte, st l0.State, say func(string, ...any)) (*anchors.Derived, error) {
@@ -130,12 +131,9 @@ func storedVersion(root string, s Source, m *meta.Meta, raw []byte, st l0.State,
 	if err != nil {
 		return nil, l0.Conflictf("%s: %v; nothing is written", rawPath, err)
 	}
-	stale, err := st.Stale(root, src, l0.Derived{Tree: d.TreeJSON, Text: d.TextMD})
+	stale, err := d.Stale(root, src, st)
 	if err != nil {
 		return nil, err
-	}
-	if m.SHA256Text != d.SHA256Text {
-		stale = append(stale, src.MetaPath()+"'s sha256_text")
 	}
 	if len(stale) > 0 {
 		return nil, l0.Conflictf("%s: missing, or not what regcorpus parse derives from %s, and fetch --verify vouches only for what it derives again: run regcorpus parse %s to regenerate them; nothing is written (R1)",

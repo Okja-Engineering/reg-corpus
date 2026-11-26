@@ -1,7 +1,6 @@
-// What a reader of a stored source checks (plan step 7, ADR 0015): that its
-// meta.yaml names the source (Names, the check Stored makes first), its
-// tree.json as Read found it (TreeJSON), and the corpus root (CorpusRoot).
-// Offline.
+// What a reader of a stored source checks too (plan step 7, ADR 0015): that
+// its meta.yaml names the source (Names, the check Stored makes first) and
+// the corpus root (CorpusRoot). Offline.
 package l0
 
 import (
@@ -48,77 +47,10 @@ func TestNamesRefusesAMissingOrForeignMetaYAML(t *testing.T) {
 	}
 }
 
-// TestTreeJSONIsTheFileReadFound: TreeJSON gives tree.json's bytes when
-// Read found a regular file by that exact name; none (ok false, no error)
-// when there is none; a *Conflict when something else is there (a
-// directory, a symlink, even to a regular file); and an error that isn't a
-// *Conflict when the file can't be read.
-func TestTreeJSONIsTheFileReadFound(t *testing.T) {
-	treePath := func(root string) string { return filepath.Join(root, filepath.FromSlash(testSrc.TreePath())) }
-	read := func(t *testing.T, root string) ([]byte, bool, error) {
-		t.Helper()
-		st, err := Read(root, testSrc)
-		if err != nil {
-			t.Fatalf("Read: %v", err)
-		}
-		return st.TreeJSON(root, testSrc)
-	}
-	var c *Conflict
-
-	root, _ := storedSource(t)
-	if b, ok, err := read(t, root); b != nil || ok || err != nil {
-		t.Errorf("no tree.json: %q, %t, %v; want none, false, no error", b, ok, err)
-	}
-
-	putFile(t, root, testSrc.TreePath(), "{}\n")
-	if b, ok, err := read(t, root); string(b) != "{}\n" || !ok || err != nil {
-		t.Errorf("a regular tree.json: %q, %t, %v; want its bytes", b, ok, err)
-	}
-
-	for _, tc := range []struct {
-		name string
-		make func(t *testing.T, root string)
-	}{
-		{"a directory", func(t *testing.T, root string) {
-			if err := os.Mkdir(treePath(root), 0o755); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{"a symlink to a regular file", func(t *testing.T, root string) {
-			putFile(t, root, "elsewhere.json", "{}\n")
-			if err := os.Symlink(filepath.Join(root, "elsewhere.json"), treePath(root)); err != nil {
-				t.Fatal(err)
-			}
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			root, _ := storedSource(t)
-			tc.make(t, root)
-			if b, _, err := read(t, root); !errors.As(err, &c) || !strings.Contains(err.Error(), testSrc.TreePath()) {
-				t.Errorf("TreeJSON: %q, %v; want a conflict naming %s", b, err, testSrc.TreePath())
-			}
-		})
-	}
-
-	t.Run("unreadable", func(t *testing.T) {
-		if os.Geteuid() == 0 {
-			t.Skip("root reads a file with no permissions")
-		}
-		root, _ := storedSource(t)
-		putFile(t, root, testSrc.TreePath(), "{}\n")
-		if err := os.Chmod(treePath(root), 0); err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := read(t, root); err == nil || errors.As(err, &c) {
-			t.Errorf("TreeJSON: %v; want an error that isn't a conflict", err)
-		}
-	})
-}
-
 // TestCorpusRootNeedsTheSourcesDirectory: a root is the corpus root when the
 // directory every source is under is a real directory there; without it
-// the error (not a *Conflict) says so and names the command; one reached
-// through a symlink is a *Conflict (RealDirs).
+// the error, ErrNotRoot (errors.Is) and not a *Conflict, says so and names
+// the command; one reached through a symlink is a *Conflict (RealDirs).
 func TestCorpusRootNeedsTheSourcesDirectory(t *testing.T) {
 	root, _ := storedSource(t)
 	if err := CorpusRoot(root, "sources", "text"); err != nil {

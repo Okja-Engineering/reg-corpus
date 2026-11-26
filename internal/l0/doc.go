@@ -33,12 +33,13 @@
 //     source table does (cfr, tier, role, source, official;
 //     Source.Identity; State.Names), and raw/ holds exactly
 //     raw/<source_version_date>.xml, a regular file with sha256_raw's bytes.
-//     A reader that reads no raw XML (`regcorpus text`, internal/lookup,
-//     plan step 7, ADR 0015) makes State.Names alone, and reads tree.json
-//     through State.TreeJSON, a regular file by exact name as Read found
-//     it. CorpusRoot is the one check that a root is the corpus root (a
-//     real sources/ecfr/title-12/), which internal/ecfr's commands and
-//     internal/lookup's share.
+//     A reader makes Stored's check too (`regcorpus text`, internal/lookup,
+//     plan step 7, ADR 0015), then compares the derived files with what it
+//     derives from the raw XML Stored returned (State.Stale, through
+//     anchors.Derived.Stale), taking no lock: writers replace whole files.
+//     CorpusRoot is the one check that a root is the corpus root (a real
+//     sources/ecfr/title-12/; without it ErrNotRoot), which internal/ecfr's
+//     commands and internal/lookup's share.
 //   - Update is how an existing meta.yaml is changed, and the only writer of
 //     a source's derived files (tree.json, text.md): under the source's lock
 //     (flock(2) on its directory, so one Update per source at a time, across

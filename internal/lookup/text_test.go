@@ -305,8 +305,8 @@ func forgeries() []refusal {
 			cut := strings.Index(b1.Text, ". ") + 2
 			b.Text, b1.Text = b.Text+b1.Text[:cut], b1.Text[cut:]
 		})},
-		{name: "an em dash made -", args: []string{"1024-41-b"}, root: tree(replace("1024-41-b", "—", "-"))},
-		{name: "a space made NBSP", args: []string{"1024-41-b-2-i-B"}, root: tree(replace("1024-41-b-2-i-B", " ", " "))},
+		{name: "an em dash made -", args: []string{"1024-41-b"}, root: tree(replace("1024-41-b", emDash, "-"))},
+		{name: "a space made NBSP", args: []string{"1024-41-b-2-i-B"}, root: tree(replace("1024-41-b-2-i-B", " ", nbsp))},
 		{name: "a run of spaces", args: []string{"1024-41-b-2-i-B"}, root: tree(replace("1024-41-b-2-i-B", " ", "    "))},
 		{name: "another section's tree", args: []string{"1024-41-a"}, root: tree(func(_ *testing.T, tr *parse.Tree) { tr.Section = "1024.31" })},
 		{name: "a node with no label path", args: []string{"1024-41-a"}, root: tree(setPath("1024-41-k"))},
@@ -322,7 +322,7 @@ func forgeries() []refusal {
 			return bytes.Replace(b, []byte(`"section": "1024.41"`), []byte(`"section": "1024.30", "SECTION": "1024.41"`), 1)
 		})},
 		{name: "escaped Unicode", args: []string{"1024-41-b-2-i-B"}, root: raw(func(b []byte) []byte {
-			return bytes.Replace(b, []byte(`(B) Notify`), []byte(`(B) Notify`), 1)
+			return bytes.Replace(b, []byte(`(B) Notify`), []byte(`\`+"u0028B) Notify"), 1)
 		})},
 		{name: "trailing whitespace", args: []string{"1024-41-a"}, root: raw(func(b []byte) []byte { return append(b, "\n\n   \t\n"...) })},
 		{name: "invalid UTF-8", args: []string{"1024-41-b-2-i-B"}, root: raw(func(b []byte) []byte {
@@ -659,11 +659,14 @@ func TestTextPrintsTheAnchor(t *testing.T) {
 
 // Characters a text holds that the tests write from their code points, so
 // no invisible character is in this file: a combining acute accent
-// (U+0301), whose NFC with a preceding e is U+00E9, and the C1 control
-// sequence introducer (U+009B), with how the sink writes it.
+// (U+0301), whose NFC with a preceding e is U+00E9; the C1 control
+// sequence introducer (U+009B), with how the sink writes it; the em dash
+// (U+2014) and the no-break space (U+00A0), which normalize to "-" and a
+// space.
 var (
-	acute, csi = string(rune(0x301)), string(rune(0x9b))
-	csiText    = `\` + "u009b"
+	acute, csi   = string(rune(0x301)), string(rune(0x9b))
+	csiText      = `\` + "u009b"
+	emDash, nbsp = string(rune(0x2014)), string(rune(0xa0))
 )
 
 // TestTextPrintsVerbatimInDocumentOrder: on raw XML built as regcorpus

@@ -18,6 +18,14 @@
 //   - regcorpus's own text of many lines, a help text, is a Text, which
 //     Print writes one line per Write; a Text is a constant, or a value
 //     converted to one where it is written.
+//   - A value printed as JSON (`regcorpus text --json`; plan step 7, ADR
+//     0015) is written by JSON: one line, in one Write, that through a
+//     Writer is valid JSON decoding to the value, nothing HTML-escaped
+//     (round 1 of PR #11, §4).
+//   - A Writer keeps the first error its stream gave (Err), so a line a
+//     call site wrote without looking at the error is still known to be
+//     lost: cmd/regcorpus exits 2 when stdout's Writer has one, for every
+//     command (round 1 of PR #11, §3).
 //
 // The per-site quoting of upstream values (strconv.Quote, %q) stays where
 // it is, and keeps a value on its line in a form that reads back; this is

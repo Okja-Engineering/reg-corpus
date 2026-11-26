@@ -2,11 +2,12 @@
 // point-in-time full/{date} XML for 12 CFR 1024.41, Supplement I to Part 1024,
 // 1024.30 and 1024.31, and for govinfo's annual-edition granules. It stores
 // raw XML untouched and backs `regcorpus fetch --verify` and `regcorpus
-// fetch --latest`.
+// fetch --latest`. It holds the handler of `regcorpus text` (textcmd.go),
+// because the source table is here.
 //
 // Requirements: R1 (verbatim storage and source metadata), R1b (newer-version
-// check). Built in plan steps 2, 3, 5 and 6; Supplement I in plan step 8
-// (see the TODO below).
+// check), R8 (text's handler). Built in plan steps 2, 3, 5, 6 and 7;
+// Supplement I in plan step 8 (see the TODO below).
 //
 // Who writes meta.yaml (ADR 0010): internal/meta owns its schema and
 // internal/l0 the file; every command here reads it through l0.Read
@@ -183,10 +184,14 @@
 // (textcmd.go). Its handler is here, as parse's is, because the source
 // table is (the chief of staff's F7): TextMain passes the table to
 // internal/lookup as a lookup.Corpus, each source by its name, its stored
-// form and its Goldens as Pending (1024.30's and 1024.31's anchors are plan
-// step 9's), and internal/lookup resolves and prints, offline. The corpus
-// root check every command here makes is l0.CorpusRoot (checkRoot), which
-// internal/lookup shares.
+// form, its Goldens as Pending (1024.30's and 1024.31's anchors are plan
+// step 9's) and its Comments (Supplement I's comment anchors on 1024.41
+// are plan step 8's; it has none on 1024.30 or 1024.31), and
+// internal/lookup resolves and prints, offline, deriving the source again
+// from its raw XML as --verify's first check does (storedVersion; both
+// compare through anchors.Derived.Stale). The corpus root check every
+// command here makes is l0.CorpusRoot (checkRoot), which internal/lookup
+// shares.
 //
 // TODO(plan step 8): Supplement I, an appendix source fetched whole, its
 // --verify and --latest's slice-hash clause.
