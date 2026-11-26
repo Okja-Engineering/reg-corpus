@@ -38,6 +38,9 @@ go.work.sum
 .DS_Store
 *.sw[op]
 *~
+# Python's bytecode cache, left by running a test oracle such as
+# internal/anchors/testdata/oracle.py without -B.
+__pycache__/
 
 # regcorpus (R5 build output; R1 local download cache; R11 local agent state).
 # sources/, registry/ and registry/verify.log stay tracked: in them git ignores

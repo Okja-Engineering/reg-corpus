@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/okja-engineering/reg-corpus/internal/meta"
@@ -144,21 +145,6 @@ func (st State) Overrides() bool {
 	return ok
 }
 
-// TreeJSON returns s's tree.json, as Read found it: by exact name, and
-// only as a regular file. A missing one, or a symlink or a directory in its
-// place, is a *Conflict; one it can't read is an error as is. fetch --verify
-// compares a fresh fetch's tree with it (plan step 6, ADR 0014).
-func (st State) TreeJSON(root string, s Source) ([]byte, error) {
-	e, ok := st.files[treeName]
-	switch {
-	case !ok:
-		return nil, Conflictf("%s does not exist: run regcorpus parse first (R1a)", s.TreePath())
-	case !e.Type().IsRegular():
-		return nil, Conflictf("%s is not a regular file (a symlink or a directory, say); tree.json is read only as one (R1)", s.TreePath())
-	}
-	return os.ReadFile(filepath.Join(root, filepath.FromSlash(s.TreePath())))
-}
-
 // readDir is the entries of the directory at slash path dir under root; none
 // when it is missing.
 func readDir(root, dir string) ([]fs.DirEntry, error) {
@@ -288,12 +274,12 @@ func Update(root string, s Source, set func(m *meta.Meta, raw []byte, st State) 
 	}
 	var todo []file
 	if d != nil {
+		stale, err := st.Stale(root, s, *d)
+		if err != nil {
+			return nil, w, err
+		}
 		for _, f := range []file{{treeName, d.Tree, &w.Tree}, {textName, d.Text, &w.Text}} {
-			differs, err := st.differs(root, s, f.name, f.body)
-			if err != nil {
-				return nil, w, err
-			}
-			if differs {
+			if slices.Contains(stale, path.Join(s.Dir, f.name)) {
 				todo = append(todo, f)
 			}
 		}
@@ -310,20 +296,35 @@ func Update(root string, s Source, set func(m *meta.Meta, raw []byte, st State) 
 	return b, w, nil
 }
 
-// differs reports whether s's file name, which Read found or didn't, must
-// be replaced to hold body: it is missing, or a regular file with other
-// bytes. Anything else there (a symlink, a directory) is a *Conflict.
-func (st State) differs(root string, s Source, name string, body []byte) (bool, error) {
-	e, ok := st.files[name]
-	switch {
-	case !ok:
-		return true, nil
-	case !e.Type().IsRegular():
-		return false, Conflictf("%s is not a regular file (a symlink or a directory, say); a derived file is written only as one, so nothing is written (R1)", path.Join(s.Dir, name))
+// Stale names, by slash path, each of s's derived files, tree.json then
+// text.md, that doesn't hold d's bytes: missing, as Read found it, or a
+// regular file with other bytes. It is the one comparison of a source's
+// derived files with what is derived from its raw XML: Update writes the
+// files it names, and fetch --verify (plan step 6, ADR 0014) refuses to
+// vouch while it names any. Anything else where one goes (a symlink, a
+// directory) is a *Conflict; one it can't read is an error as is.
+func (st State) Stale(root string, s Source, d Derived) ([]string, error) {
+	var stale []string
+	for _, f := range []struct {
+		name string
+		body []byte
+	}{{treeName, d.Tree}, {textName, d.Text}} {
+		p := path.Join(s.Dir, f.name)
+		e, ok := st.files[f.name]
+		switch {
+		case !ok:
+			stale = append(stale, p)
+			continue
+		case !e.Type().IsRegular():
+			return nil, Conflictf("%s is not a regular file (a symlink or a directory, say); a derived file is read and written only as one, so nothing is written (R1)", p)
+		}
+		have, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(have, f.body) {
+			stale = append(stale, p)
+		}
 	}
-	have, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path.Join(s.Dir, name))))
-	if err != nil {
-		return false, err
-	}
-	return !bytes.Equal(have, body), nil
+	return stale, nil
 }

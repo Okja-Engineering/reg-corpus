@@ -53,11 +53,14 @@
 //     request for sources/ecfr/title-12/). A name that differs only in case
 //     from a directory's on the way ("RAW", "TITLE-12"), or from meta.yaml,
 //     tree.json, text.md or overrides.yaml in a source's directory (l0.Read),
-//     or from the file fetch stores ("2025-07-15.XML", --date's under .cache/
-//     too; l0.StoreOnce), exits 1 too, with nothing stored: a
+//     or from the file fetch stores ("2025-07-15.XML"; l0.StoreOnce, which
+//     compares only a regular file), exits 1 too, with nothing stored: a
 //     case-insensitive filesystem would store under, or report as unchanged,
-//     a name git doesn't record. A root without sources/ecfr/title-12/ is not the
-//     corpus root (exit 2).
+//     a name git doesn't record. Under .cache/ (--date's file, --verify's
+//     granule) the same rules hold, but a file the cache can't keep is the
+//     cache's failure (cacheError, exit 2, naming the file as a disposable,
+//     git-ignored cache that may be deleted), not a conflict with L0. A
+//     root without sources/ecfr/title-12/ is not the corpus root (exit 2).
 //   - Beside it, when missing, fetch writes meta.yaml's fetch-owned fields in
 //     the spec's order: cfr, tier, role, source, official, source_version_date,
 //     retrieved_at (UTC), ecfr_up_to_date_as_of, sha256_raw. When meta.yaml
@@ -108,34 +111,46 @@
 // R1) and `regcorpus fetch --latest` (newer.go, R1b), flags of fetch that
 // exclude each other and --date. Both read titles.json first, as every
 // fetch does (exit 2 mid-import).
-//   - --verify, under the source's lock (l0.Update), refuses before any
-//     other request a source whose tree is a later plan step's (Goldens:
-//     1024.30 and 1024.31, plan step 9), an overrides.yaml, a meta.yaml
-//     without sha256_text and a tree.json that isn't as parse writes it
-//     (anchors.DecodeTree). Then eCFR: its latest version must be dated
-//     source_version_date (a removal, a *RemovedError, or another date is a
-//     *Finding, exit 1); that version's XML, built as parse builds it
-//     (anchors.Build), must have tree.json's node paths in order with their
-//     sha256s, and the stored sha256_text (F6: i, T2). The normalized text
-//     is the version (F1: A): sha256_raw, fresh and stored, and the nodes
-//     whose raw text differs are printed as information only. Then, only
-//     if that passes (F4 c), govinfo: Client.Granule asks govinfo's link
-//     service for the section's 2026-edition granule (F2: G1), on govinfo's
-//     own origin, through the same get as eCFR; it is kept under
-//     .cache/govinfo/ by its sha256 (l0.StoreOnce) and read by
-//     internal/govinfo (its checks and the layout rule, F3: C1), and its
-//     heading and paragraphs, joined and hashed as sha256_text is
-//     (anchors.JoinSection), must give the stored sha256_text. --verify
-//     sets only verified_on: the run's UTC date on a match, unless a date
-//     is there already (F5: V-a); null on a mismatch, over any date (F4 a),
-//     printing each differing paragraph normalized (F4 b), and a *Finding
-//     (exit 1 that writes; F8: E-a). Every other refusal or finding writes
-//     nothing; a network, eCFR or govinfo error is exit 2.
+//   - --verify refuses a source whose tree is a later plan step's (Goldens:
+//     1024.30 and 1024.31, plan step 9) before it takes the lock. Then,
+//     under the source's lock (l0.Update), before any other request, it
+//     refuses an overrides.yaml, a meta.yaml without sha256_text, and
+//     stored files that aren't what parse derives: it builds the stored raw
+//     XML again (anchors.Build, parse's one derivation) and compares
+//     tree.json and text.md (l0.State.Stale) and sha256_text, naming each
+//     that differs and regcorpus parse (worklist round 1, §1). Then eCFR:
+//     its latest version, read from the version list (standOf, as --latest
+//     reads it), must be source_version_date (newer, older or a removal is a
+//     *Finding, exit 1, its advice by direction); that version's XML, built
+//     as parse builds it, must have tree.json's node paths in order with
+//     their sha256s, and the stored sha256_text (F6: i, T2), else the nodes,
+//     or the heading or paragraph that differs outside them, are named. The
+//     normalized text is the version (F1: A): sha256_raw, fresh and stored,
+//     and the nodes whose raw text differs are printed as information only.
+//     Then, only if that passes (F4 c), govinfo: Client.Granule asks
+//     govinfo's link service for the section's 2026-edition granule (F2:
+//     G1), on govinfo's own origin, through the same get as eCFR, an error
+//     naming the URL that failed; internal/govinfo reads it (its closed
+//     grammar and the layout rule, F3: C1). Its heading and each paragraph,
+//     normalized, must equal eCFR's, one for one, and joined and hashed as
+//     sha256_text is (anchors.JoinSection), give the stored sha256_text;
+//     what differs is printed by paragraph, aligned (align, a longest
+//     common subsequence) so a split, merged, added or removed paragraph
+//     shows alone. --verify sets only verified_on: the run's UTC date on a
+//     match, unless a date is there already (F5: V-a); null on a mismatch,
+//     over any date (F4 a), and a *Finding (exit 1 that writes; F8: E-a).
+//     Only then is the granule kept under .cache/govinfo/ by its sha256
+//     (l0.StoreOnce): a cache, not evidence, which nothing reads back (§2);
+//     if it can't be kept, exit 2 after the verdict is written. Every other
+//     refusal or finding writes nothing; a network, eCFR or govinfo error is
+//     exit 2.
 //   - --latest reads each source's meta.yaml, after the stored-state check,
-//     and its version list, and writes nothing. A version dated after
-//     source_version_date, or a latest version that removed the source, is
-//     a *Finding (exit 1; F7: L1, report only); an entry for the stored
-//     date issued after retrieved_at (Version.IssueDate), a reissue, is
+//     and its version list, and writes nothing. eCFR's latest is the list's
+//     own (standOf): one newer than source_version_date, older (the list
+//     ends before it), or one that removed the source is a *Finding (exit
+//     1; F7: L1, report only). An entry for the stored date whose
+//     issue_date (Version.IssueDate, read only here) is on or after
+//     retrieved_at's day, a possible reissue, or isn't a YYYY-MM-DD date, is
 //     printed as information only. R1b's Supplement I clause is plan step
 //     8's.
 //

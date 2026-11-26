@@ -65,24 +65,6 @@ func EncodeTree(t *parse.Tree) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// DecodeTree reads b, a tree.json, only when it is exactly what EncodeTree
-// writes: one JSON value with only parse.Tree's and parse.Node's keys, kinds
-// by name, that EncodeTree writes back byte for byte. Anything else is an
-// error, so what fetch --verify compares a fresh fetch with (plan step 6)
-// is the tree regcorpus parse wrote, never a reading of another file.
-func DecodeTree(b []byte) (*parse.Tree, error) {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.DisallowUnknownFields()
-	var t parse.Tree
-	if err := d.Decode(&t); err != nil {
-		return nil, fmt.Errorf("anchors: tree.json: %w", err)
-	}
-	if again, err := EncodeTree(&t); err != nil || !bytes.Equal(again, b) {
-		return nil, fmt.Errorf("anchors: tree.json is not in the form regcorpus parse writes (EncodeTree): run regcorpus parse to rewrite it")
-	}
-	return &t, nil
-}
-
 // lineBreaks are the characters that end a line: CR, LF, NEL (U+0085), and
 // the line and paragraph separators (U+2028, U+2029).
 const lineBreaks = "\r\n\u0085\u2028\u2029"

@@ -1,12 +1,11 @@
 // Tests for what plan step 6 adds to the client (R1, R1b; ADR 0014),
 // offline against the fake in client_test.go: the version list's issue
-// dates, a removal named by its own error, and govinfo's granule fetched
-// through its link service on the origin asked.
+// dates, kept as listed, and govinfo's granule fetched through its link
+// service on the origin asked, an error naming the URL that failed.
 package ecfr
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,7 +32,7 @@ func TestVersionsReadEachIssueDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[Date]Date{}
+	got := map[Date]string{}
 	for _, v := range vs {
 		got[v.Date] = v.IssueDate
 	}
@@ -70,17 +69,6 @@ func TestGranuleErrorsNameTheURLThatFailed(t *testing.T) {
 	_, _, err := c.Granule(context.Background(), "1024.41")
 	if err == nil || !strings.Contains(err.Error(), c.Govinfo+govContent41) || !strings.Contains(err.Error(), "404") {
 		t.Errorf("err %v; want one naming 404 and %s", err, c.Govinfo+govContent41)
-	}
-}
-
-func TestLatestNamesARemovalByItsError(t *testing.T) {
-	_, err := Latest([]Version{{Date: "2017-01-01", Identifier: "1024.41"}, {Date: "2025-07-15", Identifier: "1024.41", Removed: true}})
-	var r *RemovedError
-	if !errors.As(err, &r) || r.Date != "2025-07-15" || r.Identifier != "1024.41" {
-		t.Fatalf("Latest = %v; want a *RemovedError for 1024.41 at 2025-07-15", err)
-	}
-	if want := "eCFR's latest version of 1024.41, 2025-07-15, removed it"; err.Error() != want {
-		t.Errorf("error %q, want %q", err, want)
 	}
 }
 

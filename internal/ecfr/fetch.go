@@ -34,12 +34,16 @@ schema, lacks its raw file, names another date or sha256, or differs from
 the source table in cfr, tier, role, source or official exit 1 and store
 nothing.
 So does a symlink or a file where a directory on the way should be, from
-sources/ down and under .cache/, and a name that differs only in case from
-meta.yaml, tree.json, text.md or overrides.yaml in a source's directory,
-from a directory on the way (RAW for raw/, say), or from the file it stores
-(2025-07-15.XML for 2025-07-15.xml, --date's under .cache/ too): fetch goes
-only through real directories, by the names git records, so what it
-reports storing, or finding unchanged, is the name git records.
+sources/ down, and a name that differs only in case from meta.yaml,
+tree.json, text.md or overrides.yaml in a source's directory, from a
+directory on the way (RAW for raw/, say), or from the file it stores
+(2025-07-15.XML for 2025-07-15.xml): fetch goes only through real
+directories, by the names git records, so what it reports storing, or
+finding unchanged, is the name git records. It keeps a file under .cache/
+(--date's, --verify's granule) by the same rules, compared only as a
+regular file, never through a symlink; but .cache/ is a disposable,
+git-ignored cache, not L0, so a file it can't keep there exits 2, as the
+cache's failure.
 
 Every fetch, with any flag, refuses (exit 2) while eCFR reports an import
 in progress; without a flag or with --date, also any date after the one
@@ -49,69 +53,83 @@ eCFR is up to date as of.
                       (git-ignored, exploratory); never into sources/
   --verify            compare each stored section with a fresh fetch and
                       the govinfo 2026 edition, and set verified_on (R1)
-  --latest            check that eCFR lists no newer version of a stored
-                      section (R1b); writes nothing
+  --latest            check that eCFR's latest version of each stored
+                      section is the stored one (R1b); writes nothing
 
 --verify (plan step 6, ADR 0014) checks each section in three steps, and
 stops at the first that fails:
-  1. What is stored: the check above every writer of meta.yaml makes, a
-     sha256_text and a tree.json as regcorpus parse writes them, and no
-     overrides.yaml (applying overrides isn't built yet, R1a; with none,
-     it prints "overrides: none"). 1024.30 and 1024.31 are refused: their
-     tree and sha256_text are plan step 9's. No request but titles.json
-     is made before this passes.
-  2. eCFR: its latest version must be dated the stored source_version_date
-     (else run --latest); that version, fetched fresh and built as
-     regcorpus parse builds it, must have tree.json's nodes (the same
-     paths, in the same order, each with the same sha256 of its normalized
-     own text) and the stored sha256_text. The normalized text is the
-     version: bytes that differ but normalize alike pass, and both
-     sha256_raw values, with the nodes whose raw text differs, are
+  1. What is stored: the check above every writer of meta.yaml makes;
+     tree.json, text.md and sha256_text as regcorpus parse derives them
+     from the raw XML, derived again and compared (else run regcorpus
+     parse); and no overrides.yaml (applying overrides isn't built yet,
+     R1a; with none, it prints "overrides: none"). 1024.30 and 1024.31 are
+     refused: their tree and sha256_text are plan step 9's. No request but
+     titles.json is made before this passes.
+  2. eCFR: its latest version, read from its version list, must be the
+     stored source_version_date (newer: run --latest; older: eCFR's list
+     ends before the stored version); that version, fetched fresh and
+     built as regcorpus parse builds it, must have tree.json's nodes (the
+     same paths, in the same order, each with the same sha256 of its
+     normalized own text) and the stored sha256_text, else what differs is
+     named: nodes, or the heading or a node's paragraph. The
+     normalized text is the version: bytes that differ but normalize alike pass, and
+     both sha256_raw values, with the nodes whose raw text differs, are
      printed as information only.
   3. govinfo, only once step 2 passes: the section's granule XML in the
      CFR 2026 annual edition (title 12, revised as of 2026-01-01), asked of
-     govinfo's link service, printed with its URL, DATE and sha256, and kept,
-     git-ignored, at .cache/govinfo/2026/title-12/<section>/<sha256>.xml. It
-     must be valid UTF-8, well-formed, its SECTNO the section and its DATE
-     2026-01-01. Its layout is deleted (each line break and up to 12 spaces
-     after it); its heading (SECTNO, one space, SUBJECT) and paragraphs
-     (<E>'s text kept, page breaks dropped, the citation note left out),
-     joined and normalized as sha256_text's are, must hash to the stored
-     sha256_text.
+     govinfo's link service and printed with its URL, DATE and sha256. It
+     must be valid UTF-8 with no CR, well-formed, and in the form a
+     granule has, or it is refused, not read past: title 12, the
+     section's part, DATE 2026-01-01, SECTNO the section, a SECTNO, a
+     SUBJECT, then non-empty <P>s and page breaks, then the citation
+     note. Its layout is deleted (each line break and up to 12 spaces
+     after it, in each run of text on its own); its heading (SECTNO, one
+     space, SUBJECT) and each paragraph (<E>'s text kept, page breaks
+     dropped, the citation note left out, the edges trimmed), normalized,
+     must equal eCFR's, one for one, and joined and normalized as
+     sha256_text's are, must hash to the stored sha256_text.
 It holds the source's lock throughout and writes only verified_on in
 meta.yaml (through internal/l0), keeping every other field. On a match it
 sets the run's UTC date, unless verified_on is a date already, which stays,
 so a re-run that still matches changes nothing ("unchanged"). On a govinfo
-mismatch it prints each differing paragraph, normalized, and writes
+mismatch it prints what differs, each paragraph normalized, and writes
 verified_on: null over any date. Raw XML, tree.json and text.md are never
-written.
+written. Then it keeps the granule, git-ignored, at
+.cache/govinfo/2026/title-12/<section>/<sha256>.xml: a cache, not
+evidence, which nothing reads back.
 
 --latest (plan step 6, ADR 0014) reads each section's meta.yaml, checked as
 above, and eCFR's version list, and prints the stored source_version_date,
-eCFR's latest date and every date after the stored one ("(removed)" for a
-version that removed the section). An entry for the stored date issued
-after retrieved_at, a reissue, is printed as information and doesn't
+eCFR's latest date, the list's own ("(removed)" when that version removed
+the section), and every date after the stored one. An entry for the
+stored date whose issue_date is on or after retrieved_at's day, a
+possible reissue, or isn't a date, is printed as information and doesn't
 change the exit code: --verify compares its text. R1b's Supplement I
 clause, a fresh 41() slice's hash, is plan step 8's, which stores
 Supplement I.
 
 Exit 0: ok; with --verify, matched, verified_on set or kept; with --latest,
-no newer version. Exit 1: a conflict with a stored file; a symlink or a
-file in place of a directory; or a name that differs only in case from
-meta.yaml, tree.json, text.md or overrides.yaml, from a directory on the
-way, or from the file it stores. With --verify, also a finding or a
-refusal, with nothing written: eCFR's latest version is another date or
-removed the section, the fresh tree or sha256_text differs, or step 1
-refuses; and a govinfo mismatch, which writes verified_on: null and exits 1.
-With --latest, also a newer version, or a latest version that removed the
-section; --latest writes nothing. Exit 2: a usage error, no
+eCFR's latest version is the stored one. Exit 1: a conflict with a stored
+file under sources/; a symlink or a file in place of a directory there;
+or a name that differs only in case from meta.yaml, tree.json, text.md or
+overrides.yaml, from a directory on the way, or from the file it stores.
+With --verify, also a refusal or a finding, with nothing written: step 1
+refuses; eCFR's latest version is not the stored one (newer, older, or it
+removed the section); the fresh fetch doesn't build; or its tree or
+sha256_text differs. And a govinfo mismatch, which
+writes verified_on: null and exits 1. With --latest, also eCFR's latest version is newer than the
+stored one, older (eCFR no longer lists the stored version as latest), or
+removed the section; --latest writes nothing. Exit 2: a usage error, no
 sources/ecfr/title-12/ (not the corpus root), a network, eCFR or govinfo
 error (an HTTP error, eCFR mid-import, a response that isn't the section's
 XML, a granule of another section or edition, or one --verify doesn't
-read), a local file that can't be read or written, or, for --verify, a
-platform without the lock (darwin and linux have it); --verify then writes
-nothing under sources/. Each section is fetched whatever another's
-outcome; when they fail differently the larger code wins (2 over 1).
+read), a local file that can't be read or written, a cache file under
+.cache/ that can't be kept (--date's, or --verify's granule, after
+verified_on is written: a disposable cache, which may be deleted), or, for
+--verify, a platform without the lock (darwin and linux have it); --verify
+then writes nothing under sources/. Each section is fetched whatever
+another's outcome; when they fail differently the larger code wins (2
+over 1), and each failure is printed.
 `
 
 // fetcher runs `regcorpus fetch` in a corpus root.
@@ -206,12 +224,24 @@ func (f fetcher) main(args []string, stdout, stderr io.Writer) int {
 		for _, l := range lines {
 			fmt.Fprintln(stdout, l)
 		}
-		if err != nil {
+		for _, err := range each1(err) {
 			fmt.Fprintf(stderr, "regcorpus fetch: %s: %v\n", s.Name, err)
 			code = max(code, exitCode(err))
 		}
 	}
 	return code
+}
+
+// each1 is err's errors, one by one: those errors.Join joined (--verify's
+// mismatch and a cache failure after it), or err alone, or none.
+func each1(err error) []error {
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		return j.Unwrap()
+	}
+	if err == nil {
+		return nil
+	}
+	return []error{err}
 }
 
 // checkRoot returns nil when root is a corpus root: one with a real
@@ -308,11 +338,35 @@ func (f fetcher) pointInTime(ctx context.Context, s Source, date Date) ([]string
 		return nil, err
 	}
 	p := path.Join(cacheDir, s.Dir, string(date)+".xml")
-	stored, err := l0.StoreOnce(f.root, p, body)
+	stored, err := storeCache(f.root, p, body)
 	if err != nil {
 		return nil, err
 	}
 	return []string{s.Name + " " + string(date) + ": " + storedLine(stored, p, body)}, nil
+}
+
+// cacheError is a file .cache/ couldn't keep. The cache is disposable and
+// git-ignored: not L0, and never evidence. So its failure is said as its
+// own, after whatever the run decided and wrote, and exits 2, a local file
+// that can't be written (worklist round 1, §2).
+type cacheError struct {
+	path string
+	err  error
+}
+
+func (e *cacheError) Error() string {
+	return fmt.Sprintf("%s: the cache can't keep it: %v. It is a disposable cache file under the git-ignored .cache/, not L0: it may be deleted, and a re-run fetches it again", e.path, e.err)
+}
+
+// storeCache keeps body at slash path p under .cache/, --date's point in
+// time or --verify's granule, as fetch stores a raw file (l0.StoreOnce:
+// once, never over another file, through real directories, by exact name,
+// compared only as a regular file). Any failure is a *cacheError.
+func storeCache(root, p string, body []byte) (stored bool, err error) {
+	if stored, err = l0.StoreOnce(root, p, body); err != nil {
+		return false, &cacheError{p, err}
+	}
+	return stored, nil
 }
 
 func storedLine(stored bool, p string, body []byte) string {

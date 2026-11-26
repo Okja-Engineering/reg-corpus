@@ -316,7 +316,7 @@ func TestVerifyMatchesAGranuleDifferingOnlyInLayout(t *testing.T) {
 	root := corpusRoot(t)
 	stored41(t, root, nil)
 	code, stdout, stderr := verifyAt(t, root, c, "2026-11-25", "1024.41")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "normalized text matches sha256_text\n") {
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "and the text hashes to sha256_text\n") {
 		t.Errorf("exit %d, stdout\n%s\nstderr %q; want 0 and a match", code, stdout, stderr)
 	}
 	if got := readFile(t, root, cache41(l0.SHA256Hex([]byte(g)))); got != g {

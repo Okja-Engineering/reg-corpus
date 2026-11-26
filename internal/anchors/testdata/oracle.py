@@ -13,11 +13,14 @@
 # x/text and Go use (17.0.0 for x/text v0.42.0 and Go 1.27), then each hash.
 #
 # Given a govinfo CFR granule as well, it also computes plan step 6's
-# comparison (ADR 0014): the granule's sha256_text by the layout rule (each
-# line break and up to 12 spaces after it deleted; the heading SECTNO, one
-# space, SUBJECT; <E> markup dropped and its text kept; PRTPAGE dropped; the
-# CITA left out), which must equal the stored sha256_text, and how many of
-# its paragraphs match eCFR's. internal/govinfo's granule_test.go pins it:
+# comparison (ADR 0014): the granule, decoded by xml.etree first and refused
+# if it holds a CR or a reference to a line break, has its sha256_text
+# computed by the layout rule (in each run of character data on its own,
+# each line break and up to 12 spaces after it deleted; each text's edges
+# trimmed; the heading SECTNO, one space, SUBJECT; <E> markup dropped and
+# its text kept; PRTPAGE dropped; the CITA left out), which must equal the
+# stored sha256_text, and how many of its paragraphs match eCFR's.
+# internal/govinfo's granule_test.go pins it:
 #
 #   python3 -I internal/anchors/testdata/oracle.py \
 #       sources/ecfr/title-12/1024.41/raw/2025-07-15.xml \
@@ -27,6 +30,7 @@ import html
 import re
 import sys
 import unicodedata
+from xml.etree import ElementTree
 
 # Unicode's White_Space property (PropList.txt), all 25 characters.
 WHITE_SPACE = set(
@@ -87,31 +91,49 @@ def main(path):
 
 # govinfo's layout (plan step 6, ADR 0014): a line break and up to 12 spaces
 # after it, the most indentation govinfo's pretty-printer puts there. It is
-# matched on the raw XML, so a run never crosses a tag.
+# deleted from each run of decoded character data on its own (an element's
+# text, or the tail after a child), so a run never crosses a tag.
 LAYOUT = re.compile(r"\n {0,12}")
+# A character reference to a CR or an LF, decimal or hexadecimal.
+BREAK_REFERENCE = re.compile(rb"&#(0*1[03]|[xX]0*[aAdD]);")
 
 
-def granule_text(x):
-    """An element's text in a govinfo granule: the layout deleted, the empty
-    <PRTPAGE/> page breaks dropped, <E> markup dropped and its text kept,
-    references read."""
-    x = LAYOUT.sub("", x)
-    x = re.sub(r"<PRTPAGE[^>]*/>", "", x)
-    return html.unescape(re.sub(r"</?E( [^>]*)?>", "", x))
+def run(x):
+    """One run of a granule's decoded character data, its layout deleted."""
+    return LAYOUT.sub("", x or "")
+
+
+def trim(x):
+    """x without the White_Space at its edges."""
+    return "".join(x).strip("".join(WHITE_SPACE))
+
+
+def paragraph(p):
+    """A <P>'s text: its runs, each <E>'s text kept, each <PRTPAGE/> page
+    break dropped, the edges trimmed."""
+    out = [run(p.text)]
+    for child in p:
+        if child.tag == "E":
+            out.append(run(child.text))
+        out.append(run(child.tail))
+    return trim(out)
 
 
 def granule(path, ecfr_head, ecfr_paras):
     """plan step 6's comparison: govinfo's sha256_text, computed the way the
     stored one is (the heading as SECTNO, one space and SUBJECT; the
     paragraphs one space apart; the CITA left out), and how many paragraphs
-    match eCFR's, normalized one by one."""
-    raw = open(path, encoding="utf-8").read()
-    section = re.search(r"<SECTION>(.*)</SECTION>", raw, re.S).group(1)
-    sectno = granule_text(re.search(r"<SECTNO>(.*?)</SECTNO>", section, re.S).group(1))
-    subject = granule_text(re.search(r"<SUBJECT>(.*?)</SUBJECT>", section, re.S).group(1))
-    head = sectno + " " + subject
-    paras = [granule_text(p) for p in re.findall(r"<P>(.*?)</P>", section, re.S)]
-    print("govinfo DATE", re.search(r"<DATE>(.*?)</DATE>", raw).group(1))
+    match eCFR's, normalized one by one. The granule is decoded by Python's
+    own XML parser before the layout is deleted, and refused, as Go's
+    reader refuses it, if it holds a CR or a reference to a line break."""
+    data = open(path, "rb").read()
+    if b"\r" in data or BREAK_REFERENCE.search(data):
+        sys.exit("govinfo: refused: a CR, or a reference to a CR or an LF")
+    root = ElementTree.fromstring(data)
+    section = root.find("SECTION")
+    head = trim([run(section.find("SECTNO").text)]) + " " + trim([run(section.find("SUBJECT").text)])
+    paras = [paragraph(p) for p in section.findall("P")]
+    print("govinfo DATE", root.find("FDSYS/DATE").text)
     print("govinfo paragraphs", len(paras))
     print("govinfo heading matches", normalize(head) == normalize(ecfr_head))
     same = sum(normalize(g) == normalize(e) for g, e in zip(paras, ecfr_paras))

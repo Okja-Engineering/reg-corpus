@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/okja-engineering/reg-corpus/internal/anchors"
@@ -21,11 +23,12 @@ import (
 const DefaultBaseURL = "https://www.govinfo.gov"
 
 // The edition fetch --verify compares (spec "Concerns" 4; ADR 0014): the CFR
-// 2026 annual edition, title 12 revised as of 2026-01-01, pinned by year,
+// 2026 annual edition of title 12, revised as of 2026-01-01, pinned by year,
 // never "the most recent".
 const (
-	EditionYear           = "2026"
-	EditionDate meta.Date = "2026-01-01"
+	EditionTitle           = "12"
+	EditionYear            = "2026"
+	EditionDate  meta.Date = "2026-01-01"
 )
 
 // Indent is the most indentation govinfo's pretty-printer puts after a line
@@ -42,8 +45,9 @@ var (
 )
 
 // Section is a granule's section text, its layout deleted (Layout), each
-// string raw otherwise: what fetch --verify hashes with anchors.JoinSection
-// and compares with the stored sha256_text.
+// string raw otherwise: what fetch --verify compares with eCFR's heading
+// and paragraphs, and hashes with anchors.JoinSection to compare with the
+// stored sha256_text.
 type Section struct {
 	Date       meta.Date // the FDSYS DATE: the edition's "revised as of" date
 	Heading    string    // the SECTNO, one space, the SUBJECT
@@ -71,9 +75,13 @@ func LinkPath(title, section, year string) (string, error) {
 // Layout deletes govinfo's layout from s, a run of a granule's character
 // data: each line break (LF) together with the spaces after it, up to
 // Indent of them (ADR 0014, F3: C1). Every other character is text: a space
-// before a break, a thirteenth space after one, a tab, a no-break space. A
-// change in govinfo's layout can so give a false mismatch, and a false
-// match only on whether a space stands at a line break (doc.go).
+// before a break, a thirteenth space after one, a tab, a no-break space.
+// Read refuses a granule with a CR or a character reference to a line
+// break, so each LF here was written as one. A change in govinfo's layout
+// can so give a false mismatch, and a false match in one way only: where
+// govinfo wrote a literal LF, with no space before it and up to 12 after
+// it, to mean the space between two words, and eCFR's text has no space
+// there, the two read alike (doc.go; ADR 0014, Decision 2).
 func Layout(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -91,32 +99,57 @@ func Layout(s string) string {
 	return b.String()
 }
 
-// Read reads granule, govinfo's XML for section in the edition dated date,
-// and returns its section text. It checks it first: valid UTF-8, one
-// well-formed document (parse.WellFormed, fetch's check), whose root is
-// CFRGRANULE; else ErrNotGranule. Then:
-//   - FDSYS holds one DATE, which must be date (else ErrOtherEdition);
-//   - the root holds one SECTION, in which a SECTNO, a SUBJECT, then <P>s
-//     and page breaks (PRTPAGE), and last a citation note (CITA), each
-//     optional but the first two, and nothing else, are its children,
-//     with only whitespace between them;
-//   - the SECTNO, its layout deleted and normalized, is "§ " and section
-//     (else ErrOtherSection);
-//   - a SECTNO and a SUBJECT hold text only, a <P> text, <E>s of text and
-//     empty PRTPAGEs; a CITA is not read.
+// breakReference is a character reference to a CR or an LF, decimal or
+// hexadecimal, with any leading zeros.
+var breakReference = regexp.MustCompile(`&#(0*1[03]|[xX]0*[aAdD]);`)
+
+// Read reads granule, govinfo's XML for section in title 12's edition dated
+// date, and returns its section text. It reads the granule's whole form, a
+// closed grammar (grammar), and refuses anything else, never reading past
+// it (ErrNotGranule):
+//   - valid UTF-8, with no CR and no character reference to a CR or an LF:
+//     a granule's lines end in a literal LF, the only line break Layout
+//     deletes;
+//   - one well-formed document (parse.WellFormed, fetch's check) whose root
+//     is CFRGRANULE, holding its FDSYS and then one SECTION;
+//   - the FDSYS holding CFRTITLE, CFRTITLETEXT, VOL, DATE, COVERONLY,
+//     ORIGINALDATE and ANCESTORS, in that order, each at most once, the
+//     ANCESTORS PARENTs: its CFRTITLE must be EditionTitle, one PARENT
+//     must name the section's part ("PART 1024"), and its DATE must be date
+//     (else ErrOtherEdition);
+//   - the SECTION holding a SECTNO, a SUBJECT, then <P>s and page breaks
+//     (PRTPAGE), and last a citation note (CITA); its SECTNO, normalized,
+//     must be "§ " and section (else ErrOtherSection);
+//   - a <P> holding text, <E>s of text and empty PRTPAGEs, and some text;
+//   - an attribute only where govinfo's granules have one: the root's
+//     schema location, a PARENT's HEADING and SEQ, a PRTPAGE's page
+//     number, and an <E>'s T="03" (italics);
+//   - the CFRTITLE, DATE and SECTNO each one run of character data as
+//     written, with no reference, CDATA section or anything else in it; no
+//     comment or processing instruction inside the root.
 //
-// Anything else is ErrNotGranule: a structure this doesn't read is
-// refused, not read past. Each run of character data has its layout
-// deleted (Layout) on its own, so a run never crosses a tag; the heading
-// is the SECTNO, one space and the SUBJECT, and a paragraph its text with
-// each <E>'s text in place and each PRTPAGE dropped. The CITA is left out,
-// as sha256_text leaves out eCFR's (ADR 0013, F3).
+// Each run of character data has its layout deleted (Layout) on its own, so
+// a run never crosses a tag, and each text then has the White_Space at its
+// edges trimmed, the last paragraph's as any other's. The heading is the
+// SECTNO, one space and the SUBJECT, and a paragraph its text with each
+// <E>'s text in place and each PRTPAGE dropped. The CITA is left out, as
+// sha256_text leaves out eCFR's (ADR 0013, F3).
 func Read(granule []byte, section string, date meta.Date) (*Section, error) {
 	notGranule := func(format string, a ...any) error {
 		return fmt.Errorf("%w: %s", ErrNotGranule, fmt.Sprintf(format, a...))
 	}
-	if !utf8.Valid(granule) {
+	sn := sectionNumber.FindStringSubmatch(section)
+	switch {
+	case sn == nil:
+		return nil, fmt.Errorf("govinfo: %q is not a section number written <part>.<section>", section)
+	case !utf8.Valid(granule):
 		return nil, notGranule("not valid UTF-8")
+	}
+	if i := bytes.IndexByte(granule, '\r'); i >= 0 {
+		return nil, notGranule("a CR at byte %d: a granule's lines end in LF alone, the one line break deleted as layout", i)
+	}
+	if loc := breakReference.FindIndex(granule); loc != nil {
+		return nil, notGranule("%s at byte %d, a reference to a line break: a granule writes its line breaks as they are, and only those are layout", granule[loc[0]:loc[1]], loc[0])
 	}
 	err := parse.WellFormed(granule, func(t xml.StartElement) error {
 		if got := parse.Qualified(t.Name); got != "CFRGRANULE" {
@@ -127,10 +160,12 @@ func Read(granule []byte, section string, date meta.Date) (*Section, error) {
 	if err != nil {
 		return nil, notGranule("%v", err)
 	}
+	doc := bytes.TrimPrefix(granule, []byte("\xef\xbb\xbf"))
 	r := &reader{}
-	d := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(granule, []byte("\xef\xbb\xbf"))))
+	d := xml.NewDecoder(bytes.NewReader(doc))
 	d.Strict = true
 	for {
+		from := d.InputOffset()
 		tok, err := d.Token()
 		if err == io.EOF {
 			break
@@ -138,166 +173,209 @@ func Read(granule []byte, section string, date meta.Date) (*Section, error) {
 		if err != nil { // not reached: WellFormed has decoded the same bytes
 			return nil, notGranule("%v", err)
 		}
-		if err := r.token(tok); err != nil {
+		if err := r.token(tok, doc[from:d.InputOffset()]); err != nil {
 			return nil, notGranule("%v", err)
 		}
 	}
-	switch {
-	case len(r.dates) != 1:
-		return nil, notGranule("%d DATEs in FDSYS, want 1", len(r.dates))
-	case r.sections != 1:
-		return nil, notGranule("%d SECTIONs, want 1", r.sections)
-	case r.phase < afterSubject:
-		return nil, notGranule("a SECTION without its SECTNO and SUBJECT")
+	if got := r.text["CFRTITLE"]; got != EditionTitle {
+		return nil, notGranule("CFRTITLE %q, want %s", got, EditionTitle)
 	}
-	if got := strings.TrimSpace(r.dates[0]); got != string(date) {
+	if want := "PART " + sn[1]; !slices.Equal(r.parts, []string{want}) {
+		return nil, notGranule("the ANCESTORS name the parts %q, want %q alone", r.parts, want)
+	}
+	if got := r.text["DATE"]; got != string(date) {
 		return nil, fmt.Errorf("%w: DATE %q, want %s", ErrOtherEdition, got, date)
 	}
-	sectno := Layout(r.sectno.String())
+	sectno := r.text["SECTNO"]
 	if n, err := anchors.Normalize(sectno); err != nil || n != "§ "+section {
 		return nil, fmt.Errorf("%w: SECTNO %q, want § %s", ErrOtherSection, sectno, section)
 	}
-	return &Section{
-		Date:       date,
-		Heading:    sectno + " " + Layout(r.subject.String()),
-		Paragraphs: r.paras,
-	}, nil
+	return &Section{Date: date, Heading: sectno + " " + r.text["SUBJECT"], Paragraphs: r.paras}, nil
 }
 
-// Where a SECTION's children have reached: its SECTNO comes first, its
-// SUBJECT second, then its <P>s and page breaks, and its CITA last.
+// What an element holds.
+type holds int
+
 const (
-	beforeSectno = iota
-	afterSectno
-	afterSubject
-	afterCita
+	elements  holds = iota // child elements, and XML whitespace between them
+	text                   // character data only
+	plainText              // one run of character data as written
+	paragraph              // character data, <E>s and PRTPAGEs, and some text
+	nothing                // nothing: an empty element
 )
 
-// childAt is where each child a SECTION may hold may come: a SECTNO
-// first, a SUBJECT second, then any number of <P>s and PRTPAGEs, then one
-// CITA.
-var childAt = map[string]int{
-	"SECTNO": beforeSectno, "SUBJECT": afterSectno,
-	"P": afterSubject, "PRTPAGE": afterSubject, "CITA": afterSubject,
+// element is the grammar's rule for an element of a given name.
+type element struct {
+	parents []string          // the elements it may be a child of ("": it is the root)
+	holds   holds             // what it holds
+	order   int               // its place among its parent's children, none after a later one
+	once    bool              // at most one in its parent
+	needs   []string          // the children it must hold
+	attrs   map[string]string // the attributes it may carry: one with a value must carry it, "" any value
+}
+
+// xsi is the XML Schema instance namespace, as encoding/xml names an
+// attribute in it.
+const xsi = "http://www.w3.org/2001/XMLSchema-instance"
+
+// grammar is every element a granule holds, as govinfo's granules of
+// 1024.30, 1024.31 and 1024.41 in the 2026 edition do: what Read reads.
+var grammar = map[string]element{
+	"CFRGRANULE":   {parents: []string{""}, holds: elements, needs: []string{"FDSYS", "SECTION"}, attrs: map[string]string{"xmlns:xsi": "", xsi + ":noNamespaceSchemaLocation": ""}},
+	"FDSYS":        {parents: []string{"CFRGRANULE"}, holds: elements, order: 0, once: true, needs: []string{"CFRTITLE", "DATE"}},
+	"CFRTITLE":     {parents: []string{"FDSYS"}, holds: plainText, order: 0, once: true},
+	"CFRTITLETEXT": {parents: []string{"FDSYS"}, holds: text, order: 1, once: true},
+	"VOL":          {parents: []string{"FDSYS"}, holds: text, order: 2, once: true},
+	"DATE":         {parents: []string{"FDSYS"}, holds: plainText, order: 3, once: true},
+	"COVERONLY":    {parents: []string{"FDSYS"}, holds: text, order: 4, once: true},
+	"ORIGINALDATE": {parents: []string{"FDSYS"}, holds: text, order: 5, once: true},
+	"ANCESTORS":    {parents: []string{"FDSYS"}, holds: elements, order: 6, once: true},
+	"PARENT":       {parents: []string{"ANCESTORS"}, holds: text, attrs: map[string]string{"HEADING": "", "SEQ": ""}},
+	"SECTION":      {parents: []string{"CFRGRANULE"}, holds: elements, order: 1, once: true, needs: []string{"SECTNO", "SUBJECT"}},
+	"SECTNO":       {parents: []string{"SECTION"}, holds: plainText, order: 0, once: true},
+	"SUBJECT":      {parents: []string{"SECTION"}, holds: text, order: 1, once: true},
+	"P":            {parents: []string{"SECTION"}, holds: paragraph, order: 2},
+	"PRTPAGE":      {parents: []string{"SECTION", "P"}, holds: nothing, order: 2, attrs: map[string]string{"P": ""}},
+	"E":            {parents: []string{"P"}, holds: text, order: 2, attrs: map[string]string{"T": "03"}},
+	"CITA":         {parents: []string{"SECTION"}, holds: text, order: 3, once: true},
+}
+
+// frame is an open element as the reader reads it.
+type frame struct {
+	name  string
+	rule  element
+	last  int             // the latest order among its children so far
+	seen  map[string]bool // its children's names so far
+	runs  int             // its runs of character data
+	plain bool            // each run as written
+	text  strings.Builder // its text, each run's layout deleted; an <E>'s goes to its <P>
 }
 
 // reader reads a granule's tokens in order (Read).
 type reader struct {
-	stack    []string // the open elements' names, the root first
-	dates    []string // each FDSYS DATE's text
-	sections int
-	phase    int
-	sectno   strings.Builder
-	subject  strings.Builder
-	paras    []string
-	para     strings.Builder // the open <P>'s text, its layout deleted
+	stack []*frame
+	text  map[string]string // each CFRTITLE, DATE, SECTNO and SUBJECT text
+	parts []string          // each PARENT HEADING that names a part
+	paras []string
 }
 
-// in is the name of the open element depth levels in (1: the root), or "".
-func (r *reader) in(depth int) string {
-	if len(r.stack) < depth {
-		return ""
+func (r *reader) top() *frame {
+	if len(r.stack) == 0 {
+		return nil
 	}
-	return r.stack[depth-1]
+	return r.stack[len(r.stack)-1]
 }
 
-// token reads one token, or says why the granule isn't one Read reads.
-func (r *reader) token(tok xml.Token) error {
+// token reads one token, raw its bytes as written, or says why the granule
+// isn't one Read reads.
+func (r *reader) token(tok xml.Token, raw []byte) error {
+	f := r.top()
 	switch t := tok.(type) {
 	case xml.StartElement:
-		name := parse.Qualified(t.Name)
-		if err := r.start(name); err != nil {
-			return err
-		}
-		r.stack = append(r.stack, name)
+		return r.start(t)
 	case xml.EndElement:
-		name := r.stack[len(r.stack)-1]
-		r.stack = r.stack[:len(r.stack)-1]
-		if name == "P" && len(r.stack) == 2 {
-			r.paras = append(r.paras, r.para.String())
-			r.para.Reset()
-		}
+		return r.end()
 	case xml.CharData:
-		return r.text(string(t))
+		if f == nil { // outside the root: WellFormed allows only XML whitespace
+			return nil
+		}
+		return r.chars(f, string(t), string(raw))
+	case xml.Comment, xml.ProcInst, xml.Directive:
+		if f != nil {
+			return fmt.Errorf("%s inside <%s>, which this doesn't read", strings.TrimSpace(string(raw)), f.name)
+		}
 	}
-	return nil // comments and processing instructions are not text
+	return nil // a comment or processing instruction outside the root
 }
 
-// start checks an element named name opening where the stack is.
-func (r *reader) start(name string) error {
-	parent := ""
-	if len(r.stack) > 0 {
-		parent = r.stack[len(r.stack)-1]
+// start checks an element opening where the stack is, by the grammar.
+func (r *reader) start(t xml.StartElement) error {
+	name, parent := parse.Qualified(t.Name), r.top()
+	pname := ""
+	if parent != nil {
+		pname = parent.name
 	}
-	if name == "SECTION" {
-		if len(r.stack) != 1 {
-			return fmt.Errorf("a SECTION inside <%s>; a granule's SECTION is the root's child", parent)
-		}
-		r.sections++
-		return nil
-	}
-	if r.in(2) != "SECTION" { // outside the section text
-		if name == "DATE" && parent == "FDSYS" && len(r.stack) == 2 {
-			r.dates = append(r.dates, "")
-		}
-		return nil
-	}
-	if len(r.stack) == 2 { // a child of the SECTION
-		if at, ok := childAt[name]; !ok || r.phase != at {
-			return fmt.Errorf("<%s> where the SECTION's next child is %s", name, r.expected())
-		}
-		switch name {
-		case "SECTNO", "SUBJECT":
-			r.phase++
-		case "CITA":
-			r.phase = afterCita
-		}
-		return nil
-	}
+	rule, ok := grammar[name]
 	switch {
-	case r.in(3) == "CITA": // a citation note is not read
-		return nil
-	case parent == "P" && (name == "E" || name == "PRTPAGE"):
-		return nil
+	case !ok || !slices.Contains(rule.parents, pname):
+		return fmt.Errorf("<%s> inside <%s>, where this reads none", name, pname)
+	case parent != nil && rule.order < parent.last:
+		return fmt.Errorf("<%s> after another child of <%s> that comes after it", name, pname)
+	case parent != nil && rule.once && parent.seen[name]:
+		return fmt.Errorf("a second <%s> in <%s>", name, pname)
 	}
-	return fmt.Errorf("<%s> inside <%s>, which holds no element this reads", name, parent)
-}
-
-// expected names what a SECTION's next child may be.
-func (r *reader) expected() string {
-	switch r.phase {
-	case beforeSectno:
-		return "its SECTNO"
-	case afterSectno:
-		return "its SUBJECT"
-	case afterSubject:
-		return "a P, a PRTPAGE or its CITA"
-	}
-	return "none, after its CITA"
-}
-
-// text reads a run of character data where the stack is.
-func (r *reader) text(s string) error {
-	if len(r.stack) == 3 && r.in(2) == "FDSYS" && r.in(3) == "DATE" {
-		r.dates[len(r.dates)-1] += s
-		return nil
-	}
-	if r.in(2) != "SECTION" {
-		return nil
-	}
-	switch top := r.stack[len(r.stack)-1]; {
-	case len(r.stack) == 2:
-		if strings.Trim(s, " \t\r\n") != "" {
-			return fmt.Errorf("text %q in the SECTION, outside its children", s)
+	carried := map[string]string{}
+	for _, a := range t.Attr {
+		an := parse.Qualified(a.Name)
+		if want, ok := rule.attrs[an]; !ok || (want != "" && a.Value != want) {
+			return fmt.Errorf("<%s %s=%q>: an attribute this doesn't read", name, an, a.Value)
 		}
-	case top == "SECTNO" && len(r.stack) == 3:
-		r.sectno.WriteString(s)
-	case top == "SUBJECT" && len(r.stack) == 3:
-		r.subject.WriteString(s)
-	case r.in(3) == "P" && (len(r.stack) == 3 || top == "E"):
-		r.para.WriteString(Layout(s))
-	case top == "PRTPAGE":
-		return fmt.Errorf("text %q in a PRTPAGE, a page break that holds none", s)
+		carried[an] = a.Value
 	}
-	return nil // a CITA's text
+	for an, want := range rule.attrs {
+		if _, ok := carried[an]; want != "" && !ok {
+			return fmt.Errorf("<%s> without its %s=%q", name, an, want)
+		}
+	}
+	if h := carried["HEADING"]; name == "PARENT" && strings.HasPrefix(h, "PART ") {
+		r.parts = append(r.parts, h)
+	}
+	if parent != nil {
+		parent.last = rule.order
+		if parent.seen == nil {
+			parent.seen = map[string]bool{}
+		}
+		parent.seen[name] = true
+	}
+	r.stack = append(r.stack, &frame{name: name, rule: rule, plain: true})
+	return nil
+}
+
+// chars reads a run of character data, s as decoded and raw as written,
+// in the open element f.
+func (r *reader) chars(f *frame, s, raw string) error {
+	switch f.rule.holds {
+	case elements:
+		if strings.Trim(s, " \t\n") != "" {
+			return fmt.Errorf("text %q in <%s>, which holds elements only", s, f.name)
+		}
+		return nil
+	case nothing:
+		return fmt.Errorf("text %q in <%s>, which holds none", s, f.name)
+	}
+	f.runs++
+	f.plain = f.plain && s == raw
+	into := f
+	if f.name == "E" {
+		into = r.stack[len(r.stack)-2] // its <P>: an <E> is read only there
+	}
+	into.text.WriteString(Layout(s))
+	return nil
+}
+
+// end closes the open element: its children and text checked, its text
+// kept where Read uses it.
+func (r *reader) end() error {
+	f := r.top()
+	r.stack = r.stack[:len(r.stack)-1]
+	for _, n := range f.rule.needs {
+		if !f.seen[n] {
+			return fmt.Errorf("<%s> without its <%s>", f.name, n)
+		}
+	}
+	t := strings.TrimFunc(f.text.String(), func(c rune) bool { return unicode.Is(unicode.White_Space, c) })
+	switch {
+	case f.rule.holds == plainText && (f.runs != 1 || !f.plain):
+		return fmt.Errorf("<%s> is not one run of text as written: no reference, CDATA section, comment or element in it", f.name)
+	case f.rule.holds == paragraph && t == "":
+		return fmt.Errorf("an empty <P>: a paragraph with no text is not one this reads")
+	case f.rule.holds == paragraph:
+		r.paras = append(r.paras, t)
+	case f.name == "CFRTITLE" || f.name == "DATE" || f.name == "SECTNO" || f.name == "SUBJECT":
+		if r.text == nil {
+			r.text = map[string]string{}
+		}
+		r.text[f.name] = t
+	}
+	return nil
 }

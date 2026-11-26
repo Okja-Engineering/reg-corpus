@@ -4,9 +4,10 @@
 // stored L0 file goes through it: fetch (internal/ecfr), meta set (plan
 // step 3), parse (internal/anchors: tree.json, text.md and sha256_text,
 // plan step 5) and fetch --verify (verified_on, plan step 6, ADR 0014),
-// which reads tree.json through State.TreeJSON and keeps the govinfo
-// granule it compared under .cache/govinfo/ (StoreOnce). It imports only
-// internal/meta.
+// which compares tree.json and text.md with what is derived from the raw
+// XML again through State.Stale, the comparison Update's writes make, and
+// then keeps the govinfo granule it compared under .cache/govinfo/
+// (StoreOnce), a git-ignored cache. It imports only internal/meta.
 //
 //   - Every directory on the way must be a real one below the root, not a
 //     symlink or a file, reached with no "." or ".." and found by its exact
@@ -17,7 +18,8 @@
 //     name APFS takes as another by a fold of one character into two ("ß"
 //     and "ss", "ﬁ" and "fi") is not refused. No name the corpus uses holds
 //     such a character. StoreOnce stores a file that is not there yet, by hard link,
-//     and never overwrites one: fetch stores raw XML so, and a source's
+//     and never overwrites one; one there is compared only as a regular
+//     file, never through a symlink: fetch stores raw XML so, and a source's
 //     first meta.yaml. It finds that file by exact name too, and refuses a
 //     name that differs from it only in case ("2025-07-15.XML"), whatever it
 //     is, so what it stores or finds unchanged is the name git records. An

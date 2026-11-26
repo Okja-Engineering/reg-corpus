@@ -1,11 +1,9 @@
 // What fetch --verify reads from a source's derived files (plan step 6, ADR
 // 0014): the section's paragraphs and the one join of a heading and
-// paragraphs that sha256_text hashes, on eCFR's side and govinfo's; and
-// tree.json read back only in the form EncodeTree writes.
+// paragraphs that sha256_text hashes, on eCFR's side and govinfo's.
 package anchors_test
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 
@@ -32,32 +30,5 @@ func TestSectionTextIsTheHeadingAndTheParagraphsJoined(t *testing.T) {
 	}
 	if got, err := anchors.Hash(anchors.JoinSection(tree.Heading, paras)); err != nil || got != oracleText {
 		t.Errorf("Hash(JoinSection(...)) = %s, %v; want the oracle's %s", got, err, oracleText)
-	}
-}
-
-func TestDecodeTreeReadsOnlyWhatEncodeTreeWrites(t *testing.T) {
-	b := readRepo(t, tree41)
-	tree, err := anchors.DecodeTree(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := anchors.EncodeTree(tree); err != nil || !bytes.Equal(got, b) {
-		t.Fatalf("EncodeTree(DecodeTree(tree.json)) differs, %v", err)
-	}
-	if n := len(anchors.NewDocument(tree).Nodes()); n != nodes1024_41 {
-		t.Errorf("%d nodes, want %d", n, nodes1024_41)
-	}
-	for name, bad := range map[string]string{
-		"empty":           "",
-		"not JSON":        "tree",
-		"an unknown key":  strings.Replace(string(b), `"section"`, `"sections": 1, "section"`, 1),
-		"two values":      string(b) + string(b),
-		"compact":         `{"section":"1024.41","heading":"x","children":[]}` + "\n",
-		"no trailing LF":  strings.TrimSuffix(string(b), "\n"),
-		"an unknown kind": strings.Replace(string(b), `"kind": "letter"`, `"kind": "letters"`, 1),
-	} {
-		if tree, err := anchors.DecodeTree([]byte(bad)); err == nil {
-			t.Errorf("%s: DecodeTree = %v, nil; want an error", name, tree)
-		}
 	}
 }

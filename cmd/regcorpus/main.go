@@ -59,8 +59,9 @@ commands:
         from the corpus root;
         --verify: compare each stored section with a fresh fetch and the
         govinfo 2026 edition, and set verified_on in its meta.yaml (R1);
-        --latest: exit 1 if eCFR lists a newer version of a stored section
-        (R1b), writing nothing
+        --latest: exit 1 unless eCFR's latest version of each stored
+        section is the stored one: it is newer, older, or removed the
+        section (R1b), writing nothing
   meta set <section> version_effective_date YYYY-MM-DD
   meta set <section> version_fr_citations "<vol> FR <page>" ...
         set one of these two fields in a stored source's meta.yaml (R1),
@@ -74,9 +75,12 @@ commands:
 
 "regcorpus check -h", "regcorpus fetch -h", "regcorpus meta -h" and
 "regcorpus parse -h" show their flags and their exit codes, which are the
-authority. In short: 0 ok, 1 violations, or a command a stored file refuses
-(a conflict with it), 2 anything that stops the command (usage, network,
-eCFR, or a file it can't read or write). A missing or unknown command exits 2.
+authority. In short: 0 ok, 1 violations, a command a stored file refuses
+(a conflict with it), or a finding of fetch --verify or --latest, which
+writes nothing (the one exit 1 that writes is fetch --verify's govinfo
+mismatch, which writes verified_on: null), 2 anything that stops the
+command (usage, network, eCFR, govinfo, or a file it can't read or
+write). A missing or unknown command exits 2.
 verify exits 2 without an interactive terminal and 1 until it is built
 (plan step 19).
 `
